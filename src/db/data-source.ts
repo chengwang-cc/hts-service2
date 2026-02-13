@@ -14,7 +14,10 @@ export default new DataSource({
     port: parseInt(process.env.DB_PORT ?? '5432'),
     username: process.env.DB_USERNAME ?? 'postgres',
     password: process.env.DB_PASSWORD ?? '',
-    entities: [__dirname + '/../../**/*.entity{.ts,.js}'], // Include all entities
+    entities: [
+        __dirname + '/../../packages/*/src/**/*.entity{.ts,.js}',
+        __dirname + '/../../src/**/*.entity{.ts,.js}'
+    ], // Include all entities, excluding dist directories
     database: process.env.DB_DATABASE ?? 'hts',
     namingStrategy: new CustomNamingStrategy(),
     synchronize: false, // Default to false

@@ -10,6 +10,7 @@ import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
 import { HtsPublicController } from './v1/controllers/hts-public.controller';
 import { CalculatorPublicController } from './v1/controllers/calculator-public.controller';
 import { KnowledgebasePublicController } from './v1/controllers/knowledgebase-public.controller';
+import { ClassificationPublicController } from './v1/controllers/classification-public.controller';
 
 /**
  * Public API Module
@@ -28,6 +29,7 @@ import { KnowledgebasePublicController } from './v1/controllers/knowledgebase-pu
     HtsPublicController,
     CalculatorPublicController,
     KnowledgebasePublicController,
+    ClassificationPublicController,
   ],
 })
 export class PublicApiModule {}

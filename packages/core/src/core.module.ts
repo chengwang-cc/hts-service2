@@ -16,6 +16,7 @@ import {
 
 // Services
 import { OpenAiService } from './services/openai.service';
+import { VisionService } from './services/vision.service';
 import { EmbeddingService } from './services/embedding.service';
 import { UsitcDownloaderService } from './services/usitc-downloader.service';
 import { HtsProcessorService } from './services/hts-processor.service';
@@ -64,6 +65,9 @@ export class CoreModule {
         useFactory: () => new OpenAiService(options.openai.apiKey),
       },
 
+      // Vision Service (depends on OpenAI Service)
+      VisionService,
+
       // Embedding Service
       EmbeddingService,
 
@@ -104,6 +108,7 @@ export class CoreModule {
 
         // Export services
         OpenAiService,
+        VisionService,
         EmbeddingService,
         HtsRepository,
         UsitcDownloaderService,

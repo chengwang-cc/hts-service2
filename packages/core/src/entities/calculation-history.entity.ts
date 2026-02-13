@@ -36,10 +36,10 @@ export class CalculationHistoryEntity {
   @Column('decimal', { precision: 18, scale: 2 })
   baseDuty: number;
 
-  @Column('decimal', { precision: 18, scale: 2, default: 0 })
+  @Column('decimal', { precision: 18, scale: 2, default: '0' })
   additionalTariffs: number;
 
-  @Column('decimal', { precision: 18, scale: 2, default: 0 })
+  @Column('decimal', { precision: 18, scale: 2, default: '0' })
   totalTaxes: number;
 
   @Column('decimal', { precision: 18, scale: 2 })

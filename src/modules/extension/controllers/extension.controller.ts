@@ -6,13 +6,19 @@ import {
   HttpException,
   HttpStatus,
   Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiSecurity,
+  ApiConsumes,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
 import {
   ApiPermissions,
@@ -25,10 +31,18 @@ import {
   BulkClassifyDto,
   FeedbackDto,
 } from '../dto/detect-product.dto';
+import { DetectFromImageDto, DetectFromUrlDto } from '../dto/vision.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ExtensionFeedbackEntity } from '../entities/extension-feedback.entity';
+import { VisionAnalysisEntity } from '../entities/vision-analysis.entity';
+import { ScrapingMetadataEntity } from '../entities/scraping-metadata.entity';
 import { sanitizeFeedbackText, sanitizeUrl } from '../utils/sanitize.util';
+import { validateImageFile, validateImageUrl } from '../utils/image-validation.util';
+import { VisionService } from '@hts/core/src/services/vision.service';
+import { AgentOrchestrationService } from '../services/agent-orchestration.service';
+import { VisionRateLimitGuard } from '../guards/vision-rate-limit.guard';
+import * as crypto from 'crypto';
 
 /**
  * Extension API Controller
@@ -39,10 +53,18 @@ import { sanitizeFeedbackText, sanitizeUrl } from '../utils/sanitize.util';
 @Controller('api/v1/extension')
 @UseGuards(ApiKeyGuard)
 export class ExtensionController {
+  private readonly logger = new Logger(ExtensionController.name);
+
   constructor(
     private readonly detectionService: DetectionService,
+    private readonly visionService: VisionService,
+    private readonly agentOrchestrationService: AgentOrchestrationService,
     @InjectRepository(ExtensionFeedbackEntity)
     private readonly feedbackRepository: Repository<ExtensionFeedbackEntity>,
+    @InjectRepository(VisionAnalysisEntity)
+    private readonly visionAnalysisRepository: Repository<VisionAnalysisEntity>,
+    @InjectRepository(ScrapingMetadataEntity)
+    private readonly scrapingMetadataRepository: Repository<ScrapingMetadataEntity>,
   ) {}
 
   /**
@@ -87,6 +109,295 @@ export class ExtensionController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to detect products',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Detect products from uploaded image
+   * POST /api/v1/extension/detect-from-image
+   */
+  @Post('detect-from-image')
+  @UseGuards(VisionRateLimitGuard)
+  @ApiOperation({
+    summary: 'Detect products from uploaded image',
+    description:
+      'Use GPT-4o vision to identify products in images. Supports PNG, JPG, WebP formats up to 10MB.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({
+    status: 200,
+    description: 'Products detected from image successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid image or input' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/image\/(png|jpeg|jpg|webp)/)) {
+          return cb(
+            new BadRequestException(
+              'Only image files are allowed (PNG, JPG, WebP)',
+            ),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  @ApiPermissions('hts:lookup')
+  async detectFromImage(
+    @UploadedFile() image: Express.Multer.File,
+    @Body() dto: DetectFromImageDto,
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+  ) {
+    const startTime = Date.now();
+
+    try {
+      // Validate image file
+      if (!image) {
+        throw new BadRequestException('Image file is required');
+      }
+
+      // Security validation (MIME, size, dimensions)
+      const validation = await validateImageFile(image);
+
+      // Check for duplicate analysis (optional optimization)
+      const existingAnalysis = await this.visionAnalysisRepository.findOne({
+        where: {
+          organizationId: apiKey.organizationId,
+          imageHash: validation.hash,
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      // If analyzed within last hour, return cached result
+      const ONE_HOUR = 60 * 60 * 1000;
+      if (
+        existingAnalysis &&
+        Date.now() - existingAnalysis.createdAt.getTime() < ONE_HOUR
+      ) {
+        return {
+          success: true,
+          data: {
+            products: existingAnalysis.analysisResult.products,
+            confidence: existingAnalysis.analysisResult.overallConfidence,
+            method: 'vision',
+            model: existingAnalysis.modelUsed,
+            cached: true,
+          },
+          meta: {
+            apiVersion: 'v1',
+            organizationId: apiKey.organizationId,
+            imageSize: existingAnalysis.imageSizeBytes,
+            processingTimeMs: 0, // Cached
+            count: existingAnalysis.analysisResult.products.length,
+          },
+        };
+      }
+
+      // Analyze image with vision service
+      const analysis = await this.visionService.analyzeProductImage(
+        image.buffer,
+        {
+          url: dto.sourceUrl,
+          title: dto.pageTitle,
+        },
+      );
+
+      // Save analysis result
+      const visionAnalysis = this.visionAnalysisRepository.create({
+        organizationId: apiKey.organizationId,
+        imageHash: validation.hash,
+        sourceUrl: dto.sourceUrl || null,
+        analysisResult: {
+          products: analysis.products,
+          overallConfidence: analysis.overallConfidence,
+          modelVersion: analysis.modelVersion,
+        },
+        modelUsed: 'gpt-4o',
+        processingTimeMs: analysis.processingTime,
+        imageSizeBytes: validation.sizeBytes,
+        imageFormat: validation.format,
+        tokensUsed: analysis.tokensUsed || null,
+      });
+
+      await this.visionAnalysisRepository.save(visionAnalysis);
+
+      const totalTime = Date.now() - startTime;
+
+      return {
+        success: true,
+        data: {
+          products: analysis.products,
+          confidence: analysis.overallConfidence,
+          method: 'vision',
+          model: 'gpt-4o',
+          cached: false,
+        },
+        meta: {
+          apiVersion: 'v1',
+          organizationId: apiKey.organizationId,
+          imageSize: validation.sizeBytes,
+          imageDimensions: `${validation.width}x${validation.height}`,
+          processingTimeMs: totalTime,
+          tokensUsed: analysis.tokensUsed,
+          count: analysis.products.length,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to detect products from image',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Detect products from URL with agent orchestration
+   * POST /api/v1/extension/detect-from-url
+   */
+  @Post('detect-from-url')
+  @ApiOperation({
+    summary: 'Detect products from URL',
+    description:
+      'Scrape webpage and use AI agent to detect products. Automatically uses Puppeteer for JS-heavy sites. Optionally enables vision analysis.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Products detected from URL successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid URL or input' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @ApiPermissions('hts:lookup')
+  async detectFromUrl(
+    @Body() dto: DetectFromUrlDto,
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+  ) {
+    const startTime = Date.now();
+
+    try {
+      // Validate and sanitize URL
+      const sanitizedUrl = sanitizeUrl(dto.url);
+      if (!sanitizedUrl) {
+        throw new BadRequestException('Invalid URL');
+      }
+
+      // SSRF prevention - validate URL is not internal
+      validateImageUrl(sanitizedUrl);
+
+      // Calculate URL hash for caching
+      const urlHash = crypto.createHash('sha256').update(sanitizedUrl).digest('hex');
+
+      // Check for recent scraping result (optional caching)
+      const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+      const recentScraping = await this.scrapingMetadataRepository.findOne({
+        where: {
+          organizationId: apiKey.organizationId,
+          urlHash,
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      // If scraped recently and successful, return cached suggestion
+      if (
+        recentScraping &&
+        Date.now() - recentScraping.createdAt.getTime() < CACHE_TTL &&
+        !recentScraping.errorMessage
+      ) {
+        this.logger.log(`Using cached scraping result for ${sanitizedUrl}`);
+        // Note: For simplicity, we're not caching full results, just metadata
+        // A production system might cache full product detection results
+      }
+
+      // Use agent orchestration for intelligent scraping
+      const result = await this.agentOrchestrationService.detectProductFromUrl(
+        sanitizedUrl,
+        {
+          usePuppeteer: dto.usePuppeteer,
+          enableVision: dto.enableVision,
+          scrapingOptions: dto.scrapingOptions,
+        },
+      );
+
+      // Save scraping metadata
+      const scrapingMetadata = this.scrapingMetadataRepository.create({
+        organizationId: apiKey.organizationId,
+        url: sanitizedUrl,
+        urlHash,
+        method: result.method,
+        visionUsed: dto.enableVision || false,
+        statusCode: 200,
+        scrapedData: {
+          productsFound: result.products.length,
+          textLength: 0, // Not tracked in simplified version
+          imagesFound: 0,
+        },
+        processingTimeMs: result.processingTime,
+        errorMessage: null,
+      });
+
+      await this.scrapingMetadataRepository.save(scrapingMetadata);
+
+      const totalTime = Date.now() - startTime;
+
+      return {
+        success: true,
+        data: {
+          products: result.products,
+          scrapingMethod: result.method,
+          visionUsed: result.visionAnalysis !== null,
+          confidence: result.confidence,
+          toolsUsed: result.toolsUsed,
+        },
+        meta: {
+          apiVersion: 'v1',
+          organizationId: apiKey.organizationId,
+          processingTimeMs: totalTime,
+          url: sanitizedUrl,
+          count: result.products.length,
+          agentRunId: result.agentRunId,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      // Save failed scraping attempt
+      const urlHash = crypto.createHash('sha256').update(dto.url).digest('hex');
+      const failedMetadata = this.scrapingMetadataRepository.create({
+        organizationId: apiKey.organizationId,
+        url: dto.url,
+        urlHash,
+        method: 'http',
+        visionUsed: false,
+        statusCode: 0,
+        scrapedData: null,
+        processingTimeMs: Date.now() - startTime,
+        errorMessage: error.message,
+      });
+      await this.scrapingMetadataRepository.save(failedMetadata).catch(() => {});
+
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to detect products from URL',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

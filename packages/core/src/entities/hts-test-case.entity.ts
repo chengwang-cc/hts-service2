@@ -58,7 +58,7 @@ export class HtsTestCaseEntity {
   /**
    * Tolerance - Acceptable margin of error (for floating point comparison)
    */
-  @Column('decimal', { precision: 10, scale: 4, default: 0.01 })
+  @Column('decimal', { precision: 10, scale: 4, default: () => '0.01' })
   tolerance: number;
 
   /**

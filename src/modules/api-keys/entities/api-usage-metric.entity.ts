@@ -158,7 +158,7 @@ export class ApiUsageSummaryEntity {
   /**
    * Average response time in milliseconds
    */
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', { precision: 10, scale: 2, default: '0' })
   avgResponseTimeMs: number;
 
   /**
