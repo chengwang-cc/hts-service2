@@ -33,7 +33,9 @@ export class FormulaAdminService {
     pageSize: number;
     totalPages: number;
   }> {
-    const { page, pageSize, htsNumber, generatedOnly } = dto;
+    const { htsNumber, generatedOnly } = dto;
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 20;
 
     const query = this.htsRepo.createQueryBuilder('hts');
 
@@ -74,7 +76,9 @@ export class FormulaAdminService {
     pageSize: number;
     totalPages: number;
   }> {
-    const { status, minConfidence, page, pageSize } = dto;
+    const { status, minConfidence } = dto;
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 20;
 
     const query = this.candidateRepo.createQueryBuilder('candidate');
 

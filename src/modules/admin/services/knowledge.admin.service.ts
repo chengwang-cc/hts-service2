@@ -98,7 +98,9 @@ export class KnowledgeAdminService {
     page: number;
     pageSize: number;
   }> {
-    const { status, year, chapter, type, page, pageSize } = dto;
+    const { status, year, chapter, type } = dto;
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 20;
 
     const query = this.documentRepo.createQueryBuilder('doc');
 

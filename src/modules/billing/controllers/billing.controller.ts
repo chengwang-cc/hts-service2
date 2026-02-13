@@ -156,7 +156,7 @@ export class BillingController {
     );
 
     // Calculate overages
-    const overages = await this.entitlementService.calculateOverages(
+    const overageData = await this.entitlementService.calculateOverages(
       plan,
       usage,
     );
@@ -164,8 +164,8 @@ export class BillingController {
     return {
       period: { start, end },
       usage: this.formatUsageForResponse(plan, usage),
-      overages,
-      totalOverageCost: overages.reduce((sum, o) => sum + o.cost, 0),
+      overages: overageData.overages,
+      totalOverageCost: overageData.totalCharge,
     };
   }
 

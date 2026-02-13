@@ -120,6 +120,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     FormulaGenerationService,
     FormulaEvaluationService,
     OpenAiService,
+    QueueService,
   ],
   exports: [
     UsersAdminService,

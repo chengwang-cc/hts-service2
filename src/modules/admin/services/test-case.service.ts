@@ -111,10 +111,10 @@ export class TestCaseService {
 
     try {
       // Evaluate formula
-      const actualOutput = await this.formulaEvalService.evaluateFormula({
+      const actualOutput = this.formulaEvalService.evaluate(
         formula,
-        inputs: testCase.inputValues,
-      });
+        testCase.inputValues
+      );
 
       const difference = Math.abs(actualOutput - testCase.expectedOutput);
       const passed = difference <= testCase.tolerance;
@@ -202,7 +202,9 @@ export class TestCaseService {
     page: number;
     pageSize: number;
   }> {
-    const { runId, passedOnly, page, pageSize } = dto;
+    const { runId, passedOnly } = dto;
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 20;
 
     const query = this.testResultRepo.createQueryBuilder('result');
 

@@ -67,7 +67,9 @@ export class HtsImportService {
     pageSize: number;
     totalPages: number;
   }> {
-    const { page, pageSize, status, sourceVersion } = dto;
+    const { status, sourceVersion } = dto;
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 20;
 
     const query = this.importHistoryRepo.createQueryBuilder('import');
 
@@ -152,15 +154,14 @@ export class HtsImportService {
     this.logger.log(`Deleted ${result.affected || 0} HTS entries`);
 
     // Update import history
-    await this.importHistoryRepo.update(id, {
-      status: 'ROLLED_BACK',
-      rollbackInfo: {
-        rolledBackAt: new Date(),
-        rolledBackBy: userId,
-        deletedEntryCount: result.affected || 0,
-        rollbackMethod: 'DELETE_BY_VERSION',
-      },
-    });
+    importHistory.status = 'ROLLED_BACK';
+    importHistory.rollbackInfo = {
+      rolledBackAt: new Date().toISOString(),
+      rolledBackBy: userId,
+      deletedEntryCount: result.affected || 0,
+      rollbackMethod: 'DELETE_BY_VERSION',
+    };
+    await this.importHistoryRepo.save(importHistory);
 
     this.logger.log(`Rollback completed for import ${id}`);
   }

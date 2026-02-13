@@ -10,7 +10,7 @@ import {
   HttpStatus,
   HttpException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import {
   ExportService,
   ExportRequestDto,
