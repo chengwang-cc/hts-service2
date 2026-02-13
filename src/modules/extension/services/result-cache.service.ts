@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, IsNull } from 'typeorm';
 import { VisionAnalysisEntity } from '../entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from '../entities/scraping-metadata.entity';
 import { DetectedProduct } from '@hts/core/src/services/vision.service';
@@ -98,7 +98,7 @@ export class ResultCacheService {
           urlHash,
           organizationId,
           createdAt: MoreThan(cacheExpiry),
-          errorMessage: null, // Only cache successful results
+          errorMessage: IsNull(), // Only cache successful results
         },
         order: { createdAt: 'DESC' },
       });
