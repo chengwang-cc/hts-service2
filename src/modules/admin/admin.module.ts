@@ -20,8 +20,11 @@ import {
   HtsTestResultEntity,
 } from '@hts/core';
 
+// Entities - Phase 3
+import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
+
 // Core Services (from packages)
-import { HtsProcessorService, FormulaGenerationService } from '@hts/core';
+import { HtsProcessorService, FormulaGenerationService, OpenAiService } from '@hts/core';
 import { FormulaEvaluationService } from '@hts/calculator';
 
 // Queue Service
@@ -38,6 +41,9 @@ import { HtsImportAdminController } from './controllers/hts-import.admin.control
 import { FormulaAdminController } from './controllers/formula.admin.controller';
 import { TestCaseAdminController } from './controllers/test-case.admin.controller';
 
+// Controllers - Phase 3
+import { KnowledgeAdminController } from './controllers/knowledge.admin.controller';
+
 // Services - Phase 1
 import { UsersAdminService } from './services/users.admin.service';
 import { RolesAdminService } from './services/roles.admin.service';
@@ -48,10 +54,17 @@ import { HtsImportService } from './services/hts-import.service';
 import { FormulaAdminService } from './services/formula.admin.service';
 import { TestCaseService } from './services/test-case.service';
 
-// Job Handlers
+// Services - Phase 3
+import { KnowledgeAdminService } from './services/knowledge.admin.service';
+
+// Job Handlers - Phase 2
 import { HtsImportJobHandler } from './jobs/hts-import.job-handler';
 import { FormulaGenerationJobHandler } from './jobs/formula-generation.job-handler';
 import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-handler';
+
+// Job Handlers - Phase 3
+import { DocumentProcessingJobHandler } from './jobs/document-processing.job-handler';
+import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-handler';
 
 @Module({
   imports: [
@@ -66,6 +79,9 @@ import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-ha
       HtsFormulaCandidateEntity,
       HtsTestCaseEntity,
       HtsTestResultEntity,
+      // Phase 3 entities
+      HtsDocumentEntity,
+      KnowledgeChunkEntity,
     ]),
   ],
   controllers: [
@@ -78,6 +94,8 @@ import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-ha
     HtsImportAdminController,
     FormulaAdminController,
     TestCaseAdminController,
+    // Phase 3 controllers
+    KnowledgeAdminController,
   ],
   providers: [
     // Phase 1 services
@@ -88,14 +106,20 @@ import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-ha
     HtsImportService,
     FormulaAdminService,
     TestCaseService,
-    // Job handlers
+    // Phase 3 services
+    KnowledgeAdminService,
+    // Job handlers - Phase 2
     HtsImportJobHandler,
     FormulaGenerationJobHandler,
     TestBatchExecutionJobHandler,
+    // Job handlers - Phase 3
+    DocumentProcessingJobHandler,
+    EmbeddingGenerationJobHandler,
     // Core services (required by job handlers)
     HtsProcessorService,
     FormulaGenerationService,
     FormulaEvaluationService,
+    OpenAiService,
   ],
   exports: [
     UsersAdminService,
@@ -104,6 +128,7 @@ import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-ha
     HtsImportService,
     FormulaAdminService,
     TestCaseService,
+    KnowledgeAdminService,
   ],
 })
 export class AdminModule implements OnModuleInit {
@@ -114,6 +139,8 @@ export class AdminModule implements OnModuleInit {
     private importHandler: HtsImportJobHandler,
     private formulaHandler: FormulaGenerationJobHandler,
     private testBatchHandler: TestBatchExecutionJobHandler,
+    private documentProcessingHandler: DocumentProcessingJobHandler,
+    private embeddingGenerationHandler: EmbeddingGenerationJobHandler,
   ) {}
 
   async onModuleInit() {
@@ -132,6 +159,14 @@ export class AdminModule implements OnModuleInit {
       this.testBatchHandler.execute(job),
     );
 
-    this.logger.log('Job handlers registered successfully');
+    await this.queueService.registerHandler('document-processing', (job) =>
+      this.documentProcessingHandler.execute(job),
+    );
+
+    await this.queueService.registerHandler('embedding-generation', (job) =>
+      this.embeddingGenerationHandler.execute(job),
+    );
+
+    this.logger.log('Job handlers registered successfully (5 handlers)');
   }
 }
