@@ -15,6 +15,8 @@ import { ExtensionModule } from './modules/extension/extension.module';
 import { ExportModule } from './modules/export/export.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { ConnectorsModule } from './modules/connectors/connectors.module';
+import { I18nModule } from './modules/i18n/i18n.module';
 
 @Module({
   imports: [
@@ -69,6 +71,12 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 
     // Onboarding module (User onboarding & templates)
     OnboardingModule,
+
+    // Connectors module (External system integrations)
+    ConnectorsModule,
+
+    // I18n module (Multi-country support)
+    I18nModule,
 
     // Knowledgebase module
     KnowledgebaseModule.forRoot(),

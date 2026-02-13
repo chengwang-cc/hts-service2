@@ -2,7 +2,12 @@ import { Module, DynamicModule, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import Stripe from 'stripe';
 import { SubscriptionEntity, InvoiceEntity, UsageRecordEntity } from './entities';
-import { EntitlementService, StripeService } from './services';
+import {
+  EntitlementService,
+  StripeService,
+  SubscriptionService,
+  UsageTrackingService,
+} from './services';
 import { EntitlementGuard } from './guards/entitlement.guard';
 
 export interface BillingModuleOptions {
@@ -39,11 +44,15 @@ export class BillingPackageModule {
         },
         EntitlementService,
         StripeService,
+        SubscriptionService,
+        UsageTrackingService,
         EntitlementGuard,
       ],
       exports: [
         EntitlementService,
         StripeService,
+        SubscriptionService,
+        UsageTrackingService,
         EntitlementGuard,
       ],
     };

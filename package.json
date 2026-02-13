@@ -33,10 +33,15 @@
     "import": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./src/db/data-migration.ts import"
   },
   "dependencies": {
+    "@hts/billing": "workspace:*",
     "@hts/calculator": "workspace:*",
+    "@hts/connectors": "workspace:*",
     "@hts/core": "workspace:*",
+    "@hts/export": "workspace:*",
+    "@hts/i18n": "workspace:*",
     "@hts/knowledgebase": "workspace:*",
     "@hts/lookup": "workspace:*",
+    "@hts/onboarding": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
