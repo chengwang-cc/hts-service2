@@ -42,6 +42,7 @@ import { validateImageFile, validateImageUrl } from '../utils/image-validation.u
 import { VisionService } from '@hts/core/src/services/vision.service';
 import { AgentOrchestrationService } from '../services/agent-orchestration.service';
 import { VisionRateLimitGuard } from '../guards/vision-rate-limit.guard';
+import { VisionMonitoringService } from '../services/vision-monitoring.service';
 import * as crypto from 'crypto';
 
 /**
@@ -59,6 +60,7 @@ export class ExtensionController {
     private readonly detectionService: DetectionService,
     private readonly visionService: VisionService,
     private readonly agentOrchestrationService: AgentOrchestrationService,
+    private readonly monitoringService: VisionMonitoringService,
     @InjectRepository(ExtensionFeedbackEntity)
     private readonly feedbackRepository: Repository<ExtensionFeedbackEntity>,
     @InjectRepository(VisionAnalysisEntity)
@@ -183,6 +185,16 @@ export class ExtensionController {
         existingAnalysis &&
         Date.now() - existingAnalysis.createdAt.getTime() < ONE_HOUR
       ) {
+        // Log cached request
+        this.monitoringService.logVisionRequest({
+          organizationId: apiKey.organizationId,
+          imageSize: existingAnalysis.imageSizeBytes,
+          processingTime: 0,
+          tokensUsed: 0,
+          productsFound: existingAnalysis.analysisResult.products.length,
+          cached: true,
+        });
+
         return {
           success: true,
           data: {
@@ -232,6 +244,16 @@ export class ExtensionController {
 
       const totalTime = Date.now() - startTime;
 
+      // Log vision request
+      this.monitoringService.logVisionRequest({
+        organizationId: apiKey.organizationId,
+        imageSize: validation.sizeBytes,
+        processingTime: totalTime,
+        tokensUsed: analysis.tokensUsed || 0,
+        productsFound: analysis.products.length,
+        cached: false,
+      });
+
       return {
         success: true,
         data: {
@@ -272,6 +294,7 @@ export class ExtensionController {
    * POST /api/v1/extension/detect-from-url
    */
   @Post('detect-from-url')
+  @UseGuards(VisionRateLimitGuard)
   @ApiOperation({
     summary: 'Detect products from URL',
     description:
@@ -356,6 +379,18 @@ export class ExtensionController {
 
       const totalTime = Date.now() - startTime;
 
+      // Log scraping request
+      this.monitoringService.logScrapingRequest({
+        organizationId: apiKey.organizationId,
+        url: sanitizedUrl,
+        method: result.method,
+        processingTime: totalTime,
+        productsFound: result.products.length,
+        visionUsed: dto.enableVision || false,
+        success: true,
+        toolsUsed: result.toolsUsed,
+      });
+
       return {
         success: true,
         data: {
@@ -403,6 +438,111 @@ export class ExtensionController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Validate input to determine type (text/url/image)
+   * POST /api/v1/extension/validate-input
+   */
+  @Post('validate-input')
+  @ApiOperation({
+    summary: 'Validate input and determine type',
+    description:
+      'Analyzes user input to determine if it\'s text, URL, or image data. Returns validation result with suggestions.',
+  })
+  @ApiResponse({ status: 200, description: 'Input validated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiPermissions('hts:lookup')
+  async validateInput(
+    @Body() body: { input: string },
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+  ) {
+    const input = body.input?.trim() || '';
+
+    // Empty check
+    if (input.length === 0) {
+      return {
+        type: 'invalid',
+        confidence: 1.0,
+        suggestion: 'Please provide some input to search',
+        errors: ['Input is empty'],
+      };
+    }
+
+    // Too short check
+    if (input.length < 3) {
+      return {
+        type: 'invalid',
+        confidence: 0.95,
+        suggestion: 'Input too short - please provide more details',
+        errors: ['Input must be at least 3 characters'],
+      };
+    }
+
+    // Check if it's a URL
+    try {
+      const urlObj = new URL(input);
+      if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+        // Validate URL is not blocked (SSRF prevention)
+        try {
+          validateImageUrl(input);
+
+          // Check if it's an image URL
+          const isImageUrl = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i.test(
+            input,
+          );
+
+          return {
+            type: 'url',
+            confidence: isImageUrl ? 0.98 : 0.95,
+            suggestion: isImageUrl
+              ? 'Detected image URL - will fetch and analyze with vision AI'
+              : 'Detected webpage URL - will scrape content and detect products',
+          };
+        } catch (error) {
+          // URL blocked by SSRF prevention
+          return {
+            type: 'invalid',
+            confidence: 0.99,
+            suggestion: 'This URL cannot be accessed for security reasons',
+            errors: [error.message],
+          };
+        }
+      }
+    } catch {
+      // Not a URL, continue checks
+    }
+
+    // Check for base64 image data
+    if (input.startsWith('data:image/')) {
+      return {
+        type: 'image',
+        confidence: 0.99,
+        suggestion: 'Detected base64 image data - will analyze with vision AI',
+      };
+    }
+
+    // Check if it looks like a file path (local image reference)
+    if (
+      /^[a-z]:\\/i.test(input) ||
+      input.startsWith('/') ||
+      input.startsWith('./')
+    ) {
+      return {
+        type: 'invalid',
+        confidence: 0.9,
+        suggestion:
+          'Local file paths cannot be accessed. Please upload the file or provide a URL.',
+        errors: ['Cannot access local file system'],
+      };
+    }
+
+    // Default to text search
+    return {
+      type: 'text',
+      confidence: 0.8,
+      suggestion: 'Will search for products matching this description',
+    };
   }
 
   /**
