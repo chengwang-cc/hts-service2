@@ -53,6 +53,12 @@ export class FormulaGenerationJobHandler {
 
       for (const entry of entries) {
         try {
+          // Skip entries without a general rate
+          if (!entry.generalRate) {
+            this.logger.warn(`Skipping HTS ${entry.htsNumber} - no general rate found`);
+            continue;
+          }
+
           // Use existing FormulaGenerationService
           const result = await this.formulaGenService.generateFormula(
             entry.generalRate,

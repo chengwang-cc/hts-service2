@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../auth/services/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { KnowledgeAdminService } from '../services/knowledge.admin.service';
 import { UploadDocumentDto, ListDocumentsDto } from '../dto/knowledge.dto';

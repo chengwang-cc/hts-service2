@@ -14,7 +14,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../auth/services/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { HtsImportService } from '../services/hts-import.service';
 import { TriggerImportDto, ListImportsDto, LogsPaginationDto } from '../dto/hts-import.dto';
@@ -130,7 +130,9 @@ export class HtsImportAdminController {
   @ApiResponse({ status: 200, description: 'Logs retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Import not found' })
   async getLogs(@Param('id') id: string, @Query() query: LogsPaginationDto) {
-    const logs = await this.htsImportService.getLogs(id, query.offset, query.limit);
+    const offset = query.offset ?? 0;
+    const limit = query.limit ?? 100;
+    const logs = await this.htsImportService.getLogs(id, offset, limit);
 
     return {
       success: true,
