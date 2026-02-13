@@ -1,0 +1,27 @@
+{
+  "name": "@hts/calculator",
+  "version": "1.0.0",
+  "description": "HTS Calculator Module - Duty calculation engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@hts/core": "workspace:*",
+    "@hts/knowledgebase": "workspace:*",
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/typeorm": "^11.0.0",
+    "typeorm": "^0.3.28",
+    "mathjs": "^14.0.1",
+    "uuid": "^11.0.5",
+    "class-validator": "^0.14.3",
+    "class-transformer": "^0.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.3"
+  }
+}
