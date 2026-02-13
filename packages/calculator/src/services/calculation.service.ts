@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CalculationHistoryEntity, TradeAgreementEligibilityEntity } from '../entities';
+import { TradeAgreementEligibilityEntity } from '../entities';
 import { RateRetrievalService } from './rate-retrieval.service';
 import { FormulaEvaluationService } from './formula-evaluation.service';
-import { HtsExtraTaxEntity } from '@hts/core';
+import { HtsExtraTaxEntity, CalculationHistoryEntity } from '@hts/core';
 
 export interface CalculationInput {
   htsNumber: string;

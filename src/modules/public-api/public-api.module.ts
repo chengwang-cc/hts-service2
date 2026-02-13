@@ -4,8 +4,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { LookupModule } from '@hts/lookup';
 import { CalculatorModule } from '@hts/calculator';
 import { KnowledgebaseModule } from '@hts/knowledgebase';
-import { CalculationHistoryEntity } from '@hts/calculator';
-import { HtsEntity } from '@hts/core';
+import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
 
 // V1 Controllers
 import { HtsPublicController } from './v1/controllers/hts-public.controller';
@@ -22,7 +21,7 @@ import { KnowledgebasePublicController } from './v1/controllers/knowledgebase-pu
     LookupModule.forRoot(),
     CalculatorModule.forRoot(),
     KnowledgebaseModule.forRoot(),
-    TypeOrmModule.forFeature([CalculationHistoryEntity, HtsEntity]),
+    TypeOrmModule.forFeature([HtsEntity, CalculationHistoryEntity]),
   ],
   controllers: [
     // V1 Controllers

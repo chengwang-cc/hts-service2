@@ -12,8 +12,9 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { WidgetModule } from './modules/widget/widget.module';
 import { ExtensionModule } from './modules/extension/extension.module';
-import { AdminModule } from './modules/admin/admin.module';
-import { QueueModule } from './modules/queue/queue.module';
+import { ExportModule } from './modules/export/export.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 
 @Module({
   imports: [
@@ -60,11 +61,14 @@ import { QueueModule } from './modules/queue/queue.module';
     // Extension module (Chrome extension support)
     ExtensionModule,
 
-    // Queue module (Job queue with pg-boss)
-    QueueModule.forRoot(),
+    // Export module (Export templates & data completeness)
+    ExportModule,
 
-    // Admin module (Admin portal management)
-    AdminModule,
+    // Billing module (Subscriptions & usage tracking)
+    BillingModule,
+
+    // Onboarding module (User onboarding & templates)
+    OnboardingModule,
 
     // Knowledgebase module
     KnowledgebaseModule.forRoot(),

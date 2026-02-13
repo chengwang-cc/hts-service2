@@ -27,7 +27,7 @@ import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { CalculationService } from '@hts/calculator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CalculationHistoryEntity } from '@hts/calculator';
+import { CalculationHistoryEntity } from '@hts/core';
 
 /**
  * Public API v1 - Calculator

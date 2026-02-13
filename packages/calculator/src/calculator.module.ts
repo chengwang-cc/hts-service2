@@ -1,9 +1,8 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CoreModule } from '@hts/core';
+import { CoreModule, CalculationHistoryEntity } from '@hts/core';
 import {
   CalculationScenarioEntity,
-  CalculationHistoryEntity,
   TradeAgreementEntity,
   TradeAgreementEligibilityEntity,
 } from './entities';

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { DetectProductDto, ProductForClassification } from '../dto/detect-product.dto';
 
-interface DetectedProductResult {
+export interface DetectedProductResult {
   name: string;
   description: string;
   price?: {

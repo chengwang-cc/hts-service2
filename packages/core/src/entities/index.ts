@@ -8,3 +8,4 @@ export * from './hts-test-result.entity';
 export * from './hts-import-history.entity';
 export * from './hts-setting.entity';
 export * from './hts-extra-tax.entity';
+export * from './calculation-history.entity';
