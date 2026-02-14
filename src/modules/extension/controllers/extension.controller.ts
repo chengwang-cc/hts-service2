@@ -39,7 +39,7 @@ import { VisionAnalysisEntity } from '../entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from '../entities/scraping-metadata.entity';
 import { sanitizeFeedbackText, sanitizeUrl } from '../utils/sanitize.util';
 import { validateImageFile, validateImageUrl } from '../utils/image-validation.util';
-import { VisionService } from '@hts/core/src/services/vision.service';
+import { VisionService } from '@hts/core';
 import { AgentOrchestrationService } from '../services/agent-orchestration.service';
 import { VisionRateLimitGuard } from '../guards/vision-rate-limit.guard';
 import { VisionMonitoringService } from '../services/vision-monitoring.service';

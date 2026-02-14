@@ -11,8 +11,7 @@ import { VisionAnalysisEntity } from './entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from './entities/scraping-metadata.entity';
 import { PuppeteerMCPServer } from './mcp/servers/puppeteer-server';
 import { VisionRateLimitGuard } from './guards/vision-rate-limit.guard';
-import { VisionService } from '@hts/core/src/services/vision.service';
-import { OpenAiService } from '@hts/core/src/services/openai.service';
+import { VisionService, OpenAiService } from '@hts/core';
 
 /**
  * Extension Module

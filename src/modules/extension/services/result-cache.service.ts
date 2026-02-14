@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, IsNull } from 'typeorm';
 import { VisionAnalysisEntity } from '../entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from '../entities/scraping-metadata.entity';
-import { DetectedProduct } from '@hts/core/src/services/vision.service';
+import { DetectedProduct } from '@hts/core';
 
 export interface CachedVisionResult {
   products: DetectedProduct[];
@@ -167,7 +167,7 @@ export class ResultCacheService {
           urlHash,
           organizationId,
           createdAt: MoreThan(cacheExpiry),
-          errorMessage: null,
+          errorMessage: IsNull(),
         },
       });
 
@@ -215,7 +215,7 @@ export class ResultCacheService {
 
       // Scraping cache stats
       const scrapings = await this.scrapingRepository.find({
-        where: { organizationId, errorMessage: null },
+        where: { organizationId, errorMessage: IsNull() },
         order: { createdAt: 'ASC' },
       });
 

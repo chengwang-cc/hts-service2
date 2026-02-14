@@ -1,8 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PuppeteerMCPServer } from '../mcp/servers/puppeteer-server';
-import { VisionService } from '@hts/core/src/services/vision.service';
-import { DetectedProduct } from '@hts/core/src/services/vision.service';
+import { VisionService, DetectedProduct } from '@hts/core';
 
 export interface DetectionOptions {
   usePuppeteer?: 'auto' | 'force' | 'never';

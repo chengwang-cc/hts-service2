@@ -1,5 +1,6 @@
 // Services
 export * from './openai.service';
+export * from './vision.service';
 export * from './embedding.service';
 export * from './usitc-downloader.service';
 export * from './hts-processor.service';
