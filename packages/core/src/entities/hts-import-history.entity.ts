@@ -136,6 +136,51 @@ export class HtsImportHistoryEntity {
   @Column('jsonb', { nullable: true })
   rollbackInfo: Record<string, any> | null;
 
+  /**
+   * Checkpoint - Crash recovery checkpoint data
+   * Format: { stage, s3Key, processedBatches, lastProcessedChapter, etc }
+   */
+  @Column('jsonb', { nullable: true })
+  @Index()
+  checkpoint: Record<string, any> | null;
+
+  /**
+   * S3 Bucket - Where raw data is stored
+   */
+  @Column('varchar', { length: 255, nullable: true })
+  s3Bucket: string | null;
+
+  /**
+   * S3 Key - Path to raw data file in S3
+   */
+  @Column('varchar', { length: 500, nullable: true })
+  s3Key: string | null;
+
+  /**
+   * S3 File Hash - SHA-256 hash of S3 file for verification
+   */
+  @Column('varchar', { length: 64, nullable: true })
+  s3FileHash: string | null;
+
+  /**
+   * Job ID - pg-boss job ID for tracking
+   */
+  @Column('varchar', { length: 100, nullable: true })
+  @Index()
+  jobId: string | null;
+
+  /**
+   * Downloaded At - When raw data was downloaded to S3
+   */
+  @Column('timestamp', { nullable: true })
+  downloadedAt: Date | null;
+
+  /**
+   * Download Size Bytes - Size of downloaded file
+   */
+  @Column('bigint', { nullable: true })
+  downloadSizeBytes: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

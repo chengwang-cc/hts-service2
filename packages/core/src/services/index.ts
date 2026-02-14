@@ -2,6 +2,7 @@
 export * from './openai.service';
 export * from './vision.service';
 export * from './embedding.service';
+export * from './s3-storage.service';
 export * from './usitc-downloader.service';
 export * from './hts-processor.service';
 export * from './formula-generation.service';

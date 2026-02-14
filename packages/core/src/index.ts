@@ -19,5 +19,8 @@ export * from './interfaces';
 // DTOs
 export * from './dto';
 
+// Controllers
+export * from './controllers/hts-formula-update.controller';
+
 // Utils (to be added)
 // export * from './utils';

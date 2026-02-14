@@ -1,10 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  ExportJobEntity,
-  ExportTemplateEntity,
-  DataCompletenessCheckEntity,
-} from './entities';
 import {
   ExportService,
   CsvExportService,
@@ -15,11 +9,8 @@ import {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      ExportJobEntity,
-      ExportTemplateEntity,
-      DataCompletenessCheckEntity,
-    ]),
+    // Note: TypeOrmModule.forFeature() registration moved to wrapper module
+    // to ensure DataSource is available in the main app context
   ],
   providers: [
     ExportService,

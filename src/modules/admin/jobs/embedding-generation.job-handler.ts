@@ -22,7 +22,7 @@ export class EmbeddingGenerationJobHandler {
   /**
    * Execute embedding generation job
    */
-  async execute(job: { data: { documentId: string } }): Promise<void> {
+  async execute(job: any): Promise<void> {
     const { documentId } = job.data;
 
     this.logger.log(`Generating embeddings for document: ${documentId}`);

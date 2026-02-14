@@ -7,6 +7,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
+import { UsitcDownloaderService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import { UploadDocumentDto, ListDocumentsDto } from '../dto/knowledge.dto';
 import * as crypto from 'crypto';
@@ -20,71 +21,119 @@ export class KnowledgeAdminService {
     private documentRepo: Repository<HtsDocumentEntity>,
     @InjectRepository(KnowledgeChunkEntity)
     private chunkRepo: Repository<KnowledgeChunkEntity>,
+    private usitcDownloader: UsitcDownloaderService,
     private queueService: QueueService,
   ) {}
 
   /**
    * Upload document (text, URL, or PDF file)
+   * Supports simplified API: version="latest" OR year+revision
    */
   async uploadDocument(
     dto: UploadDocumentDto,
     file?: Express.Multer.File,
   ): Promise<HtsDocumentEntity> {
+    let year: number;
+    let chapter: string;
+    let sourceUrl: string;
+    let documentType: string = 'PDF';
     let pdfData: Buffer | null = null;
     let textContent: string | null = null;
-    let sourceUrl = dto.url || 'UPLOADED';
     let fileHash: string | null = null;
 
-    // Handle different document types
-    if (dto.type === 'PDF') {
-      if (file) {
-        // PDF file upload
-        pdfData = file.buffer;
-        fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
-        sourceUrl = dto.url || `uploaded:${file.originalname}`;
-      } else if (dto.url) {
-        // PDF URL (will download in job handler)
-        sourceUrl = dto.url;
+    // Handle simplified API
+    if (dto.version === 'latest' || (!dto.year && !dto.documentType)) {
+      // Auto-detect latest revision
+      this.logger.log('Auto-detecting latest HTS PDF...');
+      const latest = await this.usitcDownloader.findLatestRevision();
+
+      if (!latest) {
+        throw new BadRequestException('Could not find any available HTS data');
+      }
+
+      year = latest.year;
+      chapter = dto.chapter || '00';
+      sourceUrl = latest.pdfUrl;
+      this.logger.log(`Found latest: ${year} Rev ${latest.revision}`);
+    } else if (dto.year && dto.revision) {
+      // Specific year + revision
+      year = dto.year;
+      chapter = dto.chapter || '00';
+      sourceUrl = this.usitcDownloader.getPdfDownloadUrl(dto.year, dto.revision);
+    } else if (dto.documentType) {
+      // Legacy support: explicit document type
+      year = dto.year || new Date().getFullYear();
+      chapter = dto.chapter || '00';
+      documentType = dto.documentType;
+
+      if (documentType === 'PDF') {
+        if (file) {
+          pdfData = file.buffer;
+          fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+          sourceUrl = dto.sourceUrl || `uploaded:${file.originalname}`;
+        } else if (dto.sourceUrl) {
+          sourceUrl = dto.sourceUrl;
+        } else {
+          throw new BadRequestException('PDF type requires either file upload or URL');
+        }
+      } else if (documentType === 'URL') {
+        sourceUrl = dto.sourceUrl || '';
+        if (!sourceUrl) {
+          throw new BadRequestException('URL type requires sourceUrl parameter');
+        }
+      } else if (documentType === 'TEXT') {
+        sourceUrl = 'TEXT_CONTENT';
+        textContent = dto.textContent || '';
+        if (!textContent) {
+          throw new BadRequestException('TEXT type requires textContent parameter');
+        }
       } else {
-        throw new BadRequestException('PDF type requires either file upload or URL');
+        sourceUrl = '';
       }
-    } else if (dto.type === 'URL') {
-      if (!dto.url) {
-        throw new BadRequestException('URL type requires url parameter');
-      }
-      sourceUrl = dto.url;
-    } else if (dto.type === 'TEXT') {
-      if (!dto.textContent) {
-        throw new BadRequestException('TEXT type requires textContent parameter');
-      }
-      textContent = dto.textContent;
+    } else {
+      throw new BadRequestException(
+        'Must specify either: version="latest", year+revision, or legacy documentType fields'
+      );
     }
 
     // Create document record
     const document = this.documentRepo.create({
-      year: dto.year,
-      chapter: dto.chapter,
-      documentType: dto.type,
-      sourceVersion: `${dto.year}_${dto.chapter}`,
+      year,
+      chapter,
+      documentType,
+      sourceVersion: `${year}_${chapter}`,
       sourceUrl,
       pdfData,
       parsedText: textContent,
-      status: dto.type === 'TEXT' ? 'PENDING' : 'PENDING',
+      status: 'PENDING',
       fileHash,
       fileSize: pdfData ? pdfData.length : null,
-      isParsed: dto.type === 'TEXT',
+      isParsed: documentType === 'TEXT',
       metadata: {
-        title: dto.title,
-        category: dto.category || 'general',
+        title: dto.title || `HTS ${year} Chapter ${chapter}`,
+        category: 'hts-official',
         uploadedAt: new Date().toISOString(),
       },
     });
 
     const saved = await this.documentRepo.save(document);
-    this.logger.log(`Document uploaded: ${saved.id} (${dto.type})`);
+    this.logger.log(`Document uploaded: ${saved.id} (${documentType})`);
 
-    // Trigger processing job
-    await this.queueService.sendJob('document-processing', { documentId: saved.id });
+    // Trigger processing job with singleton key for cluster safety
+    const jobId = await this.queueService.sendJob(
+      'document-processing',
+      { documentId: saved.id },
+      {
+        singletonKey: `document-processing-${saved.id}`,
+        retryLimit: 3,
+        expireInSeconds: 7200,
+      },
+    );
+
+    this.logger.log(`Triggered document processing job ${jobId} for document ${saved.id}`);
+
+    saved.jobId = jobId;
+    await this.documentRepo.save(saved);
 
     return saved;
   }
@@ -157,8 +206,21 @@ export class KnowledgeAdminService {
     // Update document status
     await this.documentRepo.update(id, { status: 'PENDING', processedAt: null });
 
-    // Trigger processing job
-    await this.queueService.sendJob('document-processing', { documentId: id });
+    // Trigger processing job with singleton key for cluster safety
+    const jobId = await this.queueService.sendJob(
+      'document-processing',
+      { documentId: id },
+      {
+        singletonKey: `document-processing-${id}`, // ✅ CRITICAL for cluster safety!
+        retryLimit: 3,
+        expireInSeconds: 7200, // 2 hours timeout
+      },
+    );
+
+    this.logger.log(`Triggered document reprocessing job ${jobId} for document ${id}`);
+
+    // Store job ID
+    await this.documentRepo.update(id, { jobId });
   }
 
   /**
@@ -175,10 +237,20 @@ export class KnowledgeAdminService {
     // Reset all document statuses
     await this.documentRepo.update({}, { status: 'PENDING', processedAt: null });
 
-    // Trigger batch reindex job
-    const jobId = await this.queueService.sendJob('batch-reindex', {
-      documentIds: documents.map((d) => d.id),
-    });
+    // Trigger batch reindex job with singleton key (only one batch reindex at a time)
+    const jobId = await this.queueService.sendJob(
+      'batch-reindex',
+      {
+        documentIds: documents.map((d) => d.id),
+      },
+      {
+        singletonKey: 'batch-reindex-all', // ✅ Only one batch reindex at a time
+        retryLimit: 1,
+        expireInSeconds: 14400, // 4 hours timeout for batch operations
+      },
+    );
+
+    this.logger.log(`Triggered batch reindex job ${jobId} for ${documents.length} documents`);
 
     return { jobId: jobId || '', count: documents.length };
   }

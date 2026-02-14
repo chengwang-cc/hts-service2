@@ -15,7 +15,7 @@ export class TestBatchExecutionJobHandler {
   /**
    * Execute batch test job
    */
-  async execute(job: { data: { testCaseIds: string[]; runId: string } }): Promise<void> {
+  async execute(job: any): Promise<void> {
     const { testCaseIds, runId } = job.data;
 
     this.logger.log(`Starting batch test execution for ${testCaseIds.length} tests. Run ID: ${runId}`);

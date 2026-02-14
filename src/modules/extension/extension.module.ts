@@ -11,13 +11,14 @@ import { VisionAnalysisEntity } from './entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from './entities/scraping-metadata.entity';
 import { PuppeteerMCPServer } from './mcp/servers/puppeteer-server';
 import { VisionRateLimitGuard } from './guards/vision-rate-limit.guard';
-import { VisionService, OpenAiService } from '@hts/core';
 
 /**
  * Extension Module
  * Provides API endpoints for Chrome extension support
  * Includes image recognition and web scraping capabilities
  * With rate limiting, monitoring, and caching
+ * 
+ * Note: VisionService and OpenAiService are provided globally by CoreModule
  */
 @Module({
   imports: [
@@ -31,8 +32,6 @@ import { VisionService, OpenAiService } from '@hts/core';
   providers: [
     // Core services
     DetectionService,
-    VisionService,
-    OpenAiService,
     WebScrapingService,
     PuppeteerMCPServer,
     AgentOrchestrationService,
@@ -44,7 +43,6 @@ import { VisionService, OpenAiService } from '@hts/core';
   ],
   exports: [
     DetectionService,
-    VisionService,
     WebScrapingService,
     AgentOrchestrationService,
     VisionMonitoringService,

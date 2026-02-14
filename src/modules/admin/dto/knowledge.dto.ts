@@ -16,59 +16,74 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Upload Document DTO
+ * Simplified: Auto-detect latest OR specify year + revision
  */
 export class UploadDocumentDto {
-  @ApiProperty({
-    description: 'Document title',
-    example: 'HTS Chapter 1 Notes 2025',
-  })
-  @IsString()
-  title: string;
-
-  @ApiProperty({
-    description: 'Document year',
-    example: 2025,
-  })
-  @IsNumber()
-  year: number;
-
-  @ApiProperty({
-    description: 'HTS chapter (2-digit string or "00" for general)',
-    example: '01',
-  })
-  @IsString()
-  chapter: string;
-
-  @ApiProperty({
-    description: 'Document type',
-    enum: ['PDF', 'URL', 'TEXT'],
-    example: 'PDF',
-  })
-  @IsIn(['PDF', 'URL', 'TEXT'])
-  type: string;
-
   @ApiPropertyOptional({
-    description: 'Source URL (required for URL and PDF types)',
-    example: 'https://hts.usitc.gov/view/chapter1-notes.pdf',
+    description: 'Set to "latest" to auto-import latest full HTS PDF',
+    example: 'latest',
   })
   @IsOptional()
   @IsString()
-  url?: string;
+  version?: 'latest' | string;
 
   @ApiPropertyOptional({
-    description: 'Text content (required for TEXT type)',
+    description: 'HTS year (e.g., 2026). Required if not using "latest"',
+    example: 2026,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  year?: number;
+
+  @ApiPropertyOptional({
+    description: 'Revision number (e.g., 3). Required if not using "latest"',
+    example: 3,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  revision?: number;
+
+  @ApiPropertyOptional({
+    description: 'HTS chapter (2-digit string or "00" for full document)',
+    example: '00',
+    default: '00',
+  })
+  @IsOptional()
+  @IsString()
+  chapter?: string;
+
+  // Legacy support - deprecated but still accepted
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] Use version="latest" or year+revision',
+    example: 'HTS Full 2026',
+  })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] Document type. Use version="latest" or year+revision instead',
+    enum: ['PDF', 'URL', 'TEXT'],
+  })
+  @IsOptional()
+  @IsIn(['PDF', 'URL', 'TEXT'])
+  documentType?: string;
+
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] Source URL. Use version="latest" or year+revision instead',
+  })
+  @IsOptional()
+  @IsString()
+  sourceUrl?: string;
+
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] For custom text content only',
   })
   @IsOptional()
   @IsString()
   textContent?: string;
-
-  @ApiPropertyOptional({
-    description: 'Document category/classification',
-    example: 'regulations',
-  })
-  @IsOptional()
-  @IsString()
-  category?: string;
 }
 
 /**

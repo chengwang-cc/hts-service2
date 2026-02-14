@@ -81,45 +81,75 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
   }
 
   /**
-   * Download latest HTS data
-   * Tries current year with revision 1, then falls back to previous year
+   * Find latest available HTS revision
+   * Checks current year first (rev 10 -> 1), then previous year
    */
-  async downloadLatest(): Promise<UsitcDownloadResult> {
+  async findLatestRevision(): Promise<{
+    year: number;
+    revision: number;
+    jsonUrl: string;
+    pdfUrl: string;
+  } | null> {
     const currentYear = new Date().getFullYear();
-    const revisions = [1, 2, 3]; // Try up to 3 revisions
 
-    // Try current year first
-    for (const revision of revisions) {
-      this.logger.log(
-        `Attempting to download ${currentYear} revision ${revision}`,
-      );
-      const result = await this.downloadHtsData(currentYear, revision);
-
-      if (result.success) {
-        return result;
+    // Try current year (check from high to low)
+    for (let revision = 10; revision >= 1; revision--) {
+      const url = this.getDownloadUrl(currentYear, revision);
+      if (await this.checkUrlExists(url)) {
+        this.logger.log(
+          `Found latest: ${currentYear} revision ${revision}`,
+        );
+        return {
+          year: currentYear,
+          revision,
+          jsonUrl: this.getDownloadUrl(currentYear, revision),
+          pdfUrl: this.getPdfDownloadUrl(currentYear, revision),
+        };
       }
     }
 
     // Try previous year
     const previousYear = currentYear - 1;
-    for (const revision of revisions.reverse()) {
-      this.logger.log(
-        `Attempting to download ${previousYear} revision ${revision}`,
-      );
-      const result = await this.downloadHtsData(previousYear, revision);
-
-      if (result.success) {
-        return result;
+    for (let revision = 10; revision >= 1; revision--) {
+      const url = this.getDownloadUrl(previousYear, revision);
+      if (await this.checkUrlExists(url)) {
+        this.logger.log(
+          `Found latest: ${previousYear} revision ${revision}`,
+        );
+        return {
+          year: previousYear,
+          revision,
+          jsonUrl: this.getDownloadUrl(previousYear, revision),
+          pdfUrl: this.getPdfDownloadUrl(previousYear, revision),
+        };
       }
     }
 
-    // All attempts failed
-    return {
-      success: false,
-      version: 'unknown',
-      url: '',
-      error: 'Could not find any available HTS data',
-    };
+    return null;
+  }
+
+  /**
+   * Download latest HTS data (automatically finds latest revision)
+   */
+  async downloadLatest(): Promise<UsitcDownloadResult> {
+    this.logger.log('Finding latest available HTS revision...');
+
+    const latest = await this.findLatestRevision();
+
+    if (!latest) {
+      return {
+        success: false,
+        version: 'unknown',
+        url: '',
+        error: 'Could not find any available HTS data',
+      };
+    }
+
+    this.logger.log(
+      `Downloading latest: ${latest.year} revision ${latest.revision}`,
+    );
+
+    return await this.downloadHtsData(latest.year, latest.revision);
   }
 
   /**
@@ -183,10 +213,18 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
   }
 
   /**
-   * Get download URL for specific version
+   * Get JSON download URL for specific version
    */
   getDownloadUrl(year: number, revision: number): string {
     return `${this.baseUrl}/hts_${year}_revision_${revision}_json.json`;
+  }
+
+  /**
+   * Get PDF download URL for specific version
+   */
+  getPdfDownloadUrl(year: number, revision: number): string {
+    const release = `${year}HTSRev${revision}`;
+    return `https://hts.usitc.gov/reststop/file?release=${release}&filename=finalCopy`;
   }
 
   /**

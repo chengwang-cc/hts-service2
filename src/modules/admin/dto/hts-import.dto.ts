@@ -9,30 +9,51 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Trigger Import DTO
- * Used to initiate a new HTS import from USITC
+ * Simplified: Auto-detect latest OR specify year + revision
  */
 export class TriggerImportDto {
-  @ApiProperty({
-    description: 'Source version identifier (e.g., "2025_revision_1")',
-    example: '2025_revision_1',
-  })
-  @IsString()
-  sourceVersion: string;
-
-  @ApiProperty({
-    description: 'URL where USITC data can be downloaded',
-    example: 'https://hts.usitc.gov/export/2025_revision_1.csv',
-  })
-  @IsString()
-  sourceUrl: string;
-
   @ApiPropertyOptional({
-    description: 'SHA-256 hash of the source file for integrity verification',
-    example: 'a1b2c3d4e5f6...',
+    description: 'Set to "latest" to auto-detect and import the latest available revision',
+    example: 'latest',
   })
   @IsOptional()
   @IsString()
-  sourceFileHash?: string;
+  version?: 'latest' | string;
+
+  @ApiPropertyOptional({
+    description: 'HTS year (e.g., 2026). Required if not using "latest"',
+    example: 2026,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  year?: number;
+
+  @ApiPropertyOptional({
+    description: 'Revision number (e.g., 3). Required if not using "latest"',
+    example: 3,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  revision?: number;
+
+  // Legacy support - deprecated but still accepted
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] Use version="latest" or year+revision instead',
+    example: 'https://hts.usitc.gov/data.json',
+  })
+  @IsOptional()
+  @IsString()
+  sourceUrl?: string;
+
+  @ApiPropertyOptional({
+    description: '[DEPRECATED] Use version="latest" or year+revision instead',
+    example: '2025_revision_1',
+  })
+  @IsOptional()
+  @IsString()
+  sourceVersion?: string;
 }
 
 /**

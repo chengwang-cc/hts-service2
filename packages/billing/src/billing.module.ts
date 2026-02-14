@@ -23,11 +23,8 @@ export class BillingPackageModule {
     return {
       module: BillingPackageModule,
       imports: [
-        TypeOrmModule.forFeature([
-          SubscriptionEntity,
-          InvoiceEntity,
-          UsageRecordEntity,
-        ]),
+        // TypeOrmModule.forFeature() removed - entities registered in wrapper module
+        // to ensure DataSource is available in the main app context
       ],
       providers: [
         {
@@ -42,18 +39,11 @@ export class BillingPackageModule {
           provide: 'STRIPE_WEBHOOK_SECRET',
           useValue: options.stripeWebhookSecret || '',
         },
-        EntitlementService,
-        StripeService,
-        SubscriptionService,
-        UsageTrackingService,
-        EntitlementGuard,
+        // Services removed - will be provided in wrapper module where repositories are available
       ],
       exports: [
-        EntitlementService,
-        StripeService,
-        SubscriptionService,
-        UsageTrackingService,
-        EntitlementGuard,
+        'STRIPE_CLIENT',
+        'STRIPE_WEBHOOK_SECRET',
       ],
     };
   }

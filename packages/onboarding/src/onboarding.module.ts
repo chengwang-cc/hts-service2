@@ -1,18 +1,15 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { OnboardingProgressEntity } from './entities/onboarding-progress.entity';
-import { OnboardingTemplateEntity } from './entities/onboarding-template.entity';
-import { OnboardingService } from './services/onboarding.service';
-import { TemplateService } from './services/template.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      OnboardingProgressEntity,
-      OnboardingTemplateEntity,
-    ]),
+    // TypeOrmModule.forFeature() removed - entities registered in wrapper module
+    // to ensure DataSource is available in the main app context
   ],
-  providers: [OnboardingService, TemplateService],
-  exports: [OnboardingService, TemplateService],
+  providers: [
+    // Services removed - provided in wrapper module where repositories are available
+  ],
+  exports: [
+    // Services exported from wrapper module instead
+  ],
 })
 export class OnboardingModule {}

@@ -25,9 +25,7 @@ export class FormulaGenerationJobHandler {
   /**
    * Execute formula generation job
    */
-  async execute(job: {
-    data: { htsNumbers?: string[]; batchSize: number };
-  }): Promise<void> {
+  async execute(job: any): Promise<void> {
     const { htsNumbers, batchSize } = job.data;
 
     this.logger.log(`Starting formula generation job. Batch size: ${batchSize}`);

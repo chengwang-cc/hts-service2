@@ -4,9 +4,10 @@ import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CustomNamingStrategy } from '@hts/core';
 import { CoreModule } from '@hts/core';
-import { KnowledgebaseModule } from '@hts/knowledgebase';
-import { LookupModule } from '@hts/lookup';
-import { CalculatorModule } from '@hts/calculator';
+import { CoreWrapperModule } from './modules/core/core.module';
+import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.module';
+import { LookupModule } from './modules/lookup/lookup.module';
+import { CalculatorModule } from './modules/calculator/calculator.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
@@ -48,6 +49,9 @@ import { I18nModule } from './modules/i18n/i18n.module';
       },
     }),
 
+    // Core wrapper module (entities, repositories, controllers)
+    CoreWrapperModule,
+
     // Auth module
     AuthModule,
 
@@ -79,13 +83,13 @@ import { I18nModule } from './modules/i18n/i18n.module';
     I18nModule,
 
     // Knowledgebase module
-    KnowledgebaseModule.forRoot(),
+    KnowledgebaseModule,
 
     // Lookup module
-    LookupModule.forRoot(),
+    LookupModule,
 
     // Calculator module
-    CalculatorModule.forRoot(),
+    CalculatorModule,
   ],
   controllers: [AppController],
   providers: [AppService],

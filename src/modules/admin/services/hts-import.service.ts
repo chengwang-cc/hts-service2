@@ -6,8 +6,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { HtsImportHistoryEntity } from '@hts/core';
-import { HtsEntity } from '@hts/core';
+import { HtsImportHistoryEntity, HtsEntity, UsitcDownloaderService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import { TriggerImportDto, ListImportsDto } from '../dto/hts-import.dto';
 
@@ -20,29 +19,61 @@ export class HtsImportService {
     private importHistoryRepo: Repository<HtsImportHistoryEntity>,
     @InjectRepository(HtsEntity)
     private htsRepo: Repository<HtsEntity>,
+    private usitcDownloader: UsitcDownloaderService,
     private queueService: QueueService,
   ) {}
 
   /**
    * Create a new import record and trigger async job
+   * Supports simplified API: version="latest" OR year+revision
    */
   async createImport(dto: TriggerImportDto, userId: string): Promise<HtsImportHistoryEntity> {
+    let sourceUrl: string;
+    let sourceVersion: string;
+
+    // Handle simplified API
+    if (dto.version === 'latest' || (!dto.sourceUrl && !dto.year)) {
+      // Auto-detect latest revision
+      this.logger.log('Auto-detecting latest HTS revision...');
+      const latest = await this.usitcDownloader.findLatestRevision();
+
+      if (!latest) {
+        throw new BadRequestException('Could not find any available HTS data');
+      }
+
+      sourceUrl = latest.jsonUrl;
+      sourceVersion = `${latest.year}_revision_${latest.revision}`;
+      this.logger.log(`Found latest: ${sourceVersion}`);
+    } else if (dto.year && dto.revision) {
+      // Specific year + revision
+      sourceUrl = this.usitcDownloader.getDownloadUrl(dto.year, dto.revision);
+      sourceVersion = `${dto.year}_revision_${dto.revision}`;
+    } else if (dto.sourceUrl && dto.sourceVersion) {
+      // Legacy support: explicit URL + version
+      sourceUrl = dto.sourceUrl;
+      sourceVersion = dto.sourceVersion;
+    } else {
+      throw new BadRequestException(
+        'Must specify either: version="latest", year+revision, or sourceUrl+sourceVersion'
+      );
+    }
+
     // Check for duplicate import
     const existing = await this.importHistoryRepo.findOne({
-      where: { sourceVersion: dto.sourceVersion, status: 'IN_PROGRESS' },
+      where: { sourceVersion, status: 'IN_PROGRESS' },
     });
 
     if (existing) {
       throw new BadRequestException(
-        `Import for version "${dto.sourceVersion}" is already in progress`,
+        `Import for version "${sourceVersion}" is already in progress`,
       );
     }
 
     // Create import history record
     const importHistory = this.importHistoryRepo.create({
-      sourceVersion: dto.sourceVersion,
-      sourceUrl: dto.sourceUrl,
-      sourceFileHash: dto.sourceFileHash || null,
+      sourceVersion,
+      sourceUrl,
+      sourceFileHash: null,
       status: 'PENDING',
       startedBy: userId,
       importLog: [],
@@ -51,8 +82,21 @@ export class HtsImportService {
     const saved = await this.importHistoryRepo.save(importHistory);
     this.logger.log(`Created import record: ${saved.id} for version ${saved.sourceVersion}`);
 
-    // Trigger async job
-    await this.queueService.sendJob('hts-import', { importId: saved.id });
+    // Trigger async job with singleton key for cluster safety
+    const jobId = await this.queueService.sendJob(
+      'hts-import',
+      { importId: saved.id },
+      {
+        singletonKey: `hts-import-${saved.sourceVersion}`,
+        retryLimit: 3,
+        expireInSeconds: 7200,
+      },
+    );
+
+    this.logger.log(`Triggered HTS import job ${jobId} for version ${saved.sourceVersion}`);
+
+    saved.jobId = jobId;
+    await this.importHistoryRepo.save(saved);
 
     return saved;
   }
