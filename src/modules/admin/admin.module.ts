@@ -27,7 +27,13 @@ import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
 import { HtsProcessorService, FormulaGenerationService, OpenAiService } from '@hts/core';
 import { FormulaEvaluationService } from '@hts/calculator';
 
-// Queue Service
+// Wrapper modules that provide services with repository access
+import { CoreWrapperModule } from '../core/core.module';
+import { CalculatorModule } from '../calculator/calculator.module';
+import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+
+// Queue Module (provides QueueService with ConfigService)
+import { QueueModule } from '../queue/queue.module';
 import { QueueService } from '../queue/queue.service';
 
 // Controllers - Phase 1
@@ -83,6 +89,12 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       HtsDocumentEntity,
       KnowledgeChunkEntity,
     ]),
+    // Import wrapper modules to access services with repositories
+    CoreWrapperModule,
+    CalculatorModule,
+    KnowledgebaseModule,
+    // Import QueueModule to access QueueService with ConfigService
+    QueueModule,
   ],
   controllers: [
     // Phase 1 controllers
@@ -115,12 +127,9 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     // Job handlers - Phase 3
     DocumentProcessingJobHandler,
     EmbeddingGenerationJobHandler,
-    // Core services (required by job handlers)
-    HtsProcessorService,
-    FormulaGenerationService,
-    FormulaEvaluationService,
-    OpenAiService,
-    QueueService,
+    // Core services (imported from wrapper modules, not provided here)
+    // HtsProcessorService, FormulaGenerationService, FormulaEvaluationService, OpenAiService - from wrapper modules
+    // QueueService - from QueueModule
   ],
   exports: [
     UsersAdminService,

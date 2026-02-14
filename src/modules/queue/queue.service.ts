@@ -64,6 +64,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       await this.boss.start();
       this.isStarted = true;
 
+      // Add error handler to prevent unhandled errors from crashing the app
+      this.boss.on('error', (error) => {
+        // Log queue-not-exist errors as warnings (queues will be created on first job submission)
+        if (error && error.message && error.message.includes('does not exist')) {
+          this.logger.warn(`Queue will be created on first job submission: ${error.message}`);
+        } else {
+          this.logger.error('pg-boss error:', error);
+        }
+      });
+
       this.logger.log('pg-boss started successfully');
 
       // Register all handlers that were registered before start
@@ -190,15 +200,20 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const jobId = await this.boss.send(queueName, data, {
-        priority: options?.priority,
-        retryLimit: options?.retryLimit,
-        retryDelay: options?.retryDelay,
-        retryBackoff: options?.retryBackoff,
-        expireInSeconds: options?.expireInSeconds,
-        singletonKey: options?.singletonKey,
-        startAfter: options?.startAfter,
-      });
+      // Ensure queue exists before sending (pg-boss v12 requirement)
+      await this.boss.createQueue(queueName);
+
+      // Filter out undefined values to avoid pg-boss validation errors
+      const jobOptions: Record<string, any> = {};
+      if (options?.priority !== undefined) jobOptions.priority = options.priority;
+      if (options?.retryLimit !== undefined) jobOptions.retryLimit = options.retryLimit;
+      if (options?.retryDelay !== undefined) jobOptions.retryDelay = options.retryDelay;
+      if (options?.retryBackoff !== undefined) jobOptions.retryBackoff = options.retryBackoff;
+      if (options?.expireInSeconds !== undefined) jobOptions.expireInSeconds = options.expireInSeconds;
+      if (options?.singletonKey !== undefined) jobOptions.singletonKey = options.singletonKey;
+      if (options?.startAfter !== undefined) jobOptions.startAfter = options.startAfter;
+
+      const jobId = await this.boss.send(queueName, data, jobOptions);
 
       this.logger.log(
         `Job submitted to ${queueName}: ${jobId}${options?.singletonKey ? ` (singleton: ${options.singletonKey})` : ''}`

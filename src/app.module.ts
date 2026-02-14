@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -18,9 +19,16 @@ import { BillingModule } from './modules/billing/billing.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { I18nModule } from './modules/i18n/i18n.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
+    // Configuration module to load .env file
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
+    }),
+
     // Database configuration
     TypeOrmModule.forRoot({
       //@ts-ignore
@@ -30,10 +38,10 @@ import { I18nModule } from './modules/i18n/i18n.module';
       username: process.env.DB_USERNAME ?? 'postgres',
       password: process.env.DB_PASSWORD ?? '',
       namingStrategy: new CustomNamingStrategy(),
-      entities: [__dirname + '/../../**/*.entity{.ts,.js}'], // Include all entities
+      entities: [__dirname + '/../../**/*.entity.js'], // Include all entities
       database: process.env.DB_DATABASE ?? 'hts',
       synchronize: (process.env.DB_SYNCHRONIZE ?? 'false') === 'true', // Default to false
-      migrations: [__dirname + '/migrations/**/*{.ts,.js}'], // Path to migration files
+      migrations: [__dirname + '/migrations/**/*.js'], // Path to migration files
       migrationsTableName: 'typeorm_migrations', // Table to track migrations
       ssl:
         process.env.NODE_ENV === 'development'
@@ -81,6 +89,9 @@ import { I18nModule } from './modules/i18n/i18n.module';
 
     // I18n module (Multi-country support)
     I18nModule,
+
+    // Admin module (HTS import, knowledge base admin, etc.)
+    AdminModule,
 
     // Knowledgebase module
     KnowledgebaseModule,

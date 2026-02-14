@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
-import { LookupModule } from '@hts/lookup';
-import { CalculatorModule } from '@hts/calculator';
-import { KnowledgebaseModule } from '@hts/knowledgebase';
+import { LookupModule } from '../lookup/lookup.module';
+import { CalculatorModule } from '../calculator/calculator.module';
+import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
 
 // V1 Controllers
@@ -15,13 +15,15 @@ import { ClassificationPublicController } from './v1/controllers/classification-
 /**
  * Public API Module
  * Versioned public APIs for external access
+ *
+ * IMPORTANT: Must import wrapper modules (not package modules) to access services
  */
 @Module({
   imports: [
     ApiKeysModule,
-    LookupModule.forRoot(),
-    CalculatorModule.forRoot(),
-    KnowledgebaseModule.forRoot(),
+    LookupModule,  // Import wrapper module that exports services
+    CalculatorModule,  // Import wrapper module that exports services
+    KnowledgebaseModule,  // Import wrapper module that exports services
     TypeOrmModule.forFeature([HtsEntity, CalculationHistoryEntity]),
   ],
   controllers: [

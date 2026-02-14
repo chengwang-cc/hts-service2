@@ -1,17 +1,23 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { LookupModule as LookupPackageModule } from '@hts/lookup';
 import {
   ProductClassificationEntity,
   SearchService,
   ClassificationService,
   LookupController,
 } from '@hts/lookup';
-import { HtsEntity, HtsEmbeddingEntity } from '@hts/core';
+import { HtsEntity, HtsEmbeddingEntity, CoreModule } from '@hts/core';
 
+/**
+ * Lookup Wrapper Module
+ * Provides Lookup services with access to TypeORM repositories
+ * in the main app context where DataSource is available
+ */
 @Module({
   imports: [
-    LookupPackageModule.forRoot(),
+    // Import CoreModule for shared services (OpenAI, etc.)
+    CoreModule.forFeature(),
+    // Register entities in the main app context where DataSource is available
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
       HtsEntity,

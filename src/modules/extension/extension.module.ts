@@ -11,6 +11,7 @@ import { VisionAnalysisEntity } from './entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from './entities/scraping-metadata.entity';
 import { PuppeteerMCPServer } from './mcp/servers/puppeteer-server';
 import { VisionRateLimitGuard } from './guards/vision-rate-limit.guard';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 /**
  * Extension Module
@@ -27,6 +28,7 @@ import { VisionRateLimitGuard } from './guards/vision-rate-limit.guard';
       VisionAnalysisEntity,
       ScrapingMetadataEntity,
     ]),
+    ApiKeysModule, // Import for ApiKeyGuard and ApiKeyService
   ],
   controllers: [ExtensionController],
   providers: [
