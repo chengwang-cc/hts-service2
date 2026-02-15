@@ -58,25 +58,25 @@ export class HtsStageEntryEntity {
   /**
    * General Rate (raw)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   generalRate: string | null;
 
   /**
    * Special Rate (raw)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   special: string | null;
 
   /**
    * Other Rate (raw)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   other: string | null;
 
   /**
    * Chapter 99 Adjusted Rate (raw)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   chapter99: string | null;
 
   /**
