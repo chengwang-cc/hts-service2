@@ -15,6 +15,7 @@ import {
   NoteEmbeddingGenerationService,
   KnowledgebaseController,
 } from '@hts/knowledgebase';
+import { FormulaGenerationService } from '@hts/core';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import {
   providers: [
     DocumentService,
     PdfParserService,
+    FormulaGenerationService,
     NoteExtractionService,
     NoteResolutionService,
     NoteEmbeddingGenerationService,
@@ -39,6 +41,7 @@ import {
   exports: [
     DocumentService,
     PdfParserService,
+    FormulaGenerationService,
     NoteExtractionService,
     NoteResolutionService,
     NoteEmbeddingGenerationService,

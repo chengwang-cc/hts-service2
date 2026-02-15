@@ -152,8 +152,8 @@ async function run() {
   overrider.roles = [overrideRole];
   await userRepo.save(overrider);
 
-  const reviewerToken = (await authService.login(reviewer)).accessToken;
-  const overrideToken = (await authService.login(overrider)).accessToken;
+  const reviewerToken = (await authService.login(reviewer)).tokens.accessToken;
+  const overrideToken = (await authService.login(overrider)).tokens.accessToken;
 
   const importHistory = await importHistoryRepo.save(
     importHistoryRepo.create({

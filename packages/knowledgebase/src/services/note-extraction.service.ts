@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { OpenAiService } from '@hts/core';
+import { OpenAiService, FormulaGenerationService } from '@hts/core';
 import { HtsNoteEntity, HtsNoteRateEntity } from '../entities';
 import { PdfParserService } from './pdf-parser.service';
 import { NoteEmbeddingGenerationService } from './note-embedding-generation.service';
@@ -24,6 +24,7 @@ export class NoteExtractionService {
 
   constructor(
     private readonly openAiService: OpenAiService,
+    private readonly formulaGenerationService: FormulaGenerationService,
     private readonly pdfParserService: PdfParserService,
     private readonly noteEmbeddingGenerationService: NoteEmbeddingGenerationService,
     @InjectRepository(HtsNoteEntity)
@@ -93,21 +94,13 @@ export class NoteExtractionService {
   ): Promise<HtsNoteEntity[]> {
     let extractedNotes: any[] = [];
 
+    // Fast path for normal-size HTS text: regex extraction avoids unnecessary LLM calls.
     if (text.length >= this.largeTextThreshold) {
-      const fallbackContent = this.sanitizeFallbackContent(text.slice(0, 4000)).slice(0, 2000);
-      if (fallbackContent.length >= 80) {
-        this.logger.warn(
-          `Section ${noteType} is very large (${text.length} chars); using deterministic fallback note`,
-        );
-        extractedNotes.push({
-          ...this.buildFallbackNote('AUTO-1', fallbackContent),
-          source: 'deterministic-fallback',
-          noteType,
-        });
-      }
+      this.logger.warn(
+        `Section ${noteType} is very large (${text.length} chars); using regex-only extraction`,
+      );
     }
 
-    // Fast path for normal-size HTS text: regex extraction avoids unnecessary LLM calls.
     if (extractedNotes.length === 0) {
       extractedNotes = this.extractNotesByRegex(noteType, text);
     }
@@ -168,6 +161,8 @@ export class NoteExtractionService {
     for (const note of noteMap.values()) {
       const extractionSource =
         typeof note.source === 'string' ? note.source : 'llm';
+      const explicitRateText = typeof note?.rateText === 'string' ? note.rateText.trim() : '';
+      const derivedRateCandidates = this.getRateCandidates(note);
       const entity = this.noteRepository.create({
         documentId,
         chapter,
@@ -177,7 +172,10 @@ export class NoteExtractionService {
         content: note.content,
         scope: note.scope || null,
         year: year ?? new Date().getFullYear(),
-        hasRate: Boolean(note.containsRate || note.rateText),
+        hasRate:
+          explicitRateText.length > 0 ||
+          derivedRateCandidates.length > 0 ||
+          Boolean(note.containsRate || note.rateText),
         extractedData: {
           crossReferences: note.crossReferences || [],
           htsCodes: note.htsCodes || [],
@@ -193,16 +191,21 @@ export class NoteExtractionService {
       const saved = await this.noteRepository.save(entity);
       savedNotes.push(saved);
 
-      if (note.rateText) {
-        await this.extractRate(saved.id, note.rateText);
+      if (explicitRateText.length > 0) {
+        await this.extractRate(saved.id, explicitRateText, note.rateType, true);
       }
 
-      if (extractionSource === 'llm') {
-        try {
-          await this.noteEmbeddingGenerationService.generateSingleEmbedding(saved.id);
-        } catch (error) {
-          this.logger.warn(`Embedding generation failed for note ${saved.id}: ${error.message}`);
+      for (const rateCandidate of derivedRateCandidates) {
+        if (rateCandidate === explicitRateText) {
+          continue;
         }
+        await this.extractRate(saved.id, rateCandidate, note.rateType, false);
+      }
+
+      try {
+        await this.noteEmbeddingGenerationService.generateSingleEmbedding(saved.id);
+      } catch (error) {
+        this.logger.warn(`Embedding generation failed for note ${saved.id}: ${error.message}`);
       }
     }
 
@@ -300,7 +303,44 @@ ${text}`;
     }
   }
 
-  private async extractRate(noteId: string, rateText: string): Promise<void> {
+  private async extractRate(
+    noteId: string,
+    rateText: string,
+    declaredRateType?: string,
+    allowAiFallback: boolean = false,
+  ): Promise<void> {
+    const deterministic = this.formulaGenerationService.generateFormulaByPattern(rateText);
+
+    if (deterministic) {
+      const existing = await this.rateRepository.findOne({ where: { noteId, rateText } });
+      if (existing) {
+        return;
+      }
+
+      const entity = this.rateRepository.create({
+        noteId,
+        rateText,
+        formula: deterministic.formula,
+        rateType: declaredRateType || this.classifyRateType(rateText),
+        variables: deterministic.variables.map((name: string) => ({
+          name,
+          type: 'number',
+        })),
+        confidence: deterministic.confidence,
+        metadata: {
+          source: 'pattern',
+          generatedAt: new Date().toISOString(),
+        },
+      });
+
+      await this.rateRepository.save(entity);
+      return;
+    }
+
+    if (!allowAiFallback) {
+      return;
+    }
+
     const input = `Convert this rate to a formula: "${rateText}".
 Return JSON with: formula, variables, confidence, rateType.`;
 
@@ -342,11 +382,15 @@ Return JSON with: formula, variables, confidence, rateType.`;
       }
 
       const rate = JSON.parse(outputText);
+      const existing = await this.rateRepository.findOne({ where: { noteId, rateText } });
+      if (existing) {
+        return;
+      }
       const entity = this.rateRepository.create({
         noteId,
         rateText,
         formula: rate.formula,
-        rateType: rate.rateType || 'AD_VALOREM',
+        rateType: rate.rateType || declaredRateType || this.classifyRateType(rateText),
         variables: Array.isArray(rate.variables)
           ? rate.variables.map((name: string) => ({
               name,
@@ -354,6 +398,10 @@ Return JSON with: formula, variables, confidence, rateType.`;
             }))
           : null,
         confidence: rate.confidence,
+        metadata: {
+          source: 'llm',
+          generatedAt: new Date().toISOString(),
+        },
       });
 
       await this.rateRepository.save(entity);
@@ -474,5 +522,58 @@ Return JSON with: formula, variables, confidence, rateType.`;
       crossReferences,
       htsCodes,
     };
+  }
+
+  private getRateCandidates(note: any): string[] {
+    const candidates: string[] = [];
+    const content = typeof note?.content === 'string' ? note.content : '';
+    if (content.length > 0) {
+      candidates.push(...this.extractRateCandidatesFromContent(content));
+    }
+
+    return Array.from(new Set(candidates.map((entry) => entry.trim()).filter(Boolean))).slice(0, 5);
+  }
+
+  private extractRateCandidatesFromContent(content: string): string[] {
+    const normalized = content.replace(/\s+/g, ' ');
+    const patterns = [
+      /\b\d+(?:\.\d+)?\s*%\s*\+\s*(?:\$|¢)?\s*\d+(?:\.\d+)?\s*(?:¢|cents?)?\s*(?:\/|per)\s*[A-Za-z.]+/gi,
+      /(?:\$|¢)?\s*\d+(?:\.\d+)?\s*(?:¢|cents?)?\s*(?:\/|per)\s*[A-Za-z.]+\s*\+\s*\d+(?:\.\d+)?\s*%/gi,
+      /(?:\$|¢)?\s*\d+(?:\.\d+)?\s*(?:¢|cents?)?\s*(?:\/|per)\s*[A-Za-z.]+/gi,
+      /\b\d+(?:\.\d+)?\s*(?:%|percent|per cent)(?:\s+ad valorem)?/gi,
+      /\bfree\b/gi,
+    ];
+
+    const found: string[] = [];
+    for (const pattern of patterns) {
+      for (const match of normalized.matchAll(pattern)) {
+        const value = (match[0] || '').trim();
+        if (value.length >= 3 && value.length <= 120) {
+          found.push(value);
+        }
+      }
+    }
+
+    return found.slice(0, 5);
+  }
+
+  private classifyRateType(rateText: string): string {
+    const normalized = rateText.toLowerCase();
+    const hasPercent = /%|percent|per cent/.test(normalized);
+    const hasSpecific =
+      /\$|¢|cents?|\/|\bper\s+(kg|g|lb|lbs|unit|units|each|item|items|doz|dozen|liter|liters|l|ml|m|meter|meters|sqm|sqft|ton|tons)\b/.test(
+        normalized,
+      );
+
+    if (hasPercent && hasSpecific) {
+      return 'COMPOUND';
+    }
+    if (hasPercent) {
+      return 'AD_VALOREM';
+    }
+    if (hasSpecific) {
+      return 'SPECIFIC';
+    }
+    return 'OTHER';
   }
 }

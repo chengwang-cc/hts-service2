@@ -9,7 +9,7 @@
  * - Cluster-safe with pg-boss singleton jobs
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets, In } from 'typeorm';
 import {
@@ -21,7 +21,9 @@ import {
   HtsStageValidationIssueEntity,
   HtsStageDiffEntity,
   HtsExtraTaxEntity,
+  HtsFormulaGenerationService,
 } from '@hts/core';
+import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
 import axios from 'axios';
 import { Readable } from 'stream';
@@ -68,6 +70,8 @@ export class HtsImportJobHandler {
     private htsProcessor: HtsProcessorService,
     private htsImportService: HtsImportService,
     private s3Storage: S3StorageService,
+    private htsFormulaGenerationService: HtsFormulaGenerationService,
+    @Optional() private noteResolutionService?: NoteResolutionService,
   ) {
     this.S3_BUCKET = this.s3Storage.getDefaultBucket();
   }
@@ -209,6 +213,18 @@ export class HtsImportJobHandler {
         `deactivated ${finalizeResult.deactivatedCount} old entries`,
       );
 
+      try {
+        await this.runPostPromotionEnrichment(importHistory);
+      } catch (enrichmentError: any) {
+        this.logger.warn(
+          `Post-promotion enrichment failed for import ${importHistory.id}: ${enrichmentError.message}`,
+        );
+        await this.htsImportService.appendLog(
+          importId,
+          `⚠ Post-promotion enrichment failed: ${enrichmentError.message}`,
+        );
+      }
+
       // Final status update
       await this.htsImportService.updateStatus(importId, 'COMPLETED');
       await this.htsImportService.appendLog(
@@ -231,6 +247,162 @@ export class HtsImportJobHandler {
 
       throw error; // Let pg-boss handle retry
     }
+  }
+
+  private async runPostPromotionEnrichment(
+    importHistory: HtsImportHistoryEntity,
+  ): Promise<void> {
+    const sourceVersion = importHistory.sourceVersion;
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Running post-promotion formula generation...',
+    );
+
+    const formulaResult = await this.htsFormulaGenerationService.generateMissingFormulas({
+      sourceVersion,
+      activeOnly: true,
+      includeAdjusted: true,
+      batchSize: 500,
+    });
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      `✓ Formula generation complete: general=${formulaResult.generalUpdated}, other=${formulaResult.otherUpdated}, adjusted=${formulaResult.adjustedUpdated}, unresolved=${formulaResult.unresolvedGeneral + formulaResult.unresolvedOther + formulaResult.unresolvedAdjusted}`,
+    );
+
+    if (!this.noteResolutionService) {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Knowledgebase note resolution is not available; skipped note formula enrichment.',
+      );
+      return;
+    }
+
+    const noteResolutionResult = await this.enrichFormulasFromNotes(
+      importHistory,
+      sourceVersion,
+    );
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      `✓ Note enrichment complete: resolved=${noteResolutionResult.resolved}, unresolved=${noteResolutionResult.unresolved}, failed=${noteResolutionResult.failed}`,
+    );
+  }
+
+  private async enrichFormulasFromNotes(
+    importHistory: HtsImportHistoryEntity,
+    sourceVersion: string,
+  ): Promise<{ resolved: number; unresolved: number; failed: number }> {
+    const candidates = await this.htsRepo
+      .createQueryBuilder('hts')
+      .where('hts.sourceVersion = :sourceVersion', { sourceVersion })
+      .andWhere('hts.isActive = :isActive', { isActive: true })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where(
+            "(hts.rateFormula IS NULL AND hts.generalRate IS NOT NULL AND hts.generalRate ~* 'note')",
+          ).orWhere(
+            "(hts.otherRateFormula IS NULL AND hts.otherRate IS NOT NULL AND hts.otherRate ~* 'note')",
+          );
+        }),
+      )
+      .select([
+        'hts.id',
+        'hts.htsNumber',
+        'hts.sourceVersion',
+        'hts.generalRate',
+        'hts.otherRate',
+        'hts.rateFormula',
+        'hts.otherRateFormula',
+        'hts.rateVariables',
+        'hts.otherRateVariables',
+        'hts.isFormulaGenerated',
+        'hts.isOtherFormulaGenerated',
+        'hts.metadata',
+      ])
+      .getMany();
+
+    if (candidates.length === 0) {
+      return { resolved: 0, unresolved: 0, failed: 0 };
+    }
+
+    let resolved = 0;
+    let unresolved = 0;
+    let failed = 0;
+    const year = this.extractYear(sourceVersion);
+
+    for (const entry of candidates) {
+      try {
+        let updated = false;
+        const metadata = { ...(entry.metadata || {}) };
+
+        if (!entry.rateFormula && entry.generalRate && /note/i.test(entry.generalRate)) {
+          const resolvedGeneral = await this.noteResolutionService!.resolveNoteReference(
+            entry.htsNumber,
+            entry.generalRate,
+            'general',
+            year,
+          );
+
+          if (resolvedGeneral?.formula) {
+            entry.rateFormula = resolvedGeneral.formula;
+            entry.rateVariables = resolvedGeneral.variables || null;
+            entry.isFormulaGenerated = true;
+            metadata.noteResolvedGeneral = true;
+            metadata.noteResolvedGeneralAt = new Date().toISOString();
+            updated = true;
+            resolved++;
+          } else {
+            unresolved++;
+          }
+        }
+
+        if (!entry.otherRateFormula && entry.otherRate && /note/i.test(entry.otherRate)) {
+          const resolvedOther = await this.noteResolutionService!.resolveNoteReference(
+            entry.htsNumber,
+            entry.otherRate,
+            'other',
+            year,
+          );
+
+          if (resolvedOther?.formula) {
+            entry.otherRateFormula = resolvedOther.formula;
+            entry.otherRateVariables = resolvedOther.variables || null;
+            entry.isOtherFormulaGenerated = true;
+            metadata.noteResolvedOther = true;
+            metadata.noteResolvedOtherAt = new Date().toISOString();
+            updated = true;
+            resolved++;
+          } else {
+            unresolved++;
+          }
+        }
+
+        if (updated) {
+          entry.metadata = metadata;
+          await this.htsRepo.save(entry);
+        }
+      } catch (error) {
+        failed++;
+        this.logger.warn(
+          `Failed to enrich formula from notes for ${entry.htsNumber}: ${error.message}`,
+        );
+        await this.htsImportService.appendLog(
+          importHistory.id,
+          `Note enrichment failed for ${entry.htsNumber}: ${error.message}`,
+        );
+      }
+    }
+
+    return { resolved, unresolved, failed };
+  }
+
+  private extractYear(sourceVersion: string | null): number | undefined {
+    if (!sourceVersion) {
+      return undefined;
+    }
+    const match = sourceVersion.match(/(19|20)\d{2}/);
+    return match ? parseInt(match[0], 10) : undefined;
   }
 
   /**

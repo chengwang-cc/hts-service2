@@ -32,7 +32,7 @@ export class FormulaGenerationService {
       return { formula: '0', variables: [], confidence: 1.0, method: 'pattern' };
     }
 
-    const normalized = rateText.trim().toLowerCase();
+    const normalized = this.normalizeRateText(rateText);
 
     // Try pattern matching first (fast, deterministic)
     const patternResult = this.tryPatternMatching(normalized, unitOfQuantity);
@@ -47,6 +47,21 @@ export class FormulaGenerationService {
   }
 
   /**
+   * Generate formula using deterministic pattern matching only.
+   * Returns null for unsupported/ambiguous rate text.
+   */
+  generateFormulaByPattern(
+    rateText: string,
+    unitOfQuantity?: string,
+  ): { formula: string; variables: string[]; confidence: number } | null {
+    if (!rateText || rateText.trim() === '') {
+      return { formula: '0', variables: [], confidence: 1.0 };
+    }
+
+    return this.tryPatternMatching(this.normalizeRateText(rateText), unitOfQuantity);
+  }
+
+  /**
    * Try pattern matching for common rate formats
    */
   private tryPatternMatching(
@@ -56,6 +71,19 @@ export class FormulaGenerationService {
     // Free/No duty
     if (/^(free|none|0%?)$/.test(rateText)) {
       return { formula: '0', variables: [], confidence: 1.0 };
+    }
+
+    // Explicit ad valorem: "5% ad valorem", "5 percent ad valorem"
+    const adValoremMatch = rateText.match(
+      /^(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)\s*(?:ad valorem)?$/,
+    );
+    if (adValoremMatch) {
+      const rate = parseFloat(adValoremMatch[1]) / 100;
+      return {
+        formula: `value * ${rate}`,
+        variables: ['value'],
+        confidence: 1.0,
+      };
     }
 
     // Simple percentage: "5%", "5.5%", "0.5%"
@@ -92,6 +120,21 @@ export class FormulaGenerationService {
       };
     }
 
+    // Specific duty text: "2.5 cents per kg", "12 cents/kg"
+    const centsSpecificMatch = rateText.match(
+      /^(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*(?:\/|per)\s*(\w+)$/,
+    );
+    if (centsSpecificMatch) {
+      const amount = parseFloat(centsSpecificMatch[1]) / 100;
+      const unit = centsSpecificMatch[2].toLowerCase();
+      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
+      return {
+        formula: `${variable} * ${amount}`,
+        variables: [variable],
+        confidence: 0.9,
+      };
+    }
+
     // Compound rate: "5% + 25¢/kg", "10% + $2/kg"
     const compoundMatch = rateText.match(
       /^(\d+(?:\.\d+)?)\s*%\s*\+\s*(?:\$|¢)?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*(?:\/|per)\s*(\w+)$/,
@@ -115,6 +158,27 @@ export class FormulaGenerationService {
       };
     }
 
+    // Reversed compound: "$2/kg + 5%", "25¢/kg + 5%"
+    const reversedCompoundMatch = rateText.match(
+      /^(?:\$|¢)?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*(?:\/|per)\s*(\w+)\s*\+\s*(\d+(?:\.\d+)?)\s*%$/,
+    );
+    if (reversedCompoundMatch) {
+      let specificAmount = parseFloat(reversedCompoundMatch[1]);
+      const unit = reversedCompoundMatch[2].toLowerCase();
+      const adValoremRate = parseFloat(reversedCompoundMatch[3]) / 100;
+
+      if (rateText.includes('¢') || rateText.includes('cent')) {
+        specificAmount = specificAmount / 100;
+      }
+
+      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
+      return {
+        formula: `value * ${adValoremRate} + ${variable} * ${specificAmount}`,
+        variables: ['value', variable],
+        confidence: 0.9,
+      };
+    }
+
     // Range: "5%-10%", "5% to 10%"
     const rangeMatch = rateText.match(
       /^(\d+(?:\.\d+)?)\s*%\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*%$/,
@@ -129,6 +193,17 @@ export class FormulaGenerationService {
     }
 
     return null;
+  }
+
+  private normalizeRateText(rateText: string): string {
+    return rateText
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/ad val\./g, 'ad valorem')
+      .replace(/per\s+cent/g, 'percent')
+      .replace(/kgs?\b/g, 'kg')
+      .replace(/\bno\.\b/g, 'number');
   }
 
   /**
@@ -318,7 +393,7 @@ Examples:
         return;
       }
 
-      const normalized = rate.rateText.trim().toLowerCase();
+      const normalized = this.normalizeRateText(rate.rateText);
       const patternResult = this.tryPatternMatching(normalized, rate.unitOfQuantity);
       if (patternResult) {
         results[index] = { ...patternResult, method: 'pattern' };

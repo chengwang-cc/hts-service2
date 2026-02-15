@@ -93,14 +93,28 @@ export class NoteResolutionService {
 
     const noteType = this.detectNoteType(referenceText);
     const chapter = htsNumber ? htsNumber.substring(0, 2) : null;
+    const baseWhere = {
+      noteNumber: noteNumberMatch[1],
+      ...(chapter ? { chapter } : {}),
+      ...(year ? { year } : {}),
+    };
 
+    if (noteType) {
+      const typedMatch = await this.noteRepository.findOne({
+        where: {
+          ...baseWhere,
+          noteType,
+        },
+      });
+
+      if (typedMatch) {
+        return typedMatch;
+      }
+    }
+
+    // Fallback: allow matches without inferred note type.
     return this.noteRepository.findOne({
-      where: {
-        noteNumber: noteNumberMatch[1],
-        ...(noteType ? { noteType } : {}),
-        ...(chapter ? { chapter } : {}),
-        ...(year ? { year } : {}),
-      },
+      where: baseWhere,
     });
   }
 
