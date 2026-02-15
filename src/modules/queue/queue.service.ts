@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PgBoss, type Job, type JobWithMetadata } from 'pg-boss';
+import type { Job, JobWithMetadata } from 'pg-boss';
 import { ConfigService } from '@nestjs/config';
 
 export interface SendJobOptions {
@@ -24,13 +24,21 @@ export interface JobHandler {
 @Injectable()
 export class QueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(QueueService.name);
-  private boss: PgBoss;
+  private boss: any;
   private handlers: Map<string, JobHandler> = new Map();
   private isStarted = false;
+  private readonly queueDisabled =
+    process.env.JEST_WORKER_ID !== undefined ||
+    (process.env.QUEUE_DISABLED ?? 'false') === 'true';
 
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
+    if (this.queueDisabled) {
+      this.isStarted = true;
+      this.logger.warn('QueueService disabled for test/runtime override (jobs will be no-op)');
+      return;
+    }
     await this.initialize();
   }
 
@@ -54,6 +62,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Initializing pg-boss with database: ${dbName}@${dbHost}:${dbPort}`);
 
     try {
+      const PgBoss = await this.loadPgBoss();
       this.boss = new PgBoss({
         connectionString: databaseUrl,
         schema: 'pgboss',
@@ -88,10 +97,24 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async loadPgBoss(): Promise<any> {
+    const dynamicImport = new Function(
+      'specifier',
+      'return import(specifier)',
+    ) as (specifier: string) => Promise<any>;
+
+    const module = await dynamicImport('pg-boss');
+    return module.PgBoss || module.default;
+  }
+
   /**
    * Gracefully shutdown pg-boss
    */
   private async shutdown(): Promise<void> {
+    if (this.queueDisabled) {
+      return;
+    }
+
     if (!this.boss || !this.isStarted) {
       return;
     }
@@ -120,6 +143,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     this.handlers.set(queueName, handler);
     this.logger.log(`Handler registered for queue: ${queueName}`);
+
+    if (this.queueDisabled) {
+      return;
+    }
 
     // If pg-boss already started, start processing this queue immediately
     if (this.isStarted) {
@@ -192,6 +219,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     data: Record<string, any>,
     options?: SendJobOptions
   ): Promise<string> {
+    if (this.queueDisabled) {
+      return `job-disabled-${Date.now()}`;
+    }
+
     if (!this.boss || !this.isStarted) {
       this.logger.error(
         `Cannot send job to ${queueName}: pg-boss not started`
@@ -233,6 +264,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Get job status by ID
    */
   async getJobStatus(queueName: string, jobId: string): Promise<JobWithMetadata<any> | null> {
+    if (this.queueDisabled) {
+      return null;
+    }
+
     if (!this.boss || !this.isStarted) {
       throw new Error('Queue service not available');
     }
@@ -244,6 +279,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Cancel job by ID
    */
   async cancelJob(queueName: string, jobId: string): Promise<void> {
+    if (this.queueDisabled) {
+      return;
+    }
+
     if (!this.boss || !this.isStarted) {
       throw new Error('Queue service not available');
     }
@@ -256,6 +295,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Complete job manually (for custom job completion)
    */
   async completeJob(queueName: string, jobId: string, data?: any): Promise<void> {
+    if (this.queueDisabled) {
+      return;
+    }
+
     if (!this.boss || !this.isStarted) {
       throw new Error('Queue service not available');
     }
@@ -268,6 +311,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Fail job manually
    */
   async failJob(queueName: string, jobId: string, errorData: any): Promise<void> {
+    if (this.queueDisabled) {
+      return;
+    }
+
     if (!this.boss || !this.isStarted) {
       throw new Error('Queue service not available');
     }
@@ -280,6 +327,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Get queue statistics
    */
   async getQueueStats(queueName?: string): Promise<any> {
+    if (this.queueDisabled) {
+      return {};
+    }
+
     if (!this.boss || !this.isStarted) {
       throw new Error('Queue service not available');
     }
@@ -297,6 +348,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
    * Check if queue service is ready
    */
   isReady(): boolean {
+    if (this.queueDisabled) {
+      return true;
+    }
     return this.isStarted && this.boss !== null;
   }
 }

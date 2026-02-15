@@ -7,6 +7,10 @@ ENV PATH="$PNPM_HOME:$PATH"
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends poppler-utils \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 # Copy source first; .dockerignore keeps build context lean.
@@ -23,6 +27,10 @@ ENV NODE_ENV=production
 ENV PORT=3002
 
 WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends poppler-utils \
+  && rm -rf /var/lib/apt/lists/*
 
 # Keep runtime container non-root.
 RUN groupadd --system appuser && useradd --system --gid appuser appuser

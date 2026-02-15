@@ -38,7 +38,8 @@ import { AdminModule } from './modules/admin/admin.module';
       username: process.env.DB_USERNAME ?? 'postgres',
       password: process.env.DB_PASSWORD ?? '',
       namingStrategy: new CustomNamingStrategy(),
-      entities: [__dirname + '/../../**/*.entity.js'], // Include all entities
+      entities: [__dirname + '/../../**/*.entity{.ts,.js}'],
+      autoLoadEntities: true,
       database: process.env.DB_DATABASE ?? 'hts',
       synchronize: (process.env.DB_SYNCHRONIZE ?? 'false') === 'true', // Default to false
       migrations: [__dirname + '/migrations/**/*.js'], // Path to migration files

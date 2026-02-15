@@ -21,12 +21,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
+import { HtsDocumentEntity, KnowledgeChunkEntity, PdfParserService } from '@hts/knowledgebase';
 import { S3StorageService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import axios from 'axios';
 import { Readable } from 'stream';
-import * as crypto from 'crypto';
 
 interface DocumentProcessingCheckpoint {
   stage: 'DOWNLOADING' | 'DOWNLOADED' | 'PARSING' | 'PARSED' | 'CHUNKING' | 'COMPLETED';
@@ -47,6 +46,7 @@ export class DocumentProcessingJobHandler {
     private documentRepo: Repository<HtsDocumentEntity>,
     @InjectRepository(KnowledgeChunkEntity)
     private chunkRepo: Repository<KnowledgeChunkEntity>,
+    private pdfParserService: PdfParserService,
     private s3StorageService: S3StorageService,
     private queueService: QueueService,
   ) {}
@@ -148,17 +148,14 @@ export class DocumentProcessingJobHandler {
 
     // Determine source and download
     let downloadStream: Readable;
-    let downloadSource: string;
 
     if (document.pdfData) {
       // Use existing PDF data from database
       downloadStream = Readable.from(document.pdfData);
-      downloadSource = 'database';
       this.logger.log(`Document ${documentId} - Using PDF data from database`);
     } else if (document.sourceUrl && !document.sourceUrl.startsWith('uploaded:')) {
       // Download from URL
       downloadStream = await this.downloadFromUrl(document.sourceUrl, document.documentType);
-      downloadSource = document.sourceUrl;
       this.logger.log(`Document ${documentId} - Downloading from URL: ${document.sourceUrl}`);
     } else {
       throw new Error('No source available for download (no pdfData or sourceUrl)');
@@ -198,6 +195,12 @@ export class DocumentProcessingJobHandler {
       downloadedAt: new Date(),
     });
 
+    document.s3Bucket = s3Bucket;
+    document.s3Key = s3Key;
+    document.s3FileHash = uploadResult.sha256;
+    document.fileSize = uploadResult.size;
+    document.downloadedAt = new Date();
+
     // Update checkpoint
     checkpoint.s3Key = s3Key;
     checkpoint.s3FileHash = uploadResult.sha256;
@@ -219,23 +222,26 @@ export class DocumentProcessingJobHandler {
       return;
     }
 
-    if (!document.s3Bucket || !document.s3Key) {
+    const s3Bucket = document.s3Bucket || this.s3StorageService.getDefaultBucket();
+    const s3Key = document.s3Key || checkpoint.s3Key;
+
+    if (!s3Key) {
       throw new Error('S3 location not found - cannot parse');
     }
 
-    this.logger.log(`Document ${documentId} - Parsing from S3: ${document.s3Key}`);
+    this.logger.log(`Document ${documentId} - Parsing from S3: ${s3Key}`);
 
     // Download and parse
     let parsedText: string;
 
     if (document.documentType === 'PDF') {
       // Download PDF and parse
-      const pdfStream = await this.s3StorageService.downloadStream(document.s3Bucket, document.s3Key);
+      const pdfStream = await this.s3StorageService.downloadStream(s3Bucket, s3Key);
       const pdfBuffer = await this.streamToBuffer(pdfStream);
-      parsedText = await this.parsePdfBuffer(pdfBuffer);
+      parsedText = await this.pdfParserService.parsePdf(pdfBuffer);
     } else {
       // Download text file
-      const textStream = await this.s3StorageService.downloadStream(document.s3Bucket, document.s3Key);
+      const textStream = await this.s3StorageService.downloadStream(s3Bucket, s3Key);
       parsedText = await this.streamToString(textStream);
     }
 
@@ -252,6 +258,10 @@ export class DocumentProcessingJobHandler {
       isParsed: true,
     });
 
+    document.parsedText = parsedText;
+    document.parsedAt = new Date();
+    document.isParsed = true;
+
     checkpoint.parsedTextLength = parsedText.length;
   }
 
@@ -264,12 +274,22 @@ export class DocumentProcessingJobHandler {
   ): Promise<void> {
     const documentId = document.id;
 
-    if (!document.parsedText) {
+    let parsedText = document.parsedText;
+    if (!parsedText) {
+      const latestDocument = await this.documentRepo.findOne({
+        where: { id: documentId },
+        select: ['parsedText'],
+      });
+      parsedText = latestDocument?.parsedText ?? null;
+      document.parsedText = parsedText;
+    }
+
+    if (!parsedText) {
       throw new Error('No parsed text available for chunking');
     }
 
     // Chunk text (max 500 tokens per chunk)
-    const chunks = this.chunkText(document.parsedText, 500);
+    const chunks = this.chunkText(parsedText, 500);
     checkpoint.totalChunks = chunks.length;
 
     const startIndex = checkpoint.processedChunks || 0;
@@ -373,22 +393,6 @@ export class DocumentProcessingJobHandler {
       chunks.push(chunk);
     }
     return chunks.join('');
-  }
-
-  /**
-   * Parse PDF buffer to text
-   */
-  private async parsePdfBuffer(buffer: Buffer): Promise<string> {
-    try {
-      // Try to use pdf-parse if available
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(buffer);
-      return data.text;
-    } catch (error) {
-      this.logger.warn('pdf-parse not available, using simple text extraction');
-      // Fallback: Simple text extraction (very basic)
-      return buffer.toString('utf-8').replace(/[^\x20-\x7E\n]/g, '');
-    }
   }
 
   /**

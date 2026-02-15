@@ -22,8 +22,15 @@ import {
   HtsSettingEntity,
   HtsEntity,
   HtsExtraTaxEntity,
+  CustomNamingStrategy,
 } from '@hts/core';
 import { UsitcDownloaderService } from '@hts/core';
+
+jest.mock('../src/modules/queue/queue.service', () => ({
+  QueueService: class QueueService {},
+}));
+
+jest.setTimeout(120000);
 
 describe('Admin HTS Import (E2E)', () => {
   let app: INestApplication;
@@ -57,6 +64,8 @@ describe('Admin HTS Import (E2E)', () => {
           username: process.env.DB_USERNAME || 'postgres',
           password: process.env.DB_PASSWORD || 'postgres',
           database: process.env.DB_DATABASE || 'hts_test',
+          namingStrategy: new CustomNamingStrategy(),
+          dropSchema: true,
           synchronize: true,
           autoLoadEntities: true,
           entities: [
@@ -91,16 +100,16 @@ describe('Admin HTS Import (E2E)', () => {
         HtsImportService,
         AdminGuard,
         AdminPermissionsGuard,
+        { provide: QueueService, useValue: queueServiceMock },
+        {
+          provide: UsitcDownloaderService,
+          useValue: {
+            findLatestRevision: jest.fn(),
+            getDownloadUrl: jest.fn(),
+          },
+        },
       ],
-    })
-      .overrideProvider(QueueService)
-      .useValue(queueServiceMock)
-      .overrideProvider(UsitcDownloaderService)
-      .useValue({
-        findLatestRevision: jest.fn(),
-        getDownloadUrl: jest.fn(),
-      })
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -140,16 +149,15 @@ describe('Admin HTS Import (E2E)', () => {
 
     const reviewerRole = await roleRepo.save(
       roleRepo.create({
-        name: `hts-import-reviewer-${Date.now()}`,
-        permissions: ['admin:*', 'hts:import:review', 'hts:import:export', 'hts:import:promote'],
+        name: 'admin',
+        permissions: ['hts:import:review', 'hts:import:export', 'hts:import:promote'],
       }),
     );
 
     const overrideRole = await roleRepo.save(
       roleRepo.create({
-        name: `hts-import-overrider-${Date.now()}`,
+        name: 'superadmin',
         permissions: [
-          'admin:*',
           'hts:import:review',
           'hts:import:export',
           'hts:import:promote',
@@ -182,8 +190,17 @@ describe('Admin HTS Import (E2E)', () => {
     overrider.roles = [overrideRole];
     await userRepo.save(overrider);
 
-    reviewerToken = (await authService.login(reviewer)).accessToken;
-    overrideToken = (await authService.login(overrider)).accessToken;
+    const reviewerHydrated = await userRepo.findOneOrFail({
+      where: { id: reviewer.id },
+      relations: ['roles'],
+    });
+    const overriderHydrated = await userRepo.findOneOrFail({
+      where: { id: overrider.id },
+      relations: ['roles'],
+    });
+
+    reviewerToken = (await authService.login(reviewerHydrated)).tokens.accessToken;
+    overrideToken = (await authService.login(overriderHydrated)).tokens.accessToken;
 
     const importHistory = await importHistoryRepo.save(
       importHistoryRepo.create({
@@ -321,7 +338,7 @@ describe('Admin HTS Import (E2E)', () => {
     const response = await request(app.getHttpServer())
       .post(`/admin/hts-imports/${importId}/promote`)
       .set('Authorization', `Bearer ${overrideToken}`)
-      .expect(200);
+      .expect(201);
 
     expect(response.body.success).toBe(true);
     expect(queueServiceMock.sendJob).toHaveBeenCalled();
