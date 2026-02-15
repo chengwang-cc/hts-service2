@@ -22,7 +22,12 @@ import { AdminGuard } from '../src/modules/admin/guards/admin.guard';
 import { DocumentProcessingJobHandler } from '../src/modules/admin/jobs/document-processing.job-handler';
 import { QueueService } from '../src/modules/queue/queue.service';
 import { UsitcDownloaderService, S3StorageService, CustomNamingStrategy } from '@hts/core';
-import { HtsDocumentEntity, KnowledgeChunkEntity, PdfParserService } from '@hts/knowledgebase';
+import {
+  HtsDocumentEntity,
+  KnowledgeChunkEntity,
+  NoteExtractionService,
+  PdfParserService,
+} from '@hts/knowledgebase';
 
 jest.setTimeout(120000);
 
@@ -87,6 +92,7 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
   let documentRepo: Repository<HtsDocumentEntity>;
   let documentProcessingHandler: DocumentProcessingJobHandler;
   let queueServiceMock: { sendJob: jest.Mock; registerHandler: jest.Mock };
+  let noteExtractionServiceMock: { extractNotes: jest.Mock };
   let chunks: StoredChunk[];
   let adminToken: string;
 
@@ -97,6 +103,9 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
     queueServiceMock = {
       sendJob: jest.fn().mockResolvedValue('job-test-knowledge'),
       registerHandler: jest.fn().mockResolvedValue(undefined),
+    };
+    noteExtractionServiceMock = {
+      extractNotes: jest.fn().mockResolvedValue([{ id: 'note-1' }]),
     };
 
     const chunkRepoMock = {
@@ -149,6 +158,7 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
         AdminGuard,
         DocumentProcessingJobHandler,
         PdfParserService,
+        { provide: NoteExtractionService, useValue: noteExtractionServiceMock },
         { provide: QueueService, useValue: queueServiceMock },
         { provide: S3StorageService, useClass: InMemoryS3StorageService },
         {
@@ -242,6 +252,12 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
     expect(processed.isParsed).toBe(true);
     expect(normalizedText).toContain('HTS PDF Extraction Works');
     expect(chunks.length).toBeGreaterThan(0);
+    expect(noteExtractionServiceMock.extractNotes).toHaveBeenCalledWith(
+      documentId,
+      '00',
+      expect.any(String),
+      2026,
+    );
 
     expect(queueServiceMock.sendJob).toHaveBeenCalledWith(
       'embedding-generation',

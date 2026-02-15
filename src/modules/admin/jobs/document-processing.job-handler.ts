@@ -6,8 +6,9 @@
  * 2. DOWNLOADED → File ready in S3
  * 3. PARSING → Extract text from S3 file
  * 4. PARSED → Text extracted
- * 5. CHUNKING → Create chunks in batches
- * 6. COMPLETED → All done
+ * 5. EXTRACTING_NOTES → Extract HTS notes from parsed text
+ * 6. CHUNKING → Create chunks in batches
+ * 7. COMPLETED → All done
  *
  * Features:
  * - S3 streaming: No memory bloat for large PDFs
@@ -21,17 +22,30 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { HtsDocumentEntity, KnowledgeChunkEntity, PdfParserService } from '@hts/knowledgebase';
+import {
+  HtsDocumentEntity,
+  KnowledgeChunkEntity,
+  PdfParserService,
+  NoteExtractionService,
+} from '@hts/knowledgebase';
 import { S3StorageService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import axios from 'axios';
 import { Readable } from 'stream';
 
 interface DocumentProcessingCheckpoint {
-  stage: 'DOWNLOADING' | 'DOWNLOADED' | 'PARSING' | 'PARSED' | 'CHUNKING' | 'COMPLETED';
+  stage:
+    | 'DOWNLOADING'
+    | 'DOWNLOADED'
+    | 'PARSING'
+    | 'PARSED'
+    | 'EXTRACTING_NOTES'
+    | 'CHUNKING'
+    | 'COMPLETED';
   s3Key?: string;
   s3FileHash?: string;
   parsedTextLength?: number;
+  notesExtracted?: number;
   processedChunks?: number;
   totalChunks?: number;
 }
@@ -47,6 +61,7 @@ export class DocumentProcessingJobHandler {
     @InjectRepository(KnowledgeChunkEntity)
     private chunkRepo: Repository<KnowledgeChunkEntity>,
     private pdfParserService: PdfParserService,
+    private noteExtractionService: NoteExtractionService,
     private s3StorageService: S3StorageService,
     private queueService: QueueService,
   ) {}
@@ -94,6 +109,12 @@ export class DocumentProcessingJobHandler {
 
       // STAGE 3: Create chunks in batches
       if (checkpoint.stage === 'PARSED') {
+        checkpoint.stage = 'EXTRACTING_NOTES';
+        await this.saveCheckpoint(documentId, checkpoint);
+      }
+
+      if (checkpoint.stage === 'EXTRACTING_NOTES') {
+        await this.extractKnowledgeNotes(document, checkpoint);
         checkpoint.stage = 'CHUNKING';
         await this.saveCheckpoint(documentId, checkpoint);
       }
@@ -266,7 +287,58 @@ export class DocumentProcessingJobHandler {
   }
 
   /**
-   * STAGE 3: Create chunks in batches
+   * STAGE 3: Extract HTS notes from parsed text and persist to hts_notes
+   */
+  private async extractKnowledgeNotes(
+    document: HtsDocumentEntity,
+    checkpoint: DocumentProcessingCheckpoint,
+  ): Promise<void> {
+    const documentId = document.id;
+
+    let parsedText = document.parsedText;
+    if (!parsedText) {
+      const latestDocument = await this.documentRepo.findOne({
+        where: { id: documentId },
+        select: ['parsedText'],
+      });
+      parsedText = latestDocument?.parsedText ?? null;
+      document.parsedText = parsedText;
+    }
+
+    if (!parsedText) {
+      throw new Error('No parsed text available for note extraction');
+    }
+
+    this.logger.log(`Document ${documentId} - Extracting HTS notes`);
+
+    const notes = await this.noteExtractionService.extractNotes(
+      documentId,
+      document.chapter,
+      parsedText,
+      document.year,
+    );
+
+    checkpoint.notesExtracted = notes.length;
+
+    const metadata: Record<string, any> = {
+      ...((document.metadata as Record<string, any>) || {}),
+      notesExtracted: notes.length,
+      notesExtractedAt: new Date().toISOString(),
+    };
+
+    await this.documentRepo.update(documentId, { metadata: metadata as Record<string, any> });
+    document.metadata = metadata;
+
+    if (notes.length === 0) {
+      this.logger.warn(`Document ${documentId} - Note extraction completed with 0 notes`);
+      return;
+    }
+
+    this.logger.log(`Document ${documentId} - Extracted ${notes.length} HTS notes`);
+  }
+
+  /**
+   * STAGE 4: Create chunks in batches
    */
   private async createChunksInBatches(
     document: HtsDocumentEntity,
