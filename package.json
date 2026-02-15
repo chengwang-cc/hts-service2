@@ -11,7 +11,7 @@
     "dev": "pnpm --filter hts-service dev",
     "format": "prettier --write \"**/*.ts\"",
     "start": "nest start",
-    "start:dev": "nest start --watch --port 7001",
+    "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,packages,apps}/**/*.ts\" --fix",

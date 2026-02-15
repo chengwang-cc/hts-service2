@@ -36,9 +36,12 @@ export class AuthService {
     };
 
     return {
-      accessToken: this.jwtService.sign(payload, { expiresIn: '1h' }),
-      refreshToken: this.jwtService.sign(payload, { expiresIn: '360d' }),
       user,
+      tokens: {
+        accessToken: this.jwtService.sign(payload, { expiresIn: '1h' }),
+        refreshToken: this.jwtService.sign(payload, { expiresIn: '360d' }),
+        expiresIn: 3600, // 1 hour in seconds
+      },
     };
   }
 
