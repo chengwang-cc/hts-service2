@@ -151,6 +151,10 @@ export class RolesAdminService {
           { key: 'hts:search', title: 'Search HTS Codes', isLeaf: true },
           { key: 'hts:calculate', title: 'Calculate Duties', isLeaf: true },
           { key: 'hts:import', title: 'Import HTS Data', isLeaf: true },
+          { key: 'hts:import:review', title: 'Review HTS Imports', isLeaf: true },
+          { key: 'hts:import:export', title: 'Export HTS Diffs', isLeaf: true },
+          { key: 'hts:import:promote', title: 'Promote HTS Imports', isLeaf: true },
+          { key: 'hts:import:override', title: 'Override HTS Validation', isLeaf: true },
         ],
       },
       {

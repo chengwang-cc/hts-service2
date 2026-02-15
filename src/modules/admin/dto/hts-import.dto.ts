@@ -86,10 +86,10 @@ export class ListImportsDto {
 
   @ApiPropertyOptional({
     description: 'Filter by import status',
-    enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK'],
+    enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REQUIRES_REVIEW', 'REJECTED'],
   })
   @IsOptional()
-  @IsIn(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK'])
+  @IsIn(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REQUIRES_REVIEW', 'REJECTED'])
   status?: string;
 
   @ApiPropertyOptional({
@@ -119,6 +119,99 @@ export class LogsPaginationDto {
 
   @ApiPropertyOptional({
     description: 'Maximum number of log entries to return',
+    example: 100,
+    default: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(1000)
+  limit?: number = 100;
+}
+
+/**
+ * Reject Import DTO
+ */
+export class RejectImportDto {
+  @ApiPropertyOptional({
+    description: 'Reason for rejection',
+    example: 'Validation errors exceed threshold',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+/**
+ * Stage Validation Query DTO
+ */
+export class StageValidationQueryDto {
+  @ApiPropertyOptional({
+    description: 'Severity filter',
+    enum: ['ERROR', 'WARNING', 'INFO'],
+  })
+  @IsOptional()
+  @IsIn(['ERROR', 'WARNING', 'INFO'])
+  severity?: string;
+
+  @ApiPropertyOptional({
+    description: 'Offset for results (0-indexed)',
+    example: 0,
+    default: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number = 0;
+
+  @ApiPropertyOptional({
+    description: 'Maximum number of results to return',
+    example: 100,
+    default: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(1000)
+  limit?: number = 100;
+}
+
+/**
+ * Stage Diff Query DTO
+ */
+export class StageDiffQueryDto {
+  @ApiPropertyOptional({
+    description: 'Diff type filter',
+    enum: ['ADDED', 'REMOVED', 'CHANGED', 'UNCHANGED'],
+  })
+  @IsOptional()
+  @IsIn(['ADDED', 'REMOVED', 'CHANGED', 'UNCHANGED'])
+  diffType?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by HTS number',
+    example: '0101.21.0000',
+  })
+  @IsOptional()
+  @IsString()
+  htsNumber?: string;
+
+  @ApiPropertyOptional({
+    description: 'Offset for results (0-indexed)',
+    example: 0,
+    default: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number = 0;
+
+  @ApiPropertyOptional({
+    description: 'Maximum number of results to return',
     example: 100,
     default: 100,
   })

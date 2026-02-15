@@ -12,12 +12,23 @@ import {
   Body,
   UseGuards,
   Request,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
+import { AdminPermissionsGuard } from '../guards/admin-permissions.guard';
+import { AdminPermissions } from '../decorators/admin-permissions.decorator';
 import { HtsImportService } from '../services/hts-import.service';
-import { TriggerImportDto, ListImportsDto, LogsPaginationDto } from '../dto/hts-import.dto';
+import {
+  TriggerImportDto,
+  ListImportsDto,
+  LogsPaginationDto,
+  StageValidationQueryDto,
+  StageDiffQueryDto,
+  RejectImportDto,
+} from '../dto/hts-import.dto';
 
 @ApiTags('Admin - HTS Imports')
 @ApiBearerAuth()
@@ -163,5 +174,153 @@ export class HtsImportAdminController {
         total: failedEntries.length,
       },
     };
+  }
+
+  /**
+   * GET /admin/hts-imports/:id/stage/summary
+   * Get staging summary (counts for staged entries, validation issues, and diffs)
+   */
+  @Get(':id/stage/summary')
+  @ApiOperation({ summary: 'Get staging summary' })
+  @ApiResponse({ status: 200, description: 'Staging summary retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async getStageSummary(@Param('id') id: string) {
+    const summary = await this.htsImportService.getStageSummary(id);
+
+    return {
+      success: true,
+      data: summary,
+    };
+  }
+
+  /**
+   * GET /admin/hts-imports/:id/stage/validation
+   * Get validation issues for staged entries
+   */
+  @Get(':id/stage/validation')
+  @ApiOperation({ summary: 'Get staging validation issues' })
+  @ApiResponse({ status: 200, description: 'Validation issues retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async getStageValidation(
+    @Param('id') id: string,
+    @Query() query: StageValidationQueryDto,
+  ) {
+    const result = await this.htsImportService.getStageValidationIssues(id, query);
+
+    return {
+      success: true,
+      data: result.data,
+      meta: result.meta,
+    };
+  }
+
+  /**
+   * GET /admin/hts-imports/:id/stage/diffs
+   * Get side-by-side diffs for staged entries
+   */
+  @Get(':id/stage/diffs')
+  @ApiOperation({ summary: 'Get staging diffs' })
+  @ApiResponse({ status: 200, description: 'Diffs retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async getStageDiffs(
+    @Param('id') id: string,
+    @Query() query: StageDiffQueryDto,
+  ) {
+    const result = await this.htsImportService.getStageDiffs(id, query);
+
+    return {
+      success: true,
+      data: result.data,
+      meta: result.meta,
+    };
+  }
+
+  /**
+   * GET /admin/hts-imports/:id/stage/diffs/export
+   * Export diffs as CSV
+   */
+  @Get(':id/stage/diffs/export')
+  @ApiOperation({ summary: 'Export staging diffs as CSV' })
+  @ApiResponse({ status: 200, description: 'CSV exported successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:export')
+  async exportStageDiffs(
+    @Param('id') id: string,
+    @Query() query: StageDiffQueryDto,
+    @Res() res: Response,
+  ) {
+    const csv = await this.htsImportService.exportStageDiffsCsv(id, query);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="hts-diffs-${id}.csv"`);
+    res.send(csv);
+  }
+
+  /**
+   * POST /admin/hts-imports/:id/promote
+   * Promote a staged import to production HTS
+   */
+  @Post(':id/promote')
+  @ApiOperation({ summary: 'Promote staged HTS import' })
+  @ApiResponse({ status: 200, description: 'Promotion triggered successfully' })
+  @ApiResponse({ status: 400, description: 'Import cannot be promoted' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:promote')
+  async promote(@Param('id') id: string, @Request() req) {
+    const userId = req.user?.email || 'UNKNOWN';
+    const userPermissions = (req.user?.roles || [])
+      .flatMap((role: any) => role.permissions || [])
+      .filter(Boolean);
+    const canOverride = this.hasPermission(userPermissions, 'hts:import:override');
+    const result = await this.htsImportService.promoteImport(id, userId, canOverride);
+
+    return {
+      success: true,
+      data: result,
+      message: 'Promotion job triggered. Processing will begin shortly.',
+    };
+  }
+
+  /**
+   * POST /admin/hts-imports/:id/reject
+   * Reject a staged import
+   */
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Reject staged HTS import' })
+  @ApiResponse({ status: 200, description: 'Import rejected successfully' })
+  @ApiResponse({ status: 400, description: 'Import cannot be rejected' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async reject(@Param('id') id: string, @Body() dto: RejectImportDto, @Request() req) {
+    const userId = req.user?.email || 'UNKNOWN';
+    const result = await this.htsImportService.rejectImport(id, userId, dto?.reason);
+
+    return {
+      success: true,
+      data: result,
+      message: 'Import rejected.',
+    };
+  }
+
+  private hasPermission(userPermissions: string[], needed: string): boolean {
+    if (userPermissions.includes(needed) || userPermissions.includes('admin:*')) return true;
+
+    for (const permission of userPermissions) {
+      if (permission.endsWith('*')) {
+        const prefix = permission.slice(0, -1);
+        if (needed.startsWith(prefix)) return true;
+      }
+    }
+
+    return false;
   }
 }

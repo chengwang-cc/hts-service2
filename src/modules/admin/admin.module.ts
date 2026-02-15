@@ -15,6 +15,11 @@ import { OrganizationEntity } from '../auth/entities/organization.entity';
 import {
   HtsEntity,
   HtsImportHistoryEntity,
+  HtsSettingEntity,
+  HtsStageEntryEntity,
+  HtsStageValidationIssueEntity,
+  HtsStageDiffEntity,
+  HtsExtraTaxEntity,
   HtsFormulaCandidateEntity,
   HtsTestCaseEntity,
   HtsTestResultEntity,
@@ -67,6 +72,7 @@ import { KnowledgeAdminService } from './services/knowledge.admin.service';
 import { HtsImportJobHandler } from './jobs/hts-import.job-handler';
 import { FormulaGenerationJobHandler } from './jobs/formula-generation.job-handler';
 import { TestBatchExecutionJobHandler } from './jobs/test-batch-execution.job-handler';
+import { AdminPermissionsGuard } from './guards/admin-permissions.guard';
 
 // Job Handlers - Phase 3
 import { DocumentProcessingJobHandler } from './jobs/document-processing.job-handler';
@@ -82,6 +88,11 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       // Phase 2 entities
       HtsEntity,
       HtsImportHistoryEntity,
+      HtsSettingEntity,
+      HtsStageEntryEntity,
+      HtsStageValidationIssueEntity,
+      HtsStageDiffEntity,
+      HtsExtraTaxEntity,
       HtsFormulaCandidateEntity,
       HtsTestCaseEntity,
       HtsTestResultEntity,
@@ -127,6 +138,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     // Job handlers - Phase 3
     DocumentProcessingJobHandler,
     EmbeddingGenerationJobHandler,
+    AdminPermissionsGuard,
     // Core services (imported from wrapper modules, not provided here)
     // HtsProcessorService, FormulaGenerationService, FormulaEvaluationService, OpenAiService - from wrapper modules
     // QueueService - from QueueModule

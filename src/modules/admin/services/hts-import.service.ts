@@ -6,9 +6,22 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { HtsImportHistoryEntity, HtsEntity, UsitcDownloaderService } from '@hts/core';
+import {
+  HtsImportHistoryEntity,
+  HtsEntity,
+  HtsSettingEntity,
+  HtsStageEntryEntity,
+  HtsStageValidationIssueEntity,
+  HtsStageDiffEntity,
+  UsitcDownloaderService,
+} from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
-import { TriggerImportDto, ListImportsDto } from '../dto/hts-import.dto';
+import {
+  TriggerImportDto,
+  ListImportsDto,
+  StageValidationQueryDto,
+  StageDiffQueryDto,
+} from '../dto/hts-import.dto';
 
 @Injectable()
 export class HtsImportService {
@@ -19,6 +32,14 @@ export class HtsImportService {
     private importHistoryRepo: Repository<HtsImportHistoryEntity>,
     @InjectRepository(HtsEntity)
     private htsRepo: Repository<HtsEntity>,
+    @InjectRepository(HtsSettingEntity)
+    private htsSettingRepo: Repository<HtsSettingEntity>,
+    @InjectRepository(HtsStageEntryEntity)
+    private htsStageRepo: Repository<HtsStageEntryEntity>,
+    @InjectRepository(HtsStageValidationIssueEntity)
+    private htsStageIssueRepo: Repository<HtsStageValidationIssueEntity>,
+    @InjectRepository(HtsStageDiffEntity)
+    private htsStageDiffRepo: Repository<HtsStageDiffEntity>,
     private usitcDownloader: UsitcDownloaderService,
     private queueService: QueueService,
   ) {}
@@ -295,5 +316,352 @@ export class HtsImportService {
       .setParameter('newEntry', JSON.stringify([{ htsNumber, error }]))
       .where('id = :id', { id: importId })
       .execute();
+  }
+
+  /**
+   * Get staging summary for an import
+   */
+  async getStageSummary(importId: string): Promise<{
+    stagedCount: number;
+    validationCounts: Record<string, number>;
+    diffCounts: Record<string, number>;
+  }> {
+    await this.findOne(importId);
+
+    const stagedCount = await this.htsStageRepo.count({ where: { importId } });
+
+    const validationRows = await this.htsStageIssueRepo
+      .createQueryBuilder('issue')
+      .select('issue.severity', 'severity')
+      .addSelect('COUNT(*)', 'count')
+      .where('issue.importId = :importId', { importId })
+      .groupBy('issue.severity')
+      .getRawMany();
+
+    const diffRows = await this.htsStageDiffRepo
+      .createQueryBuilder('diff')
+      .select('diff.diffType', 'diffType')
+      .addSelect('COUNT(*)', 'count')
+      .where('diff.importId = :importId', { importId })
+      .groupBy('diff.diffType')
+      .getRawMany();
+
+    const validationCounts: Record<string, number> = {};
+    for (const row of validationRows) {
+      validationCounts[row.severity] = parseInt(row.count, 10);
+    }
+
+    const diffCounts: Record<string, number> = {};
+    for (const row of diffRows) {
+      diffCounts[row.diffType] = parseInt(row.count, 10);
+    }
+
+    return { stagedCount, validationCounts, diffCounts };
+  }
+
+  /**
+   * Get staging validation issues
+   */
+  async getStageValidationIssues(
+    importId: string,
+    query: StageValidationQueryDto,
+  ): Promise<{ data: HtsStageValidationIssueEntity[]; meta: Record<string, any> }> {
+    await this.findOne(importId);
+
+    const offset = query.offset ?? 0;
+    const limit = query.limit ?? 100;
+
+    const qb = this.htsStageIssueRepo.createQueryBuilder('issue')
+      .where('issue.importId = :importId', { importId });
+
+    if (query.severity) {
+      qb.andWhere('issue.severity = :severity', { severity: query.severity });
+    }
+
+    const [data, total] = await qb
+      .orderBy('issue.createdAt', 'DESC')
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        offset,
+        limit,
+      },
+    };
+  }
+
+  /**
+   * Get staging diffs
+   */
+  async getStageDiffs(
+    importId: string,
+    query: StageDiffQueryDto,
+  ): Promise<{ data: HtsStageDiffEntity[]; meta: Record<string, any> }> {
+    await this.findOne(importId);
+
+    const offset = query.offset ?? 0;
+    const limit = query.limit ?? 100;
+
+    const qb = this.htsStageDiffRepo.createQueryBuilder('diff')
+      .where('diff.importId = :importId', { importId });
+
+    if (query.diffType) {
+      qb.andWhere('diff.diffType = :diffType', { diffType: query.diffType });
+    }
+
+    if (query.htsNumber) {
+      qb.andWhere('diff.htsNumber = :htsNumber', { htsNumber: query.htsNumber });
+    }
+
+    const [data, total] = await qb
+      .orderBy('diff.htsNumber', 'ASC')
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        offset,
+        limit,
+      },
+    };
+  }
+
+  /**
+   * Export staging diffs as CSV
+   */
+  async exportStageDiffsCsv(
+    importId: string,
+    query: StageDiffQueryDto,
+  ): Promise<string> {
+    await this.findOne(importId);
+
+    const qb = this.htsStageDiffRepo.createQueryBuilder('diff')
+      .where('diff.importId = :importId', { importId });
+
+    if (query.diffType) {
+      qb.andWhere('diff.diffType = :diffType', { diffType: query.diffType });
+    }
+
+    if (query.htsNumber) {
+      qb.andWhere('diff.htsNumber = :htsNumber', { htsNumber: query.htsNumber });
+    }
+
+    const diffs = await qb.orderBy('diff.htsNumber', 'ASC').getMany();
+
+    const header = [
+      'htsNumber',
+      'diffType',
+      'changedFields',
+      'current',
+      'staged',
+      'extraTaxes',
+      'diffSummary',
+    ];
+
+    const rows = diffs.map((diff) => {
+      const summary = diff.diffSummary || {};
+      const changedFields = summary.changes ? Object.keys(summary.changes).join('|') : '';
+      const current = summary.current ?? null;
+      const staged = summary.staged ?? null;
+      const extraTaxes = summary.extraTaxes ?? null;
+
+      return [
+        diff.htsNumber,
+        diff.diffType,
+        changedFields,
+        JSON.stringify(current),
+        JSON.stringify(staged),
+        JSON.stringify(extraTaxes),
+        JSON.stringify(summary),
+      ];
+    });
+
+    return this.buildCsv([header, ...rows]);
+  }
+
+  private buildCsv(rows: string[][]): string {
+    return rows
+      .map((row) => row.map((value) => this.escapeCsv(value ?? '')).join(','))
+      .join('\n');
+  }
+
+  private escapeCsv(value: string): string {
+    const str = value.toString();
+    if (/[",\n\r]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  /**
+   * Promote staged import to production HTS
+   */
+  async promoteImport(
+    importId: string,
+    userId: string,
+    canOverrideValidation: boolean,
+  ): Promise<HtsImportHistoryEntity> {
+    const importHistory = await this.findOne(importId);
+
+    if (importHistory.status === 'COMPLETED') {
+      throw new BadRequestException('Import is already completed');
+    }
+
+    if (importHistory.status === 'IN_PROGRESS') {
+      throw new BadRequestException('Import is currently in progress');
+    }
+
+    const validationSummary = await this.htsStageIssueRepo
+      .createQueryBuilder('issue')
+      .select('issue.severity', 'severity')
+      .addSelect('COUNT(*)', 'count')
+      .where('issue.importId = :importId', { importId })
+      .groupBy('issue.severity')
+      .getRawMany();
+
+    const errorCount = validationSummary
+      .filter((row) => row.severity === 'ERROR')
+      .reduce((sum, row) => sum + parseInt(row.count, 10), 0);
+
+    if (errorCount > 0 && !canOverrideValidation) {
+      throw new BadRequestException(
+        'Validation errors present. Override permission required to promote.',
+      );
+    }
+
+    const metadata = importHistory.metadata || {};
+    if (errorCount > 0 && canOverrideValidation) {
+      metadata.validationOverride = true;
+      metadata.validationOverrideBy = userId;
+      metadata.validationOverrideAt = new Date().toISOString();
+    }
+
+    await this.importHistoryRepo.update(importId, {
+      metadata,
+      status: 'PENDING',
+      errorMessage: null,
+      errorStack: null,
+    });
+
+    await this.appendLog(
+      importId,
+      `Promotion requested by ${userId}; validation override enabled`,
+    );
+
+    const jobId = await this.queueService.sendJob(
+      'hts-import',
+      { importId },
+      {
+        singletonKey: `hts-import-${importHistory.sourceVersion}`,
+        retryLimit: 3,
+        expireInSeconds: 7200,
+      },
+    );
+
+    await this.importHistoryRepo.update(importId, { jobId });
+
+    return await this.findOne(importId);
+  }
+
+  /**
+   * Reject a staged import
+   */
+  async rejectImport(
+    importId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<HtsImportHistoryEntity> {
+    const importHistory = await this.findOne(importId);
+
+    if (importHistory.status === 'COMPLETED') {
+      throw new BadRequestException('Cannot reject a completed import');
+    }
+
+    if (importHistory.status === 'ROLLED_BACK') {
+      throw new BadRequestException('Cannot reject a rolled back import');
+    }
+
+    const metadata = importHistory.metadata || {};
+    metadata.rejectedBy = userId;
+    metadata.rejectedAt = new Date().toISOString();
+    if (reason) {
+      metadata.rejectionReason = reason;
+    }
+
+    await this.importHistoryRepo.update(importId, {
+      status: 'REJECTED',
+      metadata,
+    });
+
+    await this.appendLog(
+      importId,
+      `Import rejected by ${userId}${reason ? `: ${reason}` : ''}`,
+    );
+
+    return await this.findOne(importId);
+  }
+
+  /**
+   * Finalize a successful import
+   * - Marks current version setting
+   * - Activates current version entries
+   * - Deactivates older version entries
+   */
+  async finalizeSuccessfulImport(
+    importHistory: HtsImportHistoryEntity,
+  ): Promise<{ deactivatedCount: number }> {
+    const sourceVersion = importHistory.sourceVersion;
+    const now = new Date();
+    const settingKey = 'usitc.current_version';
+
+    const existingSetting = await this.htsSettingRepo.findOne({
+      where: { key: settingKey },
+    });
+
+    if (existingSetting) {
+      existingSetting.value = sourceVersion;
+      existingSetting.dataType = 'STRING';
+      existingSetting.category = 'usitc';
+      existingSetting.description = 'Current active USITC HTS source version';
+      existingSetting.lastUpdatedBy = importHistory.startedBy || 'SYSTEM';
+      existingSetting.effectiveDate = now;
+      await this.htsSettingRepo.save(existingSetting);
+    } else {
+      const newSetting = this.htsSettingRepo.create({
+        key: settingKey,
+        value: sourceVersion,
+        dataType: 'STRING',
+        category: 'usitc',
+        description: 'Current active USITC HTS source version',
+        isEditable: true,
+        lastUpdatedBy: importHistory.startedBy || 'SYSTEM',
+        effectiveDate: now,
+      });
+      await this.htsSettingRepo.save(newSetting);
+    }
+
+    await this.htsRepo
+      .createQueryBuilder()
+      .update(HtsEntity)
+      .set({ isActive: true })
+      .where('sourceVersion = :version', { version: sourceVersion })
+      .execute();
+
+    const deactivated = await this.htsRepo
+      .createQueryBuilder()
+      .update(HtsEntity)
+      .set({ isActive: false })
+      .where('sourceVersion != :version', { version: sourceVersion })
+      .andWhere('isActive = :isActive', { isActive: true })
+      .execute();
+
+    return { deactivatedCount: deactivated.affected || 0 };
   }
 }
