@@ -145,6 +145,27 @@ export class HtsEntity {
   chapter99: string | null;
 
   /**
+   * Chapter 99 linked headings discovered from endnotes/footnotes
+   * Example: ["9903.88.15"]
+   */
+  @Column('jsonb', { nullable: true })
+  chapter99Links: string[] | null;
+
+  /**
+   * ISO country codes where Chapter 99 adjusted formula applies
+   * Example: ["CN"]
+   */
+  @Column('jsonb', { nullable: true })
+  chapter99ApplicableCountries: string[] | null;
+
+  /**
+   * ISO country codes treated as non-NTR (Column 2)
+   * Defaults are managed in service logic: CU, KP, RU, BY.
+   */
+  @Column('jsonb', { nullable: true })
+  nonNtrApplicableCountries: string[] | null;
+
+  /**
    * Chapter 99 Adjusted Formula - Formula for additional tariffs
    */
   @Column('text', { nullable: true })

@@ -20,6 +20,7 @@ import {
   HtsEmbeddingGenerationService,
   HtsFormulaUpdateService,
   HtsFormulaGenerationService,
+  HtsChapter99FormulaService,
   HtsFormulaUpdateController,
 } from '@hts/core';
 
@@ -49,6 +50,7 @@ import {
     HtsEmbeddingGenerationService,
     HtsFormulaUpdateService,
     HtsFormulaGenerationService,
+    HtsChapter99FormulaService,
   ],
   exports: [
     HtsRepository,
@@ -57,6 +59,7 @@ import {
     HtsEmbeddingGenerationService,
     HtsFormulaUpdateService,
     HtsFormulaGenerationService,
+    HtsChapter99FormulaService,
   ],
 })
 export class CoreWrapperModule {}

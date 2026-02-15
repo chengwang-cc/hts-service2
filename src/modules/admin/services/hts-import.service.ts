@@ -3,7 +3,7 @@
  * Business logic for HTS import management
  */
 
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -14,13 +14,16 @@ import {
   HtsStageValidationIssueEntity,
   HtsStageDiffEntity,
   UsitcDownloaderService,
+  HtsChapter99FormulaService,
 } from '@hts/core';
+import type { Chapter99ReferenceInput } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import {
   TriggerImportDto,
   ListImportsDto,
   StageValidationQueryDto,
   StageDiffQueryDto,
+  StageChapter99PreviewQueryDto,
 } from '../dto/hts-import.dto';
 
 @Injectable()
@@ -42,6 +45,7 @@ export class HtsImportService {
     private htsStageDiffRepo: Repository<HtsStageDiffEntity>,
     private usitcDownloader: UsitcDownloaderService,
     private queueService: QueueService,
+    @Optional() private readonly htsChapter99FormulaService?: HtsChapter99FormulaService,
   ) {}
 
   /**
@@ -508,6 +512,176 @@ export class HtsImportService {
   }
 
   /**
+   * Preview deterministic Chapter 99 synthesis for staged entries before promotion.
+   */
+  async getStageChapter99Preview(
+    importId: string,
+    query: StageChapter99PreviewQueryDto,
+  ): Promise<{
+    data: Array<Record<string, any>>;
+    meta: {
+      total: number;
+      offset: number;
+      limit: number;
+      statusCounts: Record<'LINKED' | 'UNRESOLVED' | 'NONE', number>;
+    };
+  }> {
+    await this.findOne(importId);
+
+    if (!this.htsChapter99FormulaService) {
+      throw new BadRequestException(
+        'Chapter 99 preview service is unavailable in current runtime context',
+      );
+    }
+
+    const offset = query.offset ?? 0;
+    const limit = query.limit ?? 100;
+    const numberFilter = (query.htsNumber || '').trim().toUpperCase();
+
+    const stagedEntries = await this.htsStageRepo.find({
+      where: { importId },
+      order: { htsNumber: 'ASC' },
+    });
+
+    const chapter99Lookup = new Map<string, Chapter99ReferenceInput>();
+    const nonChapter99 = stagedEntries.filter((entry) => entry.chapter !== '99');
+
+    for (const entry of stagedEntries) {
+      if (entry.chapter !== '99') {
+        continue;
+      }
+      chapter99Lookup.set(entry.htsNumber, {
+        htsNumber: entry.htsNumber,
+        description: entry.description,
+        generalRate: entry.generalRate,
+        general: entry.generalRate,
+      });
+    }
+
+    const referencedCodes = new Set<string>();
+    for (const entry of nonChapter99) {
+      const links = this.resolveStageChapter99Links(entry);
+      for (const link of links) {
+        referencedCodes.add(link);
+      }
+    }
+
+    if (referencedCodes.size > 0) {
+      const missingCodes = Array.from(referencedCodes).filter(
+        (code) => !chapter99Lookup.has(code),
+      );
+
+      if (missingCodes.length > 0) {
+        const activeReferences = await this.htsRepo.find({
+          where: missingCodes.map((htsNumber) => ({ htsNumber, isActive: true })),
+          order: { updatedAt: 'DESC' },
+        });
+
+        for (const reference of activeReferences) {
+          if (!chapter99Lookup.has(reference.htsNumber)) {
+            chapter99Lookup.set(reference.htsNumber, {
+              htsNumber: reference.htsNumber,
+              description: reference.description,
+              generalRate: reference.generalRate || reference.general,
+              general: reference.general,
+              chapter99ApplicableCountries: reference.chapter99ApplicableCountries,
+            });
+          }
+        }
+      }
+    }
+
+    const activeRows = nonChapter99.length
+      ? await this.htsRepo.find({
+          where: nonChapter99.map((entry) => ({ htsNumber: entry.htsNumber, isActive: true })),
+          order: { updatedAt: 'DESC' },
+        })
+      : [];
+    const currentByHts = new Map<string, HtsEntity>();
+    for (const row of activeRows) {
+      if (!currentByHts.has(row.htsNumber)) {
+        currentByHts.set(row.htsNumber, row);
+      }
+    }
+
+    const statusCounts: Record<'LINKED' | 'UNRESOLVED' | 'NONE', number> = {
+      LINKED: 0,
+      UNRESOLVED: 0,
+      NONE: 0,
+    };
+    const rows: Array<Record<string, any>> = [];
+
+    for (const entry of nonChapter99) {
+      if (numberFilter && !entry.htsNumber.toUpperCase().includes(numberFilter)) {
+        continue;
+      }
+
+      const chapter99Links = this.resolveStageChapter99Links(entry);
+      const preview = this.htsChapter99FormulaService.previewEntry(
+        {
+          htsNumber: entry.htsNumber,
+          chapter: entry.chapter,
+          description: entry.description,
+          generalRate: entry.generalRate,
+          rateFormula: null,
+          footnotes: this.normalizeFootnotePayload(entry.rawItem?.footnotes),
+          chapter99Links,
+        },
+        chapter99Lookup,
+      );
+
+      statusCounts[preview.status]++;
+
+      if (query.status && preview.status !== query.status) {
+        continue;
+      }
+
+      const current = currentByHts.get(entry.htsNumber) || null;
+
+      rows.push({
+        htsNumber: entry.htsNumber,
+        description: entry.description,
+        chapter: entry.chapter,
+        generalRate: entry.generalRate,
+        status: preview.status,
+        reason: preview.reason,
+        chapter99Links: preview.chapter99Links,
+        selectedChapter99: preview.selectedChapter99,
+        chapter99ApplicableCountries: preview.chapter99ApplicableCountries,
+        nonNtrApplicableCountries: preview.nonNtrApplicableCountries,
+        previewFormula: {
+          baseFormula: preview.baseFormula,
+          adjustedFormula: preview.adjustedFormula,
+          adjustedFormulaVariables: preview.adjustedFormulaVariables,
+        },
+        current: current
+          ? {
+              sourceVersion: current.sourceVersion,
+              isActive: current.isActive,
+              rateFormula: current.rateFormula,
+              adjustedFormula: current.adjustedFormula,
+              chapter99Links: current.chapter99Links,
+              chapter99ApplicableCountries: current.chapter99ApplicableCountries,
+            }
+          : null,
+      });
+    }
+
+    const total = rows.length;
+    const data = rows.slice(offset, offset + limit);
+
+    return {
+      data,
+      meta: {
+        total,
+        offset,
+        limit,
+        statusCounts,
+      },
+    };
+  }
+
+  /**
    * Export staging diffs as CSV
    */
   async exportStageDiffsCsv(
@@ -572,6 +746,57 @@ export class HtsImportService {
       return `"${str.replace(/"/g, '""')}"`;
     }
     return str;
+  }
+
+  private resolveStageChapter99Links(stageEntry: HtsStageEntryEntity): string[] {
+    const normalizedLinks = Array.isArray(stageEntry.normalized?.chapter99Links)
+      ? (stageEntry.normalized?.chapter99Links as string[])
+      : [];
+
+    if (normalizedLinks.length > 0) {
+      return this.normalizeChapter99Links(normalizedLinks);
+    }
+
+    const rawFootnotes = stageEntry.rawItem?.footnotes;
+    const extracted = this.htsChapter99FormulaService?.extractChapter99LinksFromFootnotePayload(
+      rawFootnotes,
+    );
+    return this.normalizeChapter99Links(extracted || []);
+  }
+
+  private normalizeChapter99Links(links: string[]): string[] {
+    return Array.from(
+      new Set(
+        (links || [])
+          .map((value) => (value || '').trim())
+          .filter((value) => /^99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?$/.test(value)),
+      ),
+    ).sort();
+  }
+
+  private normalizeFootnotePayload(payload: unknown): string | null {
+    if (!payload) return null;
+    if (typeof payload === 'string') {
+      const value = payload.trim();
+      return value.length > 0 ? value : null;
+    }
+    if (Array.isArray(payload)) {
+      const values = payload
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof (item as any).value === 'string') return (item as any).value;
+          return '';
+        })
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+
+      if (values.length > 0) {
+        return values.join(' ');
+      }
+
+      return JSON.stringify(payload);
+    }
+    return JSON.stringify(payload);
   }
 
   /**

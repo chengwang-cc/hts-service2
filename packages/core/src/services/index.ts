@@ -9,3 +9,4 @@ export * from './formula-generation.service';
 export * from './hts-formula-generation.service';
 export * from './hts-embedding-generation.service';
 export * from './hts-formula-update.service';
+export * from './hts-chapter99-formula.service';

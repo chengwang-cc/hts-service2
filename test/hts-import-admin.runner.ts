@@ -25,6 +25,9 @@ import {
   HtsSettingEntity,
   HtsEntity,
   HtsExtraTaxEntity,
+  HtsChapter99FormulaService,
+  FormulaGenerationService,
+  OpenAiService,
   UsitcDownloaderService,
   CustomNamingStrategy,
 } from '@hts/core';
@@ -81,8 +84,18 @@ async function run() {
         HtsImportService,
         AdminGuard,
         AdminPermissionsGuard,
+        FormulaGenerationService,
+        HtsChapter99FormulaService,
         UsitcDownloaderService,
         QueueService,
+        {
+          provide: OpenAiService,
+          useValue: {
+            response: async () => {
+              throw new Error('OpenAI not expected in admin import runner');
+            },
+          },
+        },
       ],
     })
     .overrideProvider(QueueService)
@@ -199,6 +212,15 @@ async function run() {
     }),
   );
   const formulaGateImportId = formulaGateImport.id;
+  const chapter99PreviewImport = await importHistoryRepo.save(
+    importHistoryRepo.create({
+      sourceVersion: '2026_revision_3',
+      sourceUrl: 'https://hts.usitc.gov/data.json',
+      status: 'REQUIRES_REVIEW',
+      startedBy: reviewerEmail,
+    }),
+  );
+  const chapter99PreviewImportId = chapter99PreviewImport.id;
 
   await stageRepo.insert([
     {
@@ -238,6 +260,95 @@ async function run() {
       statisticalSuffix: '01013000',
       parentHtsNumber: null,
       rowHash: 'hash-formula-gate',
+      rawItem: {},
+      normalized: {},
+    },
+    {
+      importId: chapter99PreviewImportId,
+      sourceVersion: chapter99PreviewImport.sourceVersion,
+      htsNumber: '1202.41.80',
+      indent: 3,
+      description: 'Other peanuts',
+      unit: null,
+      generalRate: '163.8%',
+      special: null,
+      other: null,
+      chapter99: null,
+      chapter: '12',
+      heading: '1202',
+      subheading: '120241',
+      statisticalSuffix: '12024180',
+      parentHtsNumber: null,
+      rowHash: 'hash-preview-linked',
+      rawItem: {
+        footnotes: [
+          { columns: ['general'], value: 'See 9903.88.15.', type: 'endnote' },
+        ],
+      },
+      normalized: {},
+    },
+    {
+      importId: chapter99PreviewImportId,
+      sourceVersion: chapter99PreviewImport.sourceVersion,
+      htsNumber: '9903.88.15',
+      indent: 0,
+      description:
+        'Except as provided in headings 9903.88.39, 9903.88.42, 9903.88.44, 9903.88.47, 9903.88.49, 9903.88.51, 9903.88.53, 9903.88.55, 9903.88.57, 9903.88.65, 9903.88.66, 9903.88.67, 9903.88.68, or 9903.88.69, articles the product of China',
+      unit: null,
+      generalRate: 'The duty provided in the applicable subheading + 7.5%',
+      special: null,
+      other: null,
+      chapter99: null,
+      chapter: '99',
+      heading: '9903',
+      subheading: '990388',
+      statisticalSuffix: '99038815',
+      parentHtsNumber: null,
+      rowHash: 'hash-preview-ref',
+      rawItem: {},
+      normalized: {},
+    },
+    {
+      importId: chapter99PreviewImportId,
+      sourceVersion: chapter99PreviewImport.sourceVersion,
+      htsNumber: '1202.41.81',
+      indent: 3,
+      description: 'Preview unresolved',
+      unit: null,
+      generalRate: 'See note 1',
+      special: null,
+      other: null,
+      chapter99: null,
+      chapter: '12',
+      heading: '1202',
+      subheading: '120241',
+      statisticalSuffix: '12024181',
+      parentHtsNumber: null,
+      rowHash: 'hash-preview-unresolved',
+      rawItem: {
+        footnotes: [
+          { columns: ['general'], value: 'See 9903.99.99.', type: 'endnote' },
+        ],
+      },
+      normalized: {},
+    },
+    {
+      importId: chapter99PreviewImportId,
+      sourceVersion: chapter99PreviewImport.sourceVersion,
+      htsNumber: '1202.41.82',
+      indent: 3,
+      description: 'Preview no chapter99',
+      unit: null,
+      generalRate: '5%',
+      special: null,
+      other: null,
+      chapter99: null,
+      chapter: '12',
+      heading: '1202',
+      subheading: '120241',
+      statisticalSuffix: '12024182',
+      parentHtsNumber: null,
+      rowHash: 'hash-preview-none',
       rawItem: {},
       normalized: {},
     },
@@ -300,6 +411,25 @@ async function run() {
     .set('Authorization', `Bearer ${reviewerToken}`);
   assert(csv.status === 200, `csv status ${csv.status}`);
   assert(csv.text.includes('htsNumber'), 'csv header missing');
+
+  const chapter99Preview = await request(server)
+    .get(`/admin/hts-imports/${chapter99PreviewImportId}/stage/chapter99-preview`)
+    .set('Authorization', `Bearer ${reviewerToken}`);
+  assert(chapter99Preview.status === 200, `chapter99 preview status ${chapter99Preview.status}`);
+  assert(chapter99Preview.body.meta.statusCounts.LINKED === 1, 'chapter99 linked count');
+  assert(chapter99Preview.body.meta.statusCounts.UNRESOLVED === 1, 'chapter99 unresolved count');
+  assert(chapter99Preview.body.meta.statusCounts.NONE === 1, 'chapter99 none count');
+
+  const chapter99LinkedPreview = await request(server)
+    .get(`/admin/hts-imports/${chapter99PreviewImportId}/stage/chapter99-preview?status=LINKED`)
+    .set('Authorization', `Bearer ${reviewerToken}`);
+  assert(chapter99LinkedPreview.status === 200, 'chapter99 linked preview status');
+  assert(chapter99LinkedPreview.body.data.length === 1, 'chapter99 linked row count');
+  const linkedAdjusted = chapter99LinkedPreview.body.data[0].previewFormula.adjustedFormula || '';
+  assert(
+    linkedAdjusted.includes('value * 0.075') && linkedAdjusted.includes('value'),
+    `chapter99 linked adjusted formula: ${linkedAdjusted}`,
+  );
 
   const promoteBlocked = await request(server)
     .post(`/admin/hts-imports/${importId}/promote`)

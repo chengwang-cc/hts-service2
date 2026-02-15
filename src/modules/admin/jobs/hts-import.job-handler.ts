@@ -23,6 +23,7 @@ import {
   HtsExtraTaxEntity,
   HtsFormulaGenerationService,
   FormulaGenerationService,
+  HtsChapter99FormulaService,
 } from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
@@ -78,6 +79,7 @@ export class HtsImportJobHandler {
     private htsImportService: HtsImportService,
     private s3Storage: S3StorageService,
     private htsFormulaGenerationService: HtsFormulaGenerationService,
+    private htsChapter99FormulaService: HtsChapter99FormulaService,
     private formulaGenerationService: FormulaGenerationService,
     @Optional() private noteResolutionService?: NoteResolutionService,
   ) {
@@ -305,6 +307,22 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `✓ Formula generation complete: general=${formulaResult.generalUpdated}, other=${formulaResult.otherUpdated}, adjusted=${formulaResult.adjustedUpdated}, unresolved=${formulaResult.unresolvedGeneral + formulaResult.unresolvedOther + formulaResult.unresolvedAdjusted}`,
+    );
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Running deterministic Chapter 99 synthesis...',
+    );
+
+    const chapter99Result = await this.htsChapter99FormulaService.synthesizeAdjustedFormulas({
+      sourceVersion,
+      activeOnly: true,
+      batchSize: 500,
+    });
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      `✓ Chapter 99 synthesis complete: processed=${chapter99Result.processed}, linked=${chapter99Result.linked}, updated=${chapter99Result.updated}, unresolved=${chapter99Result.unresolved}, nonNtrDefaultsApplied=${chapter99Result.nonNtrDefaultsApplied}`,
     );
 
     if (!this.noteResolutionService) {
@@ -2039,6 +2057,9 @@ export class HtsImportJobHandler {
       existing.special !== mapped.special ||
       existing.other !== mapped.other ||
       existing.chapter99 !== mapped.chapter99 ||
+      JSON.stringify(existing.chapter99Links || []) !==
+        JSON.stringify(mapped.chapter99Links || []) ||
+      existing.footnotes !== mapped.footnotes ||
       existing.parentHtsNumber !== mapped.parentHtsNumber ||
       existing.chapter !== mapped.chapter ||
       existing.heading !== mapped.heading ||
@@ -2053,6 +2074,9 @@ export class HtsImportJobHandler {
    */
   private mapItemToEntity(item: any, sourceVersion: string): Partial<HtsEntity> {
     const htsNumber = item.htsNumber || item.hts_number || item.htsno;
+    const sourceFootnotes = item.footnotes || null;
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
+      .filter((code) => code.startsWith('99'));
 
     return {
       htsNumber,
@@ -2063,9 +2087,16 @@ export class HtsImportJobHandler {
       unit: Array.isArray(item.units) ? item.units.join(', ') : (item.unit || ''),
       generalRate: item.generalRate || item.general_rate || item.general || '',
       specialRates: item.specialRates || item.special_rates || (item.special ? { default: item.special } : null),
+      footnotes: this.normalizeFootnotePayload(sourceFootnotes),
+      chapter99Links: chapter99Links.length > 0 ? chapter99Links : null,
       sourceVersion: sourceVersion,
       chapter: item.chapter || htsNumber?.substring(0, 2),
       parentHtsNumber: item.parentHtsNumber || item.parent_hts_number || item.superior || null,
+      metadata: sourceFootnotes
+        ? {
+            sourceFootnotes,
+          }
+        : null,
     };
   }
 
@@ -2073,6 +2104,10 @@ export class HtsImportJobHandler {
     staged: HtsStageEntryEntity,
     sourceVersion: string,
   ): Partial<HtsEntity> {
+    const sourceFootnotes = staged.rawItem?.footnotes || null;
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
+      .filter((code) => code.startsWith('99'));
+
     return {
       htsNumber: staged.htsNumber,
       version: sourceVersion,
@@ -2086,6 +2121,8 @@ export class HtsImportJobHandler {
       other: staged.other || null,
       specialRates: staged.special ? { default: staged.special } : null,
       chapter99: staged.chapter99 || null,
+      chapter99Links: chapter99Links.length > 0 ? chapter99Links : null,
+      footnotes: this.normalizeFootnotePayload(sourceFootnotes),
       sourceVersion,
       chapter: staged.chapter,
       heading: staged.heading || null,
@@ -2093,6 +2130,10 @@ export class HtsImportJobHandler {
       statisticalSuffix: staged.statisticalSuffix || null,
       parentHtsNumber: staged.parentHtsNumber || null,
       importDate: new Date(),
+      metadata: {
+        sourceFootnotes,
+        stagedNormalized: staged.normalized || null,
+      },
     };
   }
 
@@ -2112,6 +2153,9 @@ export class HtsImportJobHandler {
     const special = this.normalizeString(item.special || '');
     const other = this.normalizeString(item.other || '');
     const chapter99 = this.normalizeString(item.chapter99 || item.chapter_99 || '');
+    const sourceFootnotes = item.footnotes || null;
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
+      .filter((code) => code.startsWith('99'));
     const chapter = item.chapter || htsNumber?.substring(0, 2);
     const heading = item.heading || (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 4) : null);
     const subheading = item.subheading || (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 6) : null);
@@ -2127,6 +2171,7 @@ export class HtsImportJobHandler {
       special,
       other,
       chapter99,
+      chapter99Links,
       chapter,
       heading,
       subheading,
@@ -2162,6 +2207,61 @@ export class HtsImportJobHandler {
     return value.toString().replace(/\s+/g, ' ').trim();
   }
 
+  private normalizeFootnotePayload(payload: any): string | null {
+    if (!payload) return null;
+    if (typeof payload === 'string') {
+      return this.normalizeString(payload) || null;
+    }
+    if (Array.isArray(payload)) {
+      const chunks: string[] = [];
+      for (const item of payload) {
+        if (typeof item === 'string') {
+          chunks.push(item);
+          continue;
+        }
+        if (item && typeof item.value === 'string') {
+          chunks.push(item.value);
+        }
+      }
+      if (chunks.length === 0) {
+        return JSON.stringify(payload);
+      }
+      return this.normalizeString(chunks.join(' ')) || null;
+    }
+    return this.normalizeString(JSON.stringify(payload)) || null;
+  }
+
+  private extractHtsCodesFromFootnotePayload(payload: any): string[] {
+    const codes = new Set<string>();
+    const texts: string[] = [];
+
+    const collectCodes = (text: string) => {
+      for (const match of text.matchAll(/\b(\d{4}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g)) {
+        codes.add(match[1]);
+      }
+    };
+
+    if (typeof payload === 'string') {
+      texts.push(payload);
+    } else if (Array.isArray(payload)) {
+      for (const item of payload) {
+        if (typeof item === 'string') {
+          texts.push(item);
+        } else if (item && typeof item.value === 'string') {
+          texts.push(item.value);
+        }
+      }
+    } else if (payload) {
+      texts.push(JSON.stringify(payload));
+    }
+
+    for (const text of texts) {
+      collectCodes(text);
+    }
+
+    return Array.from(codes);
+  }
+
   private computeRowHash(payload: Record<string, any>): string {
     const serialized = JSON.stringify(payload);
     return createHash('sha256').update(serialized).digest('hex');
@@ -2176,6 +2276,8 @@ export class HtsImportJobHandler {
       other: current.other,
       specialRates: current.specialRates,
       chapter99: current.chapter99,
+      chapter99Links: current.chapter99Links,
+      footnotes: current.footnotes,
       chapter: current.chapter,
       heading: current.heading,
       subheading: current.subheading,
@@ -2193,6 +2295,10 @@ export class HtsImportJobHandler {
       special: staged.special,
       other: staged.other,
       chapter99: staged.chapter99,
+      chapter99Links: Array.isArray(staged.normalized?.chapter99Links)
+        ? staged.normalized.chapter99Links
+        : [],
+      footnotes: this.normalizeFootnotePayload(staged.rawItem?.footnotes || null),
       chapter: staged.chapter,
       heading: staged.heading,
       subheading: staged.subheading,

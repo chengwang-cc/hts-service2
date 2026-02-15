@@ -27,6 +27,7 @@ import {
   LogsPaginationDto,
   StageValidationQueryDto,
   StageDiffQueryDto,
+  StageChapter99PreviewQueryDto,
   RejectImportDto,
 } from '../dto/hts-import.dto';
 
@@ -252,6 +253,29 @@ export class HtsImportAdminController {
     @Query() query: StageDiffQueryDto,
   ) {
     const result = await this.htsImportService.getStageDiffs(id, query);
+
+    return {
+      success: true,
+      data: result.data,
+      meta: result.meta,
+    };
+  }
+
+  /**
+   * GET /admin/hts-imports/:id/stage/chapter99-preview
+   * Preview deterministic Chapter 99 synthesis before promotion
+   */
+  @Get(':id/stage/chapter99-preview')
+  @ApiOperation({ summary: 'Get Chapter 99 synthesis preview for staged entries' })
+  @ApiResponse({ status: 200, description: 'Chapter 99 preview retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async getStageChapter99Preview(
+    @Param('id') id: string,
+    @Query() query: StageChapter99PreviewQueryDto,
+  ) {
+    const result = await this.htsImportService.getStageChapter99Preview(id, query);
 
     return {
       success: true,

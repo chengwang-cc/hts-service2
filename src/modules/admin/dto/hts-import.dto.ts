@@ -222,3 +222,47 @@ export class StageDiffQueryDto {
   @Max(1000)
   limit?: number = 100;
 }
+
+/**
+ * Stage Chapter 99 Synthesis Preview Query DTO
+ */
+export class StageChapter99PreviewQueryDto {
+  @ApiPropertyOptional({
+    description: 'Preview status filter',
+    enum: ['LINKED', 'UNRESOLVED', 'NONE'],
+  })
+  @IsOptional()
+  @IsIn(['LINKED', 'UNRESOLVED', 'NONE'])
+  status?: 'LINKED' | 'UNRESOLVED' | 'NONE';
+
+  @ApiPropertyOptional({
+    description: 'Filter by HTS number (partial match)',
+    example: '1202.41',
+  })
+  @IsOptional()
+  @IsString()
+  htsNumber?: string;
+
+  @ApiPropertyOptional({
+    description: 'Offset for results (0-indexed)',
+    example: 0,
+    default: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number = 0;
+
+  @ApiPropertyOptional({
+    description: 'Maximum number of results to return',
+    example: 100,
+    default: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(1000)
+  limit?: number = 100;
+}

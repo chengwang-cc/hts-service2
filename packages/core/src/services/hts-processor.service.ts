@@ -172,7 +172,7 @@ export class HtsProcessorService implements IHtsProcessorService {
       isAdjustedFormulaGenerated: false,
       otherChapter99: null,
       otherChapter99Detail: null,
-      footnotes: item.footnotes?.trim() || null,
+      footnotes: this.normalizeFootnotes(item.footnotes),
       additionalDuties: null,
       quota: item.quota?.trim() || null,
       quota2: item.quota2?.trim() || null,
@@ -200,6 +200,33 @@ export class HtsProcessorService implements IHtsProcessorService {
     };
 
     return htsEntity;
+  }
+
+  private normalizeFootnotes(raw: unknown): string | null {
+    if (!raw) {
+      return null;
+    }
+    if (typeof raw === 'string') {
+      const value = raw.trim();
+      return value.length > 0 ? value : null;
+    }
+    if (Array.isArray(raw)) {
+      const values = raw
+        .map((item) => {
+          if (typeof item === 'string') return item.trim();
+          if (item && typeof (item as any).value === 'string') {
+            return (item as any).value.trim();
+          }
+          return '';
+        })
+        .filter((value) => value.length > 0);
+
+      if (values.length > 0) {
+        return values.join(' ');
+      }
+      return JSON.stringify(raw);
+    }
+    return JSON.stringify(raw);
   }
 
   /**

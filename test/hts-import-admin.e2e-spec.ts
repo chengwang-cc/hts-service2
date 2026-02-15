@@ -22,6 +22,9 @@ import {
   HtsSettingEntity,
   HtsEntity,
   HtsExtraTaxEntity,
+  HtsChapter99FormulaService,
+  FormulaGenerationService,
+  OpenAiService,
   CustomNamingStrategy,
 } from '@hts/core';
 import { UsitcDownloaderService } from '@hts/core';
@@ -48,6 +51,7 @@ describe('Admin HTS Import (E2E)', () => {
   let overrideToken: string;
   let importId: string;
   let formulaGateImportId: string;
+  let chapter99PreviewImportId: string;
 
   beforeAll(async () => {
     queueServiceMock = {
@@ -101,7 +105,15 @@ describe('Admin HTS Import (E2E)', () => {
         HtsImportService,
         AdminGuard,
         AdminPermissionsGuard,
+        FormulaGenerationService,
+        HtsChapter99FormulaService,
         { provide: QueueService, useValue: queueServiceMock },
+        {
+          provide: OpenAiService,
+          useValue: {
+            response: jest.fn().mockRejectedValue(new Error('OpenAI not expected in this e2e')),
+          },
+        },
         {
           provide: UsitcDownloaderService,
           useValue: {
@@ -248,6 +260,16 @@ describe('Admin HTS Import (E2E)', () => {
     );
     formulaGateImportId = formulaGateImport.id;
 
+    const chapter99PreviewImport = await importHistoryRepo.save(
+      importHistoryRepo.create({
+        sourceVersion: '2026_revision_3',
+        sourceUrl: 'https://hts.usitc.gov/data.json',
+        status: 'REQUIRES_REVIEW',
+        startedBy: reviewerEmail,
+      }),
+    );
+    chapter99PreviewImportId = chapter99PreviewImport.id;
+
     await stageRepo.insert([
       {
         importId,
@@ -334,6 +356,91 @@ describe('Admin HTS Import (E2E)', () => {
         rawItem: {},
         normalized: {},
       },
+      {
+        importId: chapter99PreviewImportId,
+        sourceVersion: chapter99PreviewImport.sourceVersion,
+        htsNumber: '1202.41.80',
+        indent: 3,
+        description: 'Other peanuts',
+        unit: null,
+        generalRate: '163.8%',
+        special: null,
+        other: null,
+        chapter99: null,
+        chapter: '12',
+        heading: '1202',
+        subheading: '120241',
+        statisticalSuffix: '12024180',
+        parentHtsNumber: null,
+        rowHash: 'preview-hash-1',
+        rawItem: {
+          footnotes: [{ columns: ['general'], value: 'See 9903.88.15.', type: 'endnote' }],
+        },
+        normalized: {},
+      },
+      {
+        importId: chapter99PreviewImportId,
+        sourceVersion: chapter99PreviewImport.sourceVersion,
+        htsNumber: '9903.88.15',
+        indent: 0,
+        description:
+          'Except as provided in headings 9903.88.39, 9903.88.42, 9903.88.44, 9903.88.47, 9903.88.49, 9903.88.51, 9903.88.53, 9903.88.55, 9903.88.57, 9903.88.65, 9903.88.66, 9903.88.67, 9903.88.68, or 9903.88.69, articles the product of China',
+        unit: null,
+        generalRate: 'The duty provided in the applicable subheading + 7.5%',
+        special: null,
+        other: null,
+        chapter99: null,
+        chapter: '99',
+        heading: '9903',
+        subheading: '990388',
+        statisticalSuffix: '99038815',
+        parentHtsNumber: null,
+        rowHash: 'preview-hash-2',
+        rawItem: {},
+        normalized: {},
+      },
+      {
+        importId: chapter99PreviewImportId,
+        sourceVersion: chapter99PreviewImport.sourceVersion,
+        htsNumber: '1202.41.81',
+        indent: 3,
+        description: 'Preview unresolved',
+        unit: null,
+        generalRate: 'See note 1',
+        special: null,
+        other: null,
+        chapter99: null,
+        chapter: '12',
+        heading: '1202',
+        subheading: '120241',
+        statisticalSuffix: '12024181',
+        parentHtsNumber: null,
+        rowHash: 'preview-hash-3',
+        rawItem: {
+          footnotes: [{ columns: ['general'], value: 'See 9903.99.99.', type: 'endnote' }],
+        },
+        normalized: {},
+      },
+      {
+        importId: chapter99PreviewImportId,
+        sourceVersion: chapter99PreviewImport.sourceVersion,
+        htsNumber: '1202.41.82',
+        indent: 3,
+        description: 'Preview no chapter99',
+        unit: null,
+        generalRate: '5%',
+        special: null,
+        other: null,
+        chapter99: null,
+        chapter: '12',
+        heading: '1202',
+        subheading: '120241',
+        statisticalSuffix: '12024182',
+        parentHtsNumber: null,
+        rowHash: 'preview-hash-4',
+        rawItem: {},
+        normalized: {},
+      },
     ]);
   });
 
@@ -397,6 +504,30 @@ describe('Admin HTS Import (E2E)', () => {
     expect(response.headers['content-type']).toContain('text/csv');
     expect(response.text).toContain('htsNumber');
     expect(response.text).toContain('0101.21.0000');
+  });
+
+  it('should return chapter99 synthesis preview', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/admin/hts-imports/${chapter99PreviewImportId}/stage/chapter99-preview`)
+      .set('Authorization', `Bearer ${reviewerToken}`)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.meta.statusCounts.LINKED).toBe(1);
+    expect(response.body.meta.statusCounts.UNRESOLVED).toBe(1);
+    expect(response.body.meta.statusCounts.NONE).toBe(1);
+  });
+
+  it('should filter chapter99 synthesis preview by status', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/admin/hts-imports/${chapter99PreviewImportId}/stage/chapter99-preview?status=LINKED`)
+      .set('Authorization', `Bearer ${reviewerToken}`)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.length).toBe(1);
+    expect(response.body.data[0].htsNumber).toBe('1202.41.80');
+    expect(response.body.data[0].previewFormula.adjustedFormula).toContain('value * 0.075');
   });
 
   it('should block promotion without override permission when errors exist', async () => {
