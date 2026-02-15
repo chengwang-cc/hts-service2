@@ -41,6 +41,19 @@ export class NoteExtractionService {
     // Idempotency: replace notes for the same document on retries/reprocessing
     await this.noteRepository.delete({ documentId });
 
+    if (text.length >= this.largeTextThreshold) {
+      this.logger.warn(
+        `Document ${documentId} text is very large (${text.length} chars); skipping section parsing`,
+      );
+      return this.extractNotesFromSection(
+        documentId,
+        chapter,
+        year,
+        'CHAPTER_NOTE',
+        text,
+      );
+    }
+
     const sections = this.pdfParserService.extractSections(text);
 
     if (Object.keys(sections).length === 0) {
@@ -81,7 +94,7 @@ export class NoteExtractionService {
     let extractedNotes: any[] = [];
 
     if (text.length >= this.largeTextThreshold) {
-      const fallbackContent = this.sanitizeFallbackContent(text).slice(0, 2000);
+      const fallbackContent = this.sanitizeFallbackContent(text.slice(0, 4000)).slice(0, 2000);
       if (fallbackContent.length >= 80) {
         this.logger.warn(
           `Section ${noteType} is very large (${text.length} chars); using deterministic fallback note`,
@@ -120,7 +133,7 @@ export class NoteExtractionService {
     }
 
     if (extractedNotes.length === 0) {
-      const fallbackContent = this.sanitizeFallbackContent(text).slice(0, 2000);
+      const fallbackContent = this.sanitizeFallbackContent(text.slice(0, 4000)).slice(0, 2000);
       if (fallbackContent.length >= 80) {
         this.logger.warn(
           `No structured notes extracted for ${noteType}; creating deterministic fallback note`,
