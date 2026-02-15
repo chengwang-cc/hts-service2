@@ -1,16 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+import { Repository } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { ApiKeyService } from '../src/modules/api-keys/services/api-key.service';
+import { OrganizationEntity } from '../src/modules/auth/entities/organization.entity';
+import { HtsEmbeddingEntity, HtsEntity } from '@hts/core';
+
+jest.setTimeout(120000);
 
 describe('Knowledgebase API (E2E)', () => {
   let app: INestApplication;
   let apiKeyService: ApiKeyService;
+  let organizationRepository: Repository<OrganizationEntity>;
+  let htsRepository: Repository<HtsEntity>;
+  let htsEmbeddingRepository: Repository<HtsEmbeddingEntity>;
   let validApiKey: string;
   let testOrganizationId: string;
 
   beforeAll(async () => {
+    process.env.DB_LOGGING = 'false';
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -31,13 +42,28 @@ describe('Knowledgebase API (E2E)', () => {
     await app.init();
 
     apiKeyService = moduleFixture.get<ApiKeyService>(ApiKeyService);
-    testOrganizationId = 'kb-test-' + Date.now();
+    organizationRepository = moduleFixture.get<Repository<OrganizationEntity>>(
+      getRepositoryToken(OrganizationEntity),
+    );
+    htsRepository = moduleFixture.get<Repository<HtsEntity>>(
+      getRepositoryToken(HtsEntity),
+    );
+    htsEmbeddingRepository = moduleFixture.get<Repository<HtsEmbeddingEntity>>(
+      getRepositoryToken(HtsEmbeddingEntity),
+    );
+    const organization = await organizationRepository.save(
+      organizationRepository.create({
+        name: `Knowledgebase Test Org ${Date.now()}`,
+      }),
+    );
+    testOrganizationId = organization.id;
+    await seedTestHtsData();
 
     // Generate API key with knowledgebase permission
     const result = await apiKeyService.generateApiKey({
       name: 'Knowledgebase Test Key',
       organizationId: testOrganizationId,
-      environment: 'sandbox',
+      environment: 'test',
       permissions: ['kb:query'],
       rateLimitPerMinute: 100,
       rateLimitPerDay: 10000,
@@ -46,8 +72,132 @@ describe('Knowledgebase API (E2E)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
     await app.close();
   });
+
+  async function seedTestHtsData(): Promise<void> {
+    const codes = [
+      '0101.00.0000',
+      '0101.21.0000',
+      '6109.10.0000',
+      '6203.42.0000',
+      '6403.99.0000',
+      '5512.11.0000',
+    ];
+    const version = `kb_e2e_${Date.now()}`;
+
+    await htsEmbeddingRepository
+      .createQueryBuilder()
+      .delete()
+      .from(HtsEmbeddingEntity)
+      .where('hts_number IN (:...codes)', { codes })
+      .execute();
+    await htsRepository
+      .createQueryBuilder()
+      .delete()
+      .from(HtsEntity)
+      .where('hts_number IN (:...codes)', { codes })
+      .execute();
+
+    const entries = [
+      htsRepository.create({
+        htsNumber: '0101.00.0000',
+        version,
+        indent: 0,
+        description: 'Live horses, asses, mules and hinnies',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: '2%',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010100',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '0101.21.0000',
+        version,
+        indent: 1,
+        description: 'Purebred breeding horses',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: 'Free',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010121',
+        parentHtsNumber: '0101.00.0000',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6109.10.0000',
+        version,
+        indent: 0,
+        description: 'T-shirts, singlets and other vests, of cotton apparel',
+        unit: 'pcs',
+        unitOfQuantity: 'pcs',
+        generalRate: '16.5%',
+        chapter: '61',
+        heading: '6109',
+        subheading: '610910',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6203.42.0000',
+        version,
+        indent: 0,
+        description: "Men's or boys' cotton garments and clothing",
+        unit: 'pcs',
+        unitOfQuantity: 'pcs',
+        generalRate: '16.6%',
+        chapter: '62',
+        heading: '6203',
+        subheading: '620342',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6403.99.0000',
+        version,
+        indent: 0,
+        description: 'Footwear with outer soles of rubber, leather boots and athletic shoes',
+        unit: 'pairs',
+        unitOfQuantity: 'pairs',
+        generalRate: '8.5%',
+        chapter: '64',
+        heading: '6403',
+        subheading: '640399',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '5512.11.0000',
+        version,
+        indent: 0,
+        description: 'Woven polyester fabric mixed with cotton twill weave',
+        unit: 'm2',
+        unitOfQuantity: 'm2',
+        generalRate: '12%',
+        chapter: '55',
+        heading: '5512',
+        subheading: '551211',
+        isActive: true,
+      }),
+    ];
+
+    await htsRepository.save(entries);
+
+    const baseEmbedding = Array.from({ length: 1536 }, (_, index) =>
+      index % 11 === 0 ? 0.001 : 0,
+    );
+    const embeddings = entries.map((entry) =>
+      htsEmbeddingRepository.create({
+        htsNumber: entry.htsNumber,
+        embedding: baseEmbedding,
+        searchText: `${entry.htsNumber} ${entry.description}`,
+        model: 'text-embedding-3-small',
+        isCurrent: true,
+      }),
+    );
+    await htsEmbeddingRepository.save(embeddings);
+  }
 
   describe('POST /api/v1/knowledgebase/query', () => {
     it('should query the knowledgebase with a question', async () => {
@@ -181,7 +331,7 @@ describe('Knowledgebase API (E2E)', () => {
       const noKbResult = await apiKeyService.generateApiKey({
         name: 'No KB Permission Key',
         organizationId: testOrganizationId,
-        environment: 'sandbox',
+        environment: 'test',
         permissions: ['hts:lookup'], // Different permission
       });
 
@@ -348,7 +498,7 @@ describe('Knowledgebase API (E2E)', () => {
       const noKbResult = await apiKeyService.generateApiKey({
         name: 'No KB Permission Key 2',
         organizationId: testOrganizationId,
-        environment: 'sandbox',
+        environment: 'test',
         permissions: ['hts:calculate'],
       });
 

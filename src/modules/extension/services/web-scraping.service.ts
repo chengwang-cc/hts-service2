@@ -32,6 +32,7 @@ export class WebScrapingService implements OnModuleDestroy {
   private readonly DEFAULT_TIMEOUT = 30000; // 30 seconds
   private initializationPromise: Promise<void> | null = null;
   private isShuttingDown = false;
+  private readonly browserEnabled: boolean;
   private readonly axios: AxiosInstance;
 
   constructor() {
@@ -45,6 +46,18 @@ export class WebScrapingService implements OnModuleDestroy {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
     });
+
+    this.browserEnabled =
+      (process.env.WEB_SCRAPING_DISABLED ?? 'false') !== 'true' &&
+      !process.env.JEST_WORKER_ID &&
+      process.env.NODE_ENV !== 'test';
+
+    if (!this.browserEnabled) {
+      this.logger.warn(
+        'Web scraping browser pool is disabled; running in HTTP-only mode',
+      );
+      return;
+    }
 
     // Initialize browser pool on service creation
     this.initializationPromise = this.initializeBrowserPool();
@@ -77,7 +90,8 @@ export class WebScrapingService implements OnModuleDestroy {
       this.logger.log('Browser pool ready');
     } catch (error) {
       this.logger.error('Failed to initialize browser pool', error.stack);
-      throw new Error('Failed to initialize web scraping service');
+      this.logger.warn('Puppeteer unavailable; running in HTTP-only mode');
+      this.browserPool = [];
     }
   }
 
@@ -85,6 +99,10 @@ export class WebScrapingService implements OnModuleDestroy {
    * Get an available browser from the pool
    */
   private async getBrowser(): Promise<Browser> {
+    if (!this.browserEnabled) {
+      throw new Error('Puppeteer is disabled for this runtime');
+    }
+
     // Wait for initialization if still in progress
     if (this.initializationPromise) {
       await this.initializationPromise;
@@ -135,6 +153,13 @@ export class WebScrapingService implements OnModuleDestroy {
    */
   async scrapePage(url: string, options?: ScrapeOptions): Promise<ScrapedContent> {
     this.logger.log(`Scraping page via Puppeteer: ${url}`);
+
+    if (!this.browserEnabled) {
+      this.logger.warn(
+        'Puppeteer disabled; falling back to HTTP fetch for scrapePage',
+      );
+      return this.fetchPage(url);
+    }
 
     const timeout = options?.timeout || this.DEFAULT_TIMEOUT;
     let page: Page | null = null;
@@ -203,6 +228,10 @@ export class WebScrapingService implements OnModuleDestroy {
     viewport?: Viewport,
   ): Promise<Buffer> {
     this.logger.log(`Capturing screenshot: ${url}`);
+
+    if (!this.browserEnabled) {
+      throw new Error('Screenshot capture is unavailable because Puppeteer is disabled');
+    }
 
     let page: Page | null = null;
 

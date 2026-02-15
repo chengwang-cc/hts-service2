@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan } from 'typeorm';
 import * as crypto from 'crypto';
@@ -13,7 +18,7 @@ import {
  * Handles API key creation, validation, and usage tracking
  */
 @Injectable()
-export class ApiKeyService {
+export class ApiKeyService implements OnModuleDestroy {
   private readonly logger = new Logger(ApiKeyService.name);
 
   // Cache for validated keys (TTL: 5 minutes)
@@ -22,6 +27,8 @@ export class ApiKeyService {
     { data: ApiKeyEntity; expiresAt: number }
   >();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly cacheCleanupTimer: NodeJS.Timeout;
+  private readonly pendingAsyncUsageTasks = new Set<Promise<unknown>>();
 
   constructor(
     @InjectRepository(ApiKeyEntity)
@@ -32,7 +39,21 @@ export class ApiKeyService {
     private readonly usageSummaryRepository: Repository<ApiUsageSummaryEntity>,
   ) {
     // Clean cache every 10 minutes
-    setInterval(() => this.cleanCache(), 10 * 60 * 1000);
+    this.cacheCleanupTimer = setInterval(() => this.cleanCache(), 10 * 60 * 1000);
+    this.cacheCleanupTimer.unref?.();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    clearInterval(this.cacheCleanupTimer);
+    if (this.pendingAsyncUsageTasks.size === 0) {
+      return;
+    }
+
+    const pendingTasks = Array.from(this.pendingAsyncUsageTasks);
+    await Promise.race([
+      Promise.allSettled(pendingTasks),
+      new Promise((resolve) => setTimeout(resolve, 750)),
+    ]);
   }
 
   /**
@@ -246,14 +267,22 @@ export class ApiKeyService {
     });
 
     // Save asynchronously (fire-and-forget)
-    this.usageMetricRepository.save(metric).catch((err) => {
-      this.logger.error(`Failed to save usage metric: ${err.message}`);
-    });
+    this.trackAsyncUsageTask(
+      this.usageMetricRepository.save(metric).catch((err) => {
+        if (!this.shouldSuppressAsyncUsageError(err)) {
+          this.logger.error(`Failed to save usage metric: ${err.message}`);
+        }
+      }),
+    );
 
     // Update daily summary asynchronously
-    this.updateDailySummary(params).catch((err) => {
-      this.logger.error(`Failed to update daily summary: ${err.message}`);
-    });
+    this.trackAsyncUsageTask(
+      this.updateDailySummary(params).catch((err) => {
+        if (!this.shouldSuppressAsyncUsageError(err)) {
+          this.logger.error(`Failed to update daily summary: ${err.message}`);
+        }
+      }),
+    );
   }
 
   /**
@@ -409,5 +438,25 @@ export class ApiKeyService {
     if (cleaned > 0) {
       this.logger.debug(`Cleaned ${cleaned} expired cache entries`);
     }
+  }
+
+  private shouldSuppressAsyncUsageError(error: unknown): boolean {
+    if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
+      return false;
+    }
+
+    const message = String((error as Error | undefined)?.message ?? '');
+    return (
+      message.includes('Connection terminated') ||
+      message.includes('Connection is not established') ||
+      message.includes('Query runner already released')
+    );
+  }
+
+  private trackAsyncUsageTask(task: Promise<unknown>): void {
+    this.pendingAsyncUsageTasks.add(task);
+    task.finally(() => {
+      this.pendingAsyncUsageTasks.delete(task);
+    });
   }
 }

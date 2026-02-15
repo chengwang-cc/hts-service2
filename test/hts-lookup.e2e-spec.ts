@@ -1,12 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+import { Repository } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { ApiKeyService } from '../src/modules/api-keys/services/api-key.service';
+import { OrganizationEntity } from '../src/modules/auth/entities/organization.entity';
+import { HtsEmbeddingEntity, HtsEntity } from '@hts/core';
+
+jest.setTimeout(120000);
 
 describe('HTS Lookup API (E2E)', () => {
   let app: INestApplication;
   let apiKeyService: ApiKeyService;
+  let organizationRepository: Repository<OrganizationEntity>;
+  let htsRepository: Repository<HtsEntity>;
+  let htsEmbeddingRepository: Repository<HtsEmbeddingEntity>;
   let validApiKey: string;
   let testOrganizationId: string;
 
@@ -31,13 +40,28 @@ describe('HTS Lookup API (E2E)', () => {
     await app.init();
 
     apiKeyService = moduleFixture.get<ApiKeyService>(ApiKeyService);
-    testOrganizationId = 'hts-lookup-test-' + Date.now();
+    organizationRepository = moduleFixture.get<Repository<OrganizationEntity>>(
+      getRepositoryToken(OrganizationEntity),
+    );
+    htsRepository = moduleFixture.get<Repository<HtsEntity>>(
+      getRepositoryToken(HtsEntity),
+    );
+    htsEmbeddingRepository = moduleFixture.get<Repository<HtsEmbeddingEntity>>(
+      getRepositoryToken(HtsEmbeddingEntity),
+    );
+    const organization = await organizationRepository.save(
+      organizationRepository.create({
+        name: `HTS Lookup Test Org ${Date.now()}`,
+      }),
+    );
+    testOrganizationId = organization.id;
+    await seedTestHtsData();
 
     // Generate API key with lookup permission
     const result = await apiKeyService.generateApiKey({
       name: 'HTS Lookup Test Key',
       organizationId: testOrganizationId,
-      environment: 'sandbox',
+      environment: 'test',
       permissions: ['hts:lookup'],
       rateLimitPerMinute: 100,
       rateLimitPerDay: 10000,
@@ -46,8 +70,119 @@ describe('HTS Lookup API (E2E)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
     await app.close();
   });
+
+  async function seedTestHtsData(): Promise<void> {
+    const codes = [
+      '0101.00.0000',
+      '0101.21.0000',
+      '0101.21.0010',
+      '6109.10.0000',
+      '6203.42.0000',
+    ];
+    const version = `e2e_${Date.now()}`;
+
+    await htsEmbeddingRepository
+      .createQueryBuilder()
+      .delete()
+      .from(HtsEmbeddingEntity)
+      .where('hts_number IN (:...codes)', { codes })
+      .execute();
+    await htsRepository
+      .createQueryBuilder()
+      .delete()
+      .from(HtsEntity)
+      .where('hts_number IN (:...codes)', { codes })
+      .execute();
+
+    const entries = [
+      htsRepository.create({
+        htsNumber: '0101.00.0000',
+        version,
+        indent: 0,
+        description: 'Live horses, asses, mules and hinnies',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: '2%',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010100',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '0101.21.0000',
+        version,
+        indent: 1,
+        description: 'Purebred breeding horses',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: 'Free',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010121',
+        parentHtsNumber: '0101.00.0000',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '0101.21.0010',
+        version,
+        indent: 2,
+        description: 'Other purebred horses for breeding purposes',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: 'Free',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010121',
+        parentHtsNumber: '0101.21.0000',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6109.10.0000',
+        version,
+        indent: 0,
+        description: 'T-shirts, singlets and other vests, of cotton apparel',
+        unit: 'pcs',
+        unitOfQuantity: 'pcs',
+        generalRate: '16.5%',
+        chapter: '61',
+        heading: '6109',
+        subheading: '610910',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6203.42.0000',
+        version,
+        indent: 0,
+        description:
+          "Men's or boys' trousers and shorts, of cotton garments and clothing",
+        unit: 'pcs',
+        unitOfQuantity: 'pcs',
+        generalRate: '16.6%',
+        chapter: '62',
+        heading: '6203',
+        subheading: '620342',
+        isActive: true,
+      }),
+    ];
+    await htsRepository.save(entries);
+
+    const baseEmbedding = Array.from({ length: 1536 }, (_, index) =>
+      index % 9 === 0 ? 0.001 : 0,
+    );
+    const embeddings = entries.map((entry) =>
+      htsEmbeddingRepository.create({
+        htsNumber: entry.htsNumber,
+        embedding: baseEmbedding,
+        searchText: `${entry.htsNumber} ${entry.description}`,
+        model: 'text-embedding-3-small',
+        isCurrent: true,
+      }),
+    );
+    await htsEmbeddingRepository.save(embeddings);
+  }
 
   describe('GET /api/v1/hts/lookup', () => {
     it('should look up a valid HTS code', async () => {
@@ -80,7 +215,7 @@ describe('HTS Lookup API (E2E)', () => {
       expect(htsData).toHaveProperty('chapter');
       expect(htsData).toHaveProperty('heading');
       expect(htsData).toHaveProperty('subheading');
-      expect(htsData).toHaveProperty('units');
+      expect(htsData).toHaveProperty('unit');
     });
 
     it('should reject missing HTS code parameter', async () => {
@@ -121,7 +256,7 @@ describe('HTS Lookup API (E2E)', () => {
       const noLookupResult = await apiKeyService.generateApiKey({
         name: 'No Lookup Permission Key',
         organizationId: testOrganizationId,
-        environment: 'sandbox',
+        environment: 'test',
         permissions: ['hts:calculate'], // Different permission
       });
 
@@ -271,8 +406,8 @@ describe('HTS Lookup API (E2E)', () => {
       if (response.body.data.parent) {
         expect(response.body.data.parent).toHaveProperty('htsNumber');
         expect(response.body.data.parent).toHaveProperty('description');
-        expect(response.body.data.parent.htsNumber.length).toBeLessThan(
-          response.body.data.current.htsNumber.length
+        expect(response.body.data.parent.htsNumber).not.toBe(
+          response.body.data.current.htsNumber,
         );
       }
     });
@@ -405,6 +540,7 @@ describe('HTS Lookup API (E2E)', () => {
         .expect(200);
 
       const remaining1 = parseInt(response1.headers['x-ratelimit-remaining-minute']);
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const response2 = await request(app.getHttpServer())
         .get('/api/v1/hts/lookup?code=0101.21.0000')

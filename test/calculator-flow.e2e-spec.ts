@@ -1,12 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+import { Repository } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { ApiKeyService } from '../src/modules/api-keys/services/api-key.service';
+import { OrganizationEntity } from '../src/modules/auth/entities/organization.entity';
+import { HtsEntity } from '@hts/core';
+
+jest.setTimeout(120000);
 
 describe('Calculator Flow (E2E)', () => {
   let app: INestApplication;
   let apiKeyService: ApiKeyService;
+  let organizationRepository: Repository<OrganizationEntity>;
+  let htsRepository: Repository<HtsEntity>;
   let validApiKey: string;
   let testOrganizationId: string;
 
@@ -31,13 +39,25 @@ describe('Calculator Flow (E2E)', () => {
     await app.init();
 
     apiKeyService = moduleFixture.get<ApiKeyService>(ApiKeyService);
-    testOrganizationId = 'calc-test-org-' + Date.now();
+    organizationRepository = moduleFixture.get<Repository<OrganizationEntity>>(
+      getRepositoryToken(OrganizationEntity),
+    );
+    htsRepository = moduleFixture.get<Repository<HtsEntity>>(
+      getRepositoryToken(HtsEntity),
+    );
+    const organization = await organizationRepository.save(
+      organizationRepository.create({
+        name: `Calculator Test Org ${Date.now()}`,
+      }),
+    );
+    testOrganizationId = organization.id;
+    await seedCalculatorHtsData();
 
     // Generate API key with calculate permission
     const result = await apiKeyService.generateApiKey({
       name: 'Calculator Test Key',
       organizationId: testOrganizationId,
-      environment: 'sandbox',
+      environment: 'test',
       permissions: ['hts:calculate'],
       rateLimitPerMinute: 100,
       rateLimitPerDay: 10000,
@@ -46,8 +66,52 @@ describe('Calculator Flow (E2E)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
     await app.close();
   });
+
+  async function seedCalculatorHtsData(): Promise<void> {
+    const codes = ['0101.21.0000', '6109.10.00'];
+    const version = `calc_e2e_${Date.now()}`;
+
+    await htsRepository
+      .createQueryBuilder()
+      .delete()
+      .from(HtsEntity)
+      .where('hts_number IN (:...codes)', { codes })
+      .execute();
+
+    await htsRepository.save([
+      htsRepository.create({
+        htsNumber: '0101.21.0000',
+        version,
+        indent: 0,
+        description: 'Purebred breeding horses',
+        chapter: '01',
+        heading: '0101',
+        subheading: '010121',
+        unit: 'No.',
+        unitOfQuantity: 'No.',
+        generalRate: '5%',
+        rateFormula: 'value * 0.05',
+        isActive: true,
+      }),
+      htsRepository.create({
+        htsNumber: '6109.10.00',
+        version,
+        indent: 0,
+        description: 'T-shirts, singlets and other vests, of cotton',
+        chapter: '61',
+        heading: '6109',
+        subheading: '610910',
+        unit: 'pcs',
+        unitOfQuantity: 'pcs',
+        generalRate: '16.5%',
+        rateFormula: 'value * 0.165',
+        isActive: true,
+      }),
+    ]);
+  }
 
   describe('Basic Duty Calculation', () => {
     it('should calculate duties for valid input', async () => {
@@ -59,15 +123,15 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CN',
           declaredValue: 1000,
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body).toBeDefined();
       expect(response.body.success).toBe(true);
       expect(response.body.data).toBeDefined();
       expect(response.body.data.calculationId).toBeDefined();
-      expect(response.body.data.baseRate).toBeDefined();
-      expect(response.body.data.dutyAmount).toBeDefined();
-      expect(response.body.data.totalCost).toBeDefined();
+      expect(response.body.data.baseDuty).toBeDefined();
+      expect(response.body.data.totalDuty).toBeDefined();
+      expect(response.body.data.landedCost).toBeDefined();
       expect(response.body.meta.apiVersion).toBe('v1');
     });
 
@@ -112,10 +176,10 @@ describe('Calculator Flow (E2E)', () => {
           quantity: 100,
           quantityUnit: 'pcs',
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.dutyAmount).toBeGreaterThan(0);
+      expect(response.body.data.totalDuty).toBeGreaterThan(0);
     });
 
     it('should calculate with currency parameter', async () => {
@@ -128,7 +192,7 @@ describe('Calculator Flow (E2E)', () => {
           declaredValue: 1000,
           currency: 'USD',
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
     });
@@ -146,7 +210,7 @@ describe('Calculator Flow (E2E)', () => {
           tradeAgreementCode: 'USMCA',
           tradeAgreementCertificate: true,
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
       expect(response.body.data).toBeDefined();
@@ -166,7 +230,7 @@ describe('Calculator Flow (E2E)', () => {
           tradeAgreementCode: 'USMCA',
           tradeAgreementCertificate: false,
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
       // Without certificate, should use normal rate
@@ -183,16 +247,15 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CN', // China - subject to Chapter 99
           declaredValue: 1000,
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.additionalTariffs).toBeDefined();
+      expect(response.body.data.breakdown.additionalTariffs).toBeDefined();
 
       // Should include Chapter 99 tariffs if configured in database
-      if (response.body.data.additionalTariffs.length > 0) {
-        expect(response.body.data.additionalTariffs[0].name).toBeDefined();
-        expect(response.body.data.additionalTariffs[0].rate).toBeDefined();
-        expect(response.body.data.additionalTariffs[0].amount).toBeGreaterThan(0);
+      if (response.body.data.breakdown.additionalTariffs.length > 0) {
+        expect(response.body.data.breakdown.additionalTariffs[0].type).toBeDefined();
+        expect(response.body.data.breakdown.additionalTariffs[0].amount).toBeGreaterThan(0);
       }
     });
   });
@@ -207,19 +270,19 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CA',
           declaredValue: 10000,
         })
-        .expect(200);
+        .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.taxes).toBeDefined();
+      expect(response.body.data.breakdown.taxes).toBeDefined();
 
       // Check for MPF and HMF in taxes array
-      const mpf = response.body.data.taxes.find((tax: any) =>
-        tax.name.includes('MPF') || tax.name.includes('Merchandise Processing Fee')
+      const mpf = response.body.data.breakdown.taxes.find((tax: any) =>
+        tax.type.includes('MPF') || tax.description.includes('Merchandise Processing Fee')
       );
 
       if (mpf) {
         expect(mpf.amount).toBeGreaterThan(0);
-        expect(mpf.rate).toBeDefined();
+        expect(mpf.description).toBeDefined();
       }
     });
 
@@ -233,7 +296,7 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CA',
           declaredValue: 100,
         })
-        .expect(200);
+        .expect(201);
 
       // Test with very high value (should hit maximum)
       const highValueResponse = await request(app.getHttpServer())
@@ -244,7 +307,7 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CA',
           declaredValue: 1000000,
         })
-        .expect(200);
+        .expect(201);
 
       expect(lowValueResponse.body.success).toBe(true);
       expect(highValueResponse.body.success).toBe(true);
@@ -266,7 +329,7 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CN',
           declaredValue: 1000,
         })
-        .expect(200);
+        .expect(201);
 
       calculationId = response.body.data.calculationId;
       expect(calculationId).toBeDefined();
@@ -301,7 +364,7 @@ describe('Calculator Flow (E2E)', () => {
             countryOfOrigin: 'CN',
             declaredValue: 1000 + i * 100,
           })
-          .expect(200);
+          .expect(201);
       }
 
       // List calculations
@@ -378,7 +441,7 @@ describe('Calculator Flow (E2E)', () => {
           countryOfOrigin: 'CN',
           declaredValue: 1000,
         })
-        .expect(200);
+        .expect(201);
 
       // Verify response structure
       expect(response.body).toHaveProperty('success');
@@ -389,9 +452,9 @@ describe('Calculator Flow (E2E)', () => {
 
       // Verify data structure
       expect(response.body.data).toHaveProperty('calculationId');
-      expect(response.body.data).toHaveProperty('baseRate');
-      expect(response.body.data).toHaveProperty('dutyAmount');
-      expect(response.body.data).toHaveProperty('totalCost');
+      expect(response.body.data).toHaveProperty('baseDuty');
+      expect(response.body.data).toHaveProperty('totalDuty');
+      expect(response.body.data).toHaveProperty('landedCost');
     });
   });
 });

@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   UseGuards,
+  HttpCode,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
@@ -69,6 +70,7 @@ export class KnowledgebasePublicController {
   @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @HttpCode(HttpStatus.OK)
   @ApiPermissions('kb:query')
   async query(
     @Body('question') question: string,
@@ -143,6 +145,7 @@ export class KnowledgebasePublicController {
   @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @HttpCode(HttpStatus.OK)
   @ApiPermissions('kb:query')
   async recommend(
     @Body('productDescription') productDescription: string,

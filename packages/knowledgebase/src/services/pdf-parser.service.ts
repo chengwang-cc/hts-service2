@@ -3,7 +3,6 @@ import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import pdfParse from 'pdf-parse';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -23,17 +22,14 @@ export class PdfParserService {
       await this.extractWithPdftotext(inputPath, outputPath);
 
       const extractedText = await fs.readFile(outputPath, 'utf-8');
-      if (!extractedText || extractedText.trim().length === 0) {
-        throw new Error('pdftotext produced empty output');
-      }
+      this.validateExtractedText(extractedText);
 
       return extractedText;
     } catch (error) {
       if (this.isCommandMissing(error)) {
-        this.logger.warn(
-          'pdftotext is not available in runtime; falling back to pdf-parse. Install poppler-utils for production.'
+        throw new Error(
+          'pdftotext is not available in runtime. Install poppler-utils to enable HTS PDF extraction.',
         );
-        return this.extractWithPdfParse(pdfBuffer);
       }
 
       this.logger.error(`PDF parsing failed: ${error.message}`);
@@ -55,20 +51,22 @@ export class PdfParserService {
     );
   }
 
-  private async extractWithPdfParse(pdfBuffer: Buffer): Promise<string> {
-    const data = await pdfParse(pdfBuffer);
-    if (!data.text || data.text.trim().length === 0) {
-      throw new Error('pdf-parse produced empty output');
-    }
-    return data.text;
-  }
-
   private isCommandMissing(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
       return false;
     }
     const commandError = error as { code?: string; message?: string };
     return commandError.code === 'ENOENT' || /not found|enoent/i.test(commandError.message || '');
+  }
+
+  private validateExtractedText(extractedText: string): void {
+    const normalized = extractedText.trim();
+    if (!normalized) {
+      throw new Error('pdftotext produced empty output');
+    }
+    if (normalized.length < 10) {
+      throw new Error('pdftotext output is too short to be a valid HTS extraction');
+    }
   }
 
   extractSections(text: string): Record<string, string> {

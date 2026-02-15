@@ -190,14 +190,14 @@ export class DocumentProcessingJobHandler {
     await this.documentRepo.update(documentId, {
       s3Bucket,
       s3Key,
-      s3FileHash: uploadResult.sha256,
+      s3FileHash: uploadResult.sha256 ?? null,
       fileSize: uploadResult.size,
       downloadedAt: new Date(),
     });
 
     document.s3Bucket = s3Bucket;
     document.s3Key = s3Key;
-    document.s3FileHash = uploadResult.sha256;
+    document.s3FileHash = uploadResult.sha256 ?? null;
     document.fileSize = uploadResult.size;
     document.downloadedAt = new Date();
 
