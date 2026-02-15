@@ -196,6 +196,25 @@ export class HtsImportAdminController {
   }
 
   /**
+   * GET /admin/hts-imports/:id/stage/formula-gate
+   * Get formula coverage and formula-gate decision for staged entries
+   */
+  @Get(':id/stage/formula-gate')
+  @ApiOperation({ summary: 'Get staging formula gate summary' })
+  @ApiResponse({ status: 200, description: 'Formula gate summary retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Import not found' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:import:review')
+  async getStageFormulaGate(@Param('id') id: string) {
+    const summary = await this.htsImportService.getStageFormulaGate(id);
+
+    return {
+      success: true,
+      data: summary,
+    };
+  }
+
+  /**
    * GET /admin/hts-imports/:id/stage/validation
    * Get validation issues for staged entries
    */

@@ -30,6 +30,7 @@ export class NoteResolutionService {
     referenceText?: string,
     sourceColumn: 'general' | 'other' | 'special' = 'general',
     year?: number,
+    options?: { exactOnly?: boolean },
   ): Promise<any> {
     // Try exact match first
     const exactMatch = await this.exactMatch(referenceText || '', htsNumber, year);
@@ -52,7 +53,7 @@ export class NoteResolutionService {
     }
 
     // Try semantic search
-    if (referenceText) {
+    if (referenceText && !options?.exactOnly) {
       const semanticMatch = await this.semanticSearch(referenceText, htsNumber, year);
       if (semanticMatch && semanticMatch.confidence >= 0.8) {
         const result = await this.buildResult(

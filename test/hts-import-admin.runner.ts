@@ -165,6 +165,41 @@ async function run() {
   );
   const importId = importHistory.id;
 
+  const formulaGateImport = await importHistoryRepo.save(
+    importHistoryRepo.create({
+      sourceVersion: '2026_revision_2',
+      sourceUrl: 'https://hts.usitc.gov/data.json',
+      status: 'STAGED_READY',
+      startedBy: reviewerEmail,
+      metadata: {
+        validationSummary: {
+          errorCount: 0,
+          warningCount: 1,
+          infoCount: 0,
+          formulaCoverage: 0.92,
+          formulaGatePassed: false,
+          validatedAt: new Date().toISOString(),
+        },
+        formulaValidationSummary: {
+          totalRateFields: 10,
+          formulaResolvableCount: 9,
+          formulaUnresolvedCount: 1,
+          noteReferenceCount: 1,
+          noteResolvedCount: 0,
+          noteUnresolvedCount: 1,
+          nonNoteResolvableCount: 9,
+          nonNoteUnresolvedCount: 0,
+          minCoverage: 0.995,
+          currentCoverage: 0.92,
+          formulaGatePassed: false,
+          noteFormulaPolicy: 'STRICT',
+          validatedAt: new Date().toISOString(),
+        },
+      } as any,
+    }),
+  );
+  const formulaGateImportId = formulaGateImport.id;
+
   await stageRepo.insert([
     {
       importId,
@@ -183,6 +218,26 @@ async function run() {
       statisticalSuffix: '01012100',
       parentHtsNumber: null,
       rowHash: 'hash-1',
+      rawItem: {},
+      normalized: {},
+    },
+    {
+      importId: formulaGateImportId,
+      sourceVersion: formulaGateImport.sourceVersion,
+      htsNumber: '0101.30.0000',
+      indent: 0,
+      description: 'Test formula gate entry',
+      unit: 'kg',
+      generalRate: '5%',
+      special: null,
+      other: null,
+      chapter99: null,
+      chapter: '01',
+      heading: '0101',
+      subheading: '010130',
+      statisticalSuffix: '01013000',
+      parentHtsNumber: null,
+      rowHash: 'hash-formula-gate',
       rawItem: {},
       normalized: {},
     },
@@ -229,6 +284,12 @@ async function run() {
   assert(validation.status === 200, `validation status ${validation.status}`);
   assert(validation.body.data.length === 1, 'validation entries');
 
+  const formulaGate = await request(server)
+    .get(`/admin/hts-imports/${formulaGateImportId}/stage/formula-gate`)
+    .set('Authorization', `Bearer ${reviewerToken}`);
+  assert(formulaGate.status === 200, `formula gate status ${formulaGate.status}`);
+  assert(formulaGate.body.data.formulaGatePassed === false, 'formula gate should fail');
+
   const diffs = await request(server)
     .get(`/admin/hts-imports/${importId}/stage/diffs?diffType=CHANGED`)
     .set('Authorization', `Bearer ${reviewerToken}`);
@@ -245,12 +306,28 @@ async function run() {
     .set('Authorization', `Bearer ${reviewerToken}`);
   assert(promoteBlocked.status === 400, 'promotion should be blocked without override');
 
+  const promoteFormulaBlocked = await request(server)
+    .post(`/admin/hts-imports/${formulaGateImportId}/promote`)
+    .set('Authorization', `Bearer ${reviewerToken}`);
+  assert(
+    promoteFormulaBlocked.status === 400,
+    'promotion should be blocked without override when formula gate fails',
+  );
+
   const promoteOk = await request(server)
     .post(`/admin/hts-imports/${importId}/promote`)
     .set('Authorization', `Bearer ${overrideToken}`);
   assert(
     promoteOk.status === 200 || promoteOk.status === 201,
     'promotion should succeed with override',
+  );
+
+  const promoteFormulaOk = await request(server)
+    .post(`/admin/hts-imports/${formulaGateImportId}/promote`)
+    .set('Authorization', `Bearer ${overrideToken}`);
+  assert(
+    promoteFormulaOk.status === 200 || promoteFormulaOk.status === 201,
+    'formula gate promotion should succeed with override',
   );
 
   await app.close();

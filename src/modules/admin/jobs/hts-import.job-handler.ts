@@ -22,6 +22,7 @@ import {
   HtsStageDiffEntity,
   HtsExtraTaxEntity,
   HtsFormulaGenerationService,
+  FormulaGenerationService,
 } from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
@@ -53,6 +54,12 @@ export class HtsImportJobHandler {
   private readonly logger = new Logger(HtsImportJobHandler.name);
   private readonly BATCH_SIZE = 1000; // Process 1000 records per batch
   private readonly S3_BUCKET: string;
+  private readonly MIN_STAGE_FORMULA_COVERAGE = Math.min(
+    1,
+    Math.max(0, parseFloat(process.env.HTS_MIN_FORMULA_COVERAGE || '0.995')),
+  );
+  private readonly ALLOW_UNRESOLVED_NOTE_FORMULAS =
+    process.env.HTS_ALLOW_UNRESOLVED_NOTE_FORMULAS === 'true';
 
   constructor(
     @InjectRepository(HtsImportHistoryEntity)
@@ -71,6 +78,7 @@ export class HtsImportJobHandler {
     private htsImportService: HtsImportService,
     private s3Storage: S3StorageService,
     private htsFormulaGenerationService: HtsFormulaGenerationService,
+    private formulaGenerationService: FormulaGenerationService,
     @Optional() private noteResolutionService?: NoteResolutionService,
   ) {
     this.S3_BUCKET = this.s3Storage.getDefaultBucket();
@@ -139,18 +147,31 @@ export class HtsImportJobHandler {
 
         // After diffing, check validation and stop for manual promotion
         const validationSummary = await this.getValidationSummary(importHistory.id);
+        const formulaCoverageText =
+          typeof validationSummary.formulaCoverage === 'number'
+            ? `${(validationSummary.formulaCoverage * 100).toFixed(2)}%`
+            : 'n/a';
 
-        if (validationSummary.errorCount > 0) {
+        if (validationSummary.errorCount > 0 || !validationSummary.formulaGatePassed) {
           // Has validation errors - requires admin review
           await this.importHistoryRepo.update(importHistory.id, {
             status: 'REQUIRES_REVIEW',
           });
+          const reviewReasons: string[] = [];
+          if (validationSummary.errorCount > 0) {
+            reviewReasons.push(`${validationSummary.errorCount} validation errors`);
+          }
+          if (!validationSummary.formulaGatePassed) {
+            reviewReasons.push(
+              `formula gate failed (coverage=${formulaCoverageText}, min=${(this.MIN_STAGE_FORMULA_COVERAGE * 100).toFixed(2)}%)`,
+            );
+          }
           await this.htsImportService.appendLog(
             importHistory.id,
-            `✓ Staging complete. ${validationSummary.errorCount} validation errors require review before promotion.`,
+            `✓ Staging complete. Requires review before promotion: ${reviewReasons.join('; ')}.`,
           );
           this.logger.log(
-            `Import ${importHistory.id} staged with ${validationSummary.errorCount} errors - requires review`,
+            `Import ${importHistory.id} staged with review blockers: ${reviewReasons.join('; ')}`,
           );
           // Don't advance checkpoint - leave at DIFFING stage
           return;
@@ -161,7 +182,7 @@ export class HtsImportJobHandler {
           });
           await this.htsImportService.appendLog(
             importHistory.id,
-            `✓ Staging complete. No validation errors found. Ready for promotion.`,
+            `✓ Staging complete. Validation clean and formula gate passed (coverage=${formulaCoverageText}). Ready for promotion.`,
           );
           this.logger.log(
             `Import ${importHistory.id} staged successfully - ready for manual promotion`,
@@ -181,16 +202,32 @@ export class HtsImportJobHandler {
         const validationOverride =
           (refreshedImport?.metadata as any)?.validationOverride === true;
 
-        if (validationSummary.errorCount > 0 && !validationOverride) {
+        if (
+          (validationSummary.errorCount > 0 || !validationSummary.formulaGatePassed) &&
+          !validationOverride
+        ) {
           await this.importHistoryRepo.update(importHistory.id, {
             status: 'REQUIRES_REVIEW',
           });
+          const blockedReasons: string[] = [];
+          if (validationSummary.errorCount > 0) {
+            blockedReasons.push(`${validationSummary.errorCount} validation errors`);
+          }
+          if (!validationSummary.formulaGatePassed) {
+            const formulaCoverageText =
+              typeof validationSummary.formulaCoverage === 'number'
+                ? `${(validationSummary.formulaCoverage * 100).toFixed(2)}%`
+                : 'n/a';
+            blockedReasons.push(
+              `formula gate failed (coverage=${formulaCoverageText}, min=${(this.MIN_STAGE_FORMULA_COVERAGE * 100).toFixed(2)}%)`,
+            );
+          }
           await this.htsImportService.appendLog(
             importHistory.id,
-            `✗ Promotion blocked: ${validationSummary.errorCount} validation errors found. Override permission required.`,
+            `✗ Promotion blocked: ${blockedReasons.join('; ')}. Override permission required.`,
           );
           this.logger.warn(
-            `Import ${importHistory.id} promotion blocked: ${validationSummary.errorCount} errors`,
+            `Import ${importHistory.id} promotion blocked: ${blockedReasons.join('; ')}`,
           );
           return;
         }
@@ -932,6 +969,17 @@ export class HtsImportJobHandler {
     let errorCount = 0;
     let warningCount = 0;
     let infoCount = 0;
+    const formulaStats = {
+      totalRateFields: 0,
+      formulaResolvableCount: 0,
+      formulaUnresolvedCount: 0,
+      noteReferenceCount: 0,
+      noteResolvedCount: 0,
+      noteUnresolvedCount: 0,
+      nonNoteResolvableCount: 0,
+      nonNoteUnresolvedCount: 0,
+    };
+    const importYear = this.extractYear(importHistory.sourceVersion);
 
     for (let offset = 0; offset < total; offset += pageSize) {
       const batch = await this.htsStageRepo.find({
@@ -1085,6 +1133,36 @@ export class HtsImportJobHandler {
           }
         }
 
+        const generalTypeValidation = this.validateRateByType(
+          importHistory.id,
+          entry,
+          'generalRate',
+          entry.generalRate,
+        );
+        if (generalTypeValidation.issues.length > 0) {
+          issues.push(...generalTypeValidation.issues);
+        }
+        errorCount += generalTypeValidation.errorCount;
+        warningCount += generalTypeValidation.warningCount;
+        infoCount += generalTypeValidation.infoCount;
+
+        const generalFormulaValidation = await this.validateRateFormulaReadiness(
+          importHistory.id,
+          entry,
+          'generalRate',
+          entry.generalRate,
+          entry.unit,
+          'general',
+          importYear,
+        );
+        if (generalFormulaValidation.issues.length > 0) {
+          issues.push(...generalFormulaValidation.issues);
+        }
+        errorCount += generalFormulaValidation.errorCount;
+        warningCount += generalFormulaValidation.warningCount;
+        infoCount += generalFormulaValidation.infoCount;
+        this.mergeFormulaStats(formulaStats, generalFormulaValidation.stats);
+
         if (entry.special && !this.isLikelyRate(entry.special)) {
           issues.push({
             importId: importHistory.id,
@@ -1110,6 +1188,19 @@ export class HtsImportJobHandler {
             infoCount++;
           }
         }
+
+        const specialTypeValidation = this.validateRateByType(
+          importHistory.id,
+          entry,
+          'special',
+          entry.special,
+        );
+        if (specialTypeValidation.issues.length > 0) {
+          issues.push(...specialTypeValidation.issues);
+        }
+        errorCount += specialTypeValidation.errorCount;
+        warningCount += specialTypeValidation.warningCount;
+        infoCount += specialTypeValidation.infoCount;
 
         if (entry.other && !this.isLikelyRate(entry.other)) {
           issues.push({
@@ -1137,6 +1228,36 @@ export class HtsImportJobHandler {
           }
         }
 
+        const otherTypeValidation = this.validateRateByType(
+          importHistory.id,
+          entry,
+          'other',
+          entry.other,
+        );
+        if (otherTypeValidation.issues.length > 0) {
+          issues.push(...otherTypeValidation.issues);
+        }
+        errorCount += otherTypeValidation.errorCount;
+        warningCount += otherTypeValidation.warningCount;
+        infoCount += otherTypeValidation.infoCount;
+
+        const otherFormulaValidation = await this.validateRateFormulaReadiness(
+          importHistory.id,
+          entry,
+          'other',
+          entry.other,
+          entry.unit,
+          'other',
+          importYear,
+        );
+        if (otherFormulaValidation.issues.length > 0) {
+          issues.push(...otherFormulaValidation.issues);
+        }
+        errorCount += otherFormulaValidation.errorCount;
+        warningCount += otherFormulaValidation.warningCount;
+        infoCount += otherFormulaValidation.infoCount;
+        this.mergeFormulaStats(formulaStats, otherFormulaValidation.stats);
+
         if (entry.chapter99 && !this.isLikelyRate(entry.chapter99)) {
           issues.push({
             importId: importHistory.id,
@@ -1163,6 +1284,36 @@ export class HtsImportJobHandler {
           }
         }
 
+        const chapter99TypeValidation = this.validateRateByType(
+          importHistory.id,
+          entry,
+          'chapter99',
+          entry.chapter99,
+        );
+        if (chapter99TypeValidation.issues.length > 0) {
+          issues.push(...chapter99TypeValidation.issues);
+        }
+        errorCount += chapter99TypeValidation.errorCount;
+        warningCount += chapter99TypeValidation.warningCount;
+        infoCount += chapter99TypeValidation.infoCount;
+
+        const chapter99FormulaValidation = await this.validateRateFormulaReadiness(
+          importHistory.id,
+          entry,
+          'chapter99',
+          entry.chapter99,
+          entry.unit,
+          'general',
+          importYear,
+        );
+        if (chapter99FormulaValidation.issues.length > 0) {
+          issues.push(...chapter99FormulaValidation.issues);
+        }
+        errorCount += chapter99FormulaValidation.errorCount;
+        warningCount += chapter99FormulaValidation.warningCount;
+        infoCount += chapter99FormulaValidation.infoCount;
+        this.mergeFormulaStats(formulaStats, chapter99FormulaValidation.stats);
+
         if (entry.indent < 0) {
           issues.push({
             importId: importHistory.id,
@@ -1183,6 +1334,14 @@ export class HtsImportJobHandler {
       processed += batch.length;
     }
 
+    const formulaCoverage =
+      formulaStats.totalRateFields > 0
+        ? formulaStats.formulaResolvableCount / formulaStats.totalRateFields
+        : 1;
+    const formulaGatePassed =
+      formulaCoverage >= this.MIN_STAGE_FORMULA_COVERAGE &&
+      (this.ALLOW_UNRESOLVED_NOTE_FORMULAS || formulaStats.noteUnresolvedCount === 0);
+
     const metadata = {
       ...(importHistory.metadata || {}),
       validationSummary: {
@@ -1190,6 +1349,18 @@ export class HtsImportJobHandler {
         errorCount,
         warningCount,
         infoCount,
+        formulaCoverage,
+        formulaGatePassed,
+        validatedAt: new Date().toISOString(),
+      },
+      formulaValidationSummary: {
+        ...formulaStats,
+        minCoverage: this.MIN_STAGE_FORMULA_COVERAGE,
+        currentCoverage: formulaCoverage,
+        formulaGatePassed,
+        noteFormulaPolicy: this.ALLOW_UNRESOLVED_NOTE_FORMULAS
+          ? 'ALLOW_UNRESOLVED'
+          : 'STRICT',
         validatedAt: new Date().toISOString(),
       },
     };
@@ -1201,10 +1372,322 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `✓ Validation completed: ${processed.toLocaleString()} entries checked ` +
-      `(errors: ${errorCount}, warnings: ${warningCount})`
+      `(errors: ${errorCount}, warnings: ${warningCount}, formula coverage: ${(formulaCoverage * 100).toFixed(2)}%)`
     );
 
     return { errorCount, warningCount, infoCount };
+  }
+
+  private mergeFormulaStats(
+    aggregate: {
+      totalRateFields: number;
+      formulaResolvableCount: number;
+      formulaUnresolvedCount: number;
+      noteReferenceCount: number;
+      noteResolvedCount: number;
+      noteUnresolvedCount: number;
+      nonNoteResolvableCount: number;
+      nonNoteUnresolvedCount: number;
+    },
+    current: {
+      totalRateFields: number;
+      formulaResolvableCount: number;
+      formulaUnresolvedCount: number;
+      noteReferenceCount: number;
+      noteResolvedCount: number;
+      noteUnresolvedCount: number;
+      nonNoteResolvableCount: number;
+      nonNoteUnresolvedCount: number;
+    },
+  ): void {
+    aggregate.totalRateFields += current.totalRateFields;
+    aggregate.formulaResolvableCount += current.formulaResolvableCount;
+    aggregate.formulaUnresolvedCount += current.formulaUnresolvedCount;
+    aggregate.noteReferenceCount += current.noteReferenceCount;
+    aggregate.noteResolvedCount += current.noteResolvedCount;
+    aggregate.noteUnresolvedCount += current.noteUnresolvedCount;
+    aggregate.nonNoteResolvableCount += current.nonNoteResolvableCount;
+    aggregate.nonNoteUnresolvedCount += current.nonNoteUnresolvedCount;
+  }
+
+  private async validateRateFormulaReadiness(
+    importId: string,
+    entry: HtsStageEntryEntity,
+    issuePrefix: 'generalRate' | 'other' | 'chapter99',
+    rawRate: string | null,
+    unit: string | null,
+    noteSourceColumn: 'general' | 'other' | 'special',
+    year?: number,
+  ): Promise<{
+    issues: Array<Partial<HtsStageValidationIssueEntity>>;
+    errorCount: number;
+    warningCount: number;
+    infoCount: number;
+    stats: {
+      totalRateFields: number;
+      formulaResolvableCount: number;
+      formulaUnresolvedCount: number;
+      noteReferenceCount: number;
+      noteResolvedCount: number;
+      noteUnresolvedCount: number;
+      nonNoteResolvableCount: number;
+      nonNoteUnresolvedCount: number;
+    };
+  }> {
+    const issues: Array<Partial<HtsStageValidationIssueEntity>> = [];
+    const rateText = this.normalizeString(rawRate || '');
+    const stats = {
+      totalRateFields: 0,
+      formulaResolvableCount: 0,
+      formulaUnresolvedCount: 0,
+      noteReferenceCount: 0,
+      noteResolvedCount: 0,
+      noteUnresolvedCount: 0,
+      nonNoteResolvableCount: 0,
+      nonNoteUnresolvedCount: 0,
+    };
+
+    if (!rateText) {
+      return { issues, errorCount: 0, warningCount: 0, infoCount: 0, stats };
+    }
+
+    stats.totalRateFields++;
+    const issueCodePrefix = issuePrefix.toUpperCase();
+
+    if (/note/i.test(rateText)) {
+      stats.noteReferenceCount++;
+
+      if (!this.noteResolutionService) {
+        issues.push({
+          importId,
+          stageEntryId: entry.id,
+          htsNumber: entry.htsNumber,
+          issueCode: `${issueCodePrefix}_NOTE_SERVICE`,
+          severity: 'WARNING',
+          message: `${issuePrefix} references notes but NoteResolutionService is unavailable`,
+          details: { rateText },
+        });
+        return { issues, errorCount: 0, warningCount: 1, infoCount: 0, stats };
+      }
+
+      const resolved = await this.noteResolutionService.resolveNoteReference(
+        entry.htsNumber,
+        rateText,
+        noteSourceColumn,
+        year,
+        { exactOnly: true },
+      );
+
+      if (resolved?.formula) {
+        stats.formulaResolvableCount++;
+        stats.noteResolvedCount++;
+        return { issues, errorCount: 0, warningCount: 0, infoCount: 0, stats };
+      }
+
+      stats.formulaUnresolvedCount++;
+      stats.noteUnresolvedCount++;
+
+      const severity = this.ALLOW_UNRESOLVED_NOTE_FORMULAS ? 'WARNING' : 'ERROR';
+      issues.push({
+        importId,
+        stageEntryId: entry.id,
+        htsNumber: entry.htsNumber,
+        issueCode: `${issueCodePrefix}_NOTE_UNRESOLVED`,
+        severity,
+        message: `${issuePrefix} references note text but no note formula could be resolved`,
+        details: { rateText, year, sourceColumn: noteSourceColumn },
+      });
+
+      return {
+        issues,
+        errorCount: severity === 'ERROR' ? 1 : 0,
+        warningCount: severity === 'WARNING' ? 1 : 0,
+        infoCount: 0,
+        stats,
+      };
+    }
+
+    const formulaCandidate = this.formulaGenerationService.generateFormulaByPattern(
+      rateText,
+      unit || undefined,
+    );
+
+    if (!formulaCandidate) {
+      stats.formulaUnresolvedCount++;
+      stats.nonNoteUnresolvedCount++;
+      issues.push({
+        importId,
+        stageEntryId: entry.id,
+        htsNumber: entry.htsNumber,
+        issueCode: `${issueCodePrefix}_FORMULA_MISSING`,
+        severity: 'ERROR',
+        message: `${issuePrefix} could not be converted to a deterministic formula`,
+        details: { rateText, unit },
+      });
+      return { issues, errorCount: 1, warningCount: 0, infoCount: 0, stats };
+    }
+
+    const validation = this.formulaGenerationService.validateFormula(formulaCandidate.formula);
+    if (!validation.valid) {
+      stats.formulaUnresolvedCount++;
+      stats.nonNoteUnresolvedCount++;
+      issues.push({
+        importId,
+        stageEntryId: entry.id,
+        htsNumber: entry.htsNumber,
+        issueCode: `${issueCodePrefix}_FORMULA_INVALID`,
+        severity: 'ERROR',
+        message: `${issuePrefix} generated an invalid formula candidate`,
+        details: { rateText, formula: formulaCandidate.formula, error: validation.error },
+      });
+      return { issues, errorCount: 1, warningCount: 0, infoCount: 0, stats };
+    }
+
+    stats.formulaResolvableCount++;
+    stats.nonNoteResolvableCount++;
+    return { issues, errorCount: 0, warningCount: 0, infoCount: 0, stats };
+  }
+
+  private validateRateByType(
+    importId: string,
+    entry: HtsStageEntryEntity,
+    issuePrefix: 'generalRate' | 'special' | 'other' | 'chapter99',
+    rawRate: string | null,
+  ): {
+    issues: Array<Partial<HtsStageValidationIssueEntity>>;
+    errorCount: number;
+    warningCount: number;
+    infoCount: number;
+  } {
+    const issues: Array<Partial<HtsStageValidationIssueEntity>> = [];
+    const rateText = this.normalizeString(rawRate || '');
+
+    if (!rateText) {
+      return { issues, errorCount: 0, warningCount: 0, infoCount: 0 };
+    }
+
+    const issueCodePrefix = issuePrefix.toUpperCase();
+    let errorCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+
+    const pushIssue = (
+      severity: 'ERROR' | 'WARNING' | 'INFO',
+      code: string,
+      message: string,
+      details?: Record<string, any>,
+    ) => {
+      issues.push({
+        importId,
+        stageEntryId: entry.id,
+        htsNumber: entry.htsNumber,
+        issueCode: `${issueCodePrefix}_${code}`,
+        severity,
+        message,
+        details: details || null,
+      });
+      if (severity === 'ERROR') errorCount++;
+      else if (severity === 'WARNING') warningCount++;
+      else infoCount++;
+    };
+
+    const normalized = rateText.toLowerCase();
+
+    if (/free/.test(normalized) && /[%$¢]|\d/.test(normalized)) {
+      pushIssue(
+        'WARNING',
+        'MIXED_FREE_NUMERIC',
+        `${issuePrefix} mixes "free" with numeric rate tokens`,
+        { rateText },
+      );
+    }
+
+    const rangeMatch = normalized.match(
+      /(-?\d+(?:\.\d+)?)\s*%\s*(?:to|-)\s*(-?\d+(?:\.\d+)?)\s*%/,
+    );
+    if (rangeMatch) {
+      const left = parseFloat(rangeMatch[1]);
+      const right = parseFloat(rangeMatch[2]);
+      if (left > right) {
+        pushIssue('ERROR', 'RANGE_REVERSED', `${issuePrefix} has reversed percentage range`, {
+          rateText,
+          min: left,
+          max: right,
+        });
+      } else if (left === right) {
+        pushIssue('INFO', 'RANGE_FLAT', `${issuePrefix} has identical range endpoints`, {
+          rateText,
+          value: left,
+        });
+      }
+    }
+
+    const percentMatches = normalized.matchAll(/(-?\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/g);
+    for (const match of percentMatches) {
+      const value = parseFloat(match[1]);
+      if (value < 0) {
+        pushIssue('ERROR', 'PERCENT_NEGATIVE', `${issuePrefix} has a negative percentage rate`, {
+          rateText,
+          value,
+        });
+      } else if (value > 100 && value <= 500) {
+        pushIssue(
+          'WARNING',
+          'PERCENT_HIGH',
+          `${issuePrefix} has unusually high percentage rate`,
+          { rateText, value },
+        );
+      } else if (value > 500) {
+        pushIssue('ERROR', 'PERCENT_EXTREME', `${issuePrefix} has extreme percentage rate`, {
+          rateText,
+          value,
+        });
+      }
+    }
+
+    const specificMatches = normalized.matchAll(
+      /((?:\$|¢)?\s*-?\d+(?:\.\d+)?\s*(?:¢|cents?)?\s*(?:\/|per)\s*[a-z0-9.]+)/g,
+    );
+    for (const match of specificMatches) {
+      const token = match[1];
+      const numberMatch = token.match(/-?\d+(?:\.\d+)?/);
+      if (!numberMatch) continue;
+      let value = parseFloat(numberMatch[0]);
+      if (token.includes('¢') || token.includes('cent')) {
+        value = value / 100;
+      }
+
+      if (value < 0) {
+        pushIssue('ERROR', 'SPECIFIC_NEGATIVE', `${issuePrefix} has a negative specific duty`, {
+          rateText,
+          token,
+          value,
+        });
+      } else if (value === 0) {
+        pushIssue('WARNING', 'SPECIFIC_ZERO', `${issuePrefix} has a zero specific duty`, {
+          rateText,
+          token,
+          value,
+        });
+      } else if (value > 1000) {
+        pushIssue('WARNING', 'SPECIFIC_HIGH', `${issuePrefix} has unusually high specific duty`, {
+          rateText,
+          token,
+          value,
+        });
+      }
+    }
+
+    if (/\bnote\b/.test(normalized) && !/note[s]?\s+\d+[a-z]?(?:\([a-z0-9ivx]+\))*/i.test(rateText)) {
+      pushIssue(
+        'WARNING',
+        'NOTE_REFERENCE_AMBIGUOUS',
+        `${issuePrefix} references notes without a parsable note number`,
+        { rateText },
+      );
+    }
+
+    return { issues, errorCount, warningCount, infoCount };
   }
 
   /**
@@ -1311,7 +1794,13 @@ export class HtsImportJobHandler {
 
   private async getValidationSummary(
     importId: string,
-  ): Promise<{ errorCount: number; warningCount: number; infoCount: number }> {
+  ): Promise<{
+    errorCount: number;
+    warningCount: number;
+    infoCount: number;
+    formulaCoverage: number | null;
+    formulaGatePassed: boolean;
+  }> {
     const rows = await this.htsStageIssueRepo
       .createQueryBuilder('issue')
       .select('issue.severity', 'severity')
@@ -1331,7 +1820,24 @@ export class HtsImportJobHandler {
       else if (row.severity === 'INFO') infoCount = count;
     }
 
-    return { errorCount, warningCount, infoCount };
+    const importHistory = await this.importHistoryRepo.findOne({
+      where: { id: importId },
+    });
+    const metadata = (importHistory?.metadata || {}) as Record<string, any>;
+    const metadataValidationSummary = metadata.validationSummary || {};
+    const metadataFormulaSummary = metadata.formulaValidationSummary || {};
+    const formulaCoverage =
+      typeof metadataFormulaSummary.currentCoverage === 'number'
+        ? metadataFormulaSummary.currentCoverage
+        : typeof metadataValidationSummary.formulaCoverage === 'number'
+          ? metadataValidationSummary.formulaCoverage
+          : null;
+    const formulaGateFlag =
+      metadataFormulaSummary.formulaGatePassed ?? metadataValidationSummary.formulaGatePassed;
+    const formulaGatePassed =
+      typeof formulaGateFlag === 'boolean' ? formulaGateFlag : errorCount === 0;
+
+    return { errorCount, warningCount, infoCount, formulaCoverage, formulaGatePassed };
   }
 
   private isValidHtsNumberFormat(htsNumber: string): boolean {

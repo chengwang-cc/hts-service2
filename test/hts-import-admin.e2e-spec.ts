@@ -47,6 +47,7 @@ describe('Admin HTS Import (E2E)', () => {
   let reviewerToken: string;
   let overrideToken: string;
   let importId: string;
+  let formulaGateImportId: string;
 
   beforeAll(async () => {
     queueServiceMock = {
@@ -212,6 +213,41 @@ describe('Admin HTS Import (E2E)', () => {
     );
     importId = importHistory.id;
 
+    const formulaGateImport = await importHistoryRepo.save(
+      importHistoryRepo.create({
+        sourceVersion: '2026_revision_2',
+        sourceUrl: 'https://hts.usitc.gov/data.json',
+        status: 'STAGED_READY',
+        startedBy: reviewerEmail,
+        metadata: {
+          validationSummary: {
+            errorCount: 0,
+            warningCount: 1,
+            infoCount: 0,
+            formulaCoverage: 0.92,
+            formulaGatePassed: false,
+            validatedAt: new Date().toISOString(),
+          },
+          formulaValidationSummary: {
+            totalRateFields: 10,
+            formulaResolvableCount: 9,
+            formulaUnresolvedCount: 1,
+            noteReferenceCount: 1,
+            noteResolvedCount: 0,
+            noteUnresolvedCount: 1,
+            nonNoteResolvableCount: 9,
+            nonNoteUnresolvedCount: 0,
+            minCoverage: 0.995,
+            currentCoverage: 0.92,
+            formulaGatePassed: false,
+            noteFormulaPolicy: 'STRICT',
+            validatedAt: new Date().toISOString(),
+          },
+        },
+      }),
+    );
+    formulaGateImportId = formulaGateImport.id;
+
     await stageRepo.insert([
       {
         importId,
@@ -276,6 +312,29 @@ describe('Admin HTS Import (E2E)', () => {
         diffSummary: { changes: { description: { current: 'A', staged: 'B' } } },
       },
     ]);
+
+    await stageRepo.insert([
+      {
+        importId: formulaGateImportId,
+        sourceVersion: formulaGateImport.sourceVersion,
+        htsNumber: '0101.30.0000',
+        indent: 0,
+        description: 'Test formula gate entry',
+        unit: 'kg',
+        generalRate: '5%',
+        special: null,
+        other: null,
+        chapter99: null,
+        chapter: '01',
+        heading: '0101',
+        subheading: '010130',
+        statisticalSuffix: '01013000',
+        parentHtsNumber: null,
+        rowHash: 'hash-formula-gate',
+        rawItem: {},
+        normalized: {},
+      },
+    ]);
   });
 
   afterAll(async () => {
@@ -292,6 +351,19 @@ describe('Admin HTS Import (E2E)', () => {
     expect(response.body.data.stagedCount).toBe(2);
     expect(response.body.data.validationCounts.ERROR).toBe(1);
     expect(response.body.data.diffCounts.CHANGED).toBe(1);
+  });
+
+  it('should return formula gate summary', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/admin/hts-imports/${formulaGateImportId}/stage/formula-gate`)
+      .set('Authorization', `Bearer ${reviewerToken}`)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.formulaGatePassed).toBe(false);
+    expect(response.body.data.formulaCoverage).toBeCloseTo(0.92, 6);
+    expect(response.body.data.minCoverage).toBeCloseTo(0.995, 6);
+    expect(response.body.data.noteUnresolvedCount).toBe(1);
   });
 
   it('should return validation issues filtered by severity', async () => {
@@ -334,6 +406,15 @@ describe('Admin HTS Import (E2E)', () => {
       .expect(400);
   });
 
+  it('should block promotion without override permission when formula gate fails', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/admin/hts-imports/${formulaGateImportId}/promote`)
+      .set('Authorization', `Bearer ${reviewerToken}`)
+      .expect(400);
+
+    expect(response.body.message).toContain('formula gate failed');
+  });
+
   it('should allow promotion with override permission', async () => {
     const response = await request(app.getHttpServer())
       .post(`/admin/hts-imports/${importId}/promote`)
@@ -342,5 +423,14 @@ describe('Admin HTS Import (E2E)', () => {
 
     expect(response.body.success).toBe(true);
     expect(queueServiceMock.sendJob).toHaveBeenCalled();
+  });
+
+  it('should allow formula-gate override promotion with override permission', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/admin/hts-imports/${formulaGateImportId}/promote`)
+      .set('Authorization', `Bearer ${overrideToken}`)
+      .expect(201);
+
+    expect(response.body.success).toBe(true);
   });
 });

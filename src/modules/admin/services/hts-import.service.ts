@@ -360,6 +360,80 @@ export class HtsImportService {
   }
 
   /**
+   * Get formula gate summary from staged validation metadata.
+   */
+  async getStageFormulaGate(importId: string): Promise<{
+    formulaGatePassed: boolean;
+    formulaCoverage: number | null;
+    minCoverage: number | null;
+    noteFormulaPolicy: string | null;
+    totalRateFields: number | null;
+    formulaResolvableCount: number | null;
+    formulaUnresolvedCount: number | null;
+    noteReferenceCount: number | null;
+    noteResolvedCount: number | null;
+    noteUnresolvedCount: number | null;
+    validatedAt: string | null;
+  }> {
+    const importHistory = await this.findOne(importId);
+    const metadata = (importHistory.metadata || {}) as Record<string, any>;
+    const formulaValidationSummary = metadata.formulaValidationSummary || {};
+    const validationSummary = metadata.validationSummary || {};
+
+    const formulaCoverage =
+      typeof formulaValidationSummary.currentCoverage === 'number'
+        ? formulaValidationSummary.currentCoverage
+        : typeof validationSummary.formulaCoverage === 'number'
+          ? validationSummary.formulaCoverage
+          : null;
+
+    const minCoverage =
+      typeof formulaValidationSummary.minCoverage === 'number'
+        ? formulaValidationSummary.minCoverage
+        : null;
+
+    const gateFlag =
+      formulaValidationSummary.formulaGatePassed ?? validationSummary.formulaGatePassed;
+    const formulaGatePassed =
+      typeof gateFlag === 'boolean'
+        ? gateFlag
+        : !((validationSummary.errorCount || 0) > 0);
+
+    return {
+      formulaGatePassed,
+      formulaCoverage,
+      minCoverage,
+      noteFormulaPolicy: formulaValidationSummary.noteFormulaPolicy || null,
+      totalRateFields:
+        typeof formulaValidationSummary.totalRateFields === 'number'
+          ? formulaValidationSummary.totalRateFields
+          : null,
+      formulaResolvableCount:
+        typeof formulaValidationSummary.formulaResolvableCount === 'number'
+          ? formulaValidationSummary.formulaResolvableCount
+          : null,
+      formulaUnresolvedCount:
+        typeof formulaValidationSummary.formulaUnresolvedCount === 'number'
+          ? formulaValidationSummary.formulaUnresolvedCount
+          : null,
+      noteReferenceCount:
+        typeof formulaValidationSummary.noteReferenceCount === 'number'
+          ? formulaValidationSummary.noteReferenceCount
+          : null,
+      noteResolvedCount:
+        typeof formulaValidationSummary.noteResolvedCount === 'number'
+          ? formulaValidationSummary.noteResolvedCount
+          : null,
+      noteUnresolvedCount:
+        typeof formulaValidationSummary.noteUnresolvedCount === 'number'
+          ? formulaValidationSummary.noteUnresolvedCount
+          : null,
+      validatedAt:
+        formulaValidationSummary.validatedAt || validationSummary.validatedAt || null,
+    };
+  }
+
+  /**
    * Get staging validation issues
    */
   async getStageValidationIssues(
@@ -530,17 +604,38 @@ export class HtsImportService {
       .filter((row) => row.severity === 'ERROR')
       .reduce((sum, row) => sum + parseInt(row.count, 10), 0);
 
-    if (errorCount > 0 && !canOverrideValidation) {
+    const formulaGate = await this.getStageFormulaGate(importId);
+    const blockedReasons: string[] = [];
+    if (errorCount > 0) {
+      blockedReasons.push(`${errorCount} validation errors`);
+    }
+    if (!formulaGate.formulaGatePassed) {
+      const coverageText =
+        typeof formulaGate.formulaCoverage === 'number'
+          ? `${(formulaGate.formulaCoverage * 100).toFixed(2)}%`
+          : 'n/a';
+      const minCoverageText =
+        typeof formulaGate.minCoverage === 'number'
+          ? `${(formulaGate.minCoverage * 100).toFixed(2)}%`
+          : 'n/a';
+      blockedReasons.push(`formula gate failed (coverage=${coverageText}, min=${minCoverageText})`);
+    }
+
+    if (blockedReasons.length > 0 && !canOverrideValidation) {
       throw new BadRequestException(
-        'Validation errors present. Override permission required to promote.',
+        `Validation gate failed: ${blockedReasons.join('; ')}. Override permission required to promote.`,
       );
     }
 
     const metadata = importHistory.metadata || {};
-    if (errorCount > 0 && canOverrideValidation) {
+    if (blockedReasons.length > 0 && canOverrideValidation) {
       metadata.validationOverride = true;
       metadata.validationOverrideBy = userId;
       metadata.validationOverrideAt = new Date().toISOString();
+      metadata.validationOverrideReasons = blockedReasons;
+      if (!formulaGate.formulaGatePassed) {
+        metadata.formulaGateOverride = true;
+      }
     }
 
     // Advance checkpoint to PROCESSING stage so job resumes at promotion
@@ -557,9 +652,10 @@ export class HtsImportService {
       errorStack: null,
     });
 
-    const logMessage = errorCount > 0
-      ? `Promotion requested by ${userId} with validation override (${errorCount} errors bypassed)`
-      : `Promotion requested by ${userId}`;
+    const logMessage =
+      blockedReasons.length > 0
+        ? `Promotion requested by ${userId} with validation override (${blockedReasons.join('; ')})`
+        : `Promotion requested by ${userId}`;
 
     await this.appendLog(importId, logMessage);
 

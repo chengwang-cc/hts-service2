@@ -3,6 +3,7 @@ import axios from 'axios';
 type ImportStatus =
   | 'PENDING'
   | 'IN_PROGRESS'
+  | 'STAGED_READY'
   | 'COMPLETED'
   | 'FAILED'
   | 'ROLLED_BACK'
@@ -16,7 +17,10 @@ const IMPORT_VERSION = process.env.HTS_IMPORT_VERSION || 'latest';
 const IMPORT_YEAR = process.env.HTS_IMPORT_YEAR;
 const IMPORT_REVISION = process.env.HTS_IMPORT_REVISION;
 const AUTO_APPROVE = (process.env.HTS_AUTO_APPROVE || 'false') === 'true';
+const AUTO_APPROVE_WITH_OVERRIDE =
+  (process.env.HTS_AUTO_APPROVE_WITH_OVERRIDE || 'false') === 'true';
 const AUTO_REJECT = (process.env.HTS_AUTO_REJECT || 'true') === 'true';
+const ENFORCE_FORMULA_GATE = (process.env.HTS_ENFORCE_FORMULA_GATE || 'true') === 'true';
 const VALIDATION_SEVERITY = process.env.HTS_VALIDATION_SEVERITY || 'ERROR';
 const POLL_INTERVAL_MS = parseInt(process.env.HTS_POLL_INTERVAL_MS || '5000', 10);
 const MAX_WAIT_MS = parseInt(process.env.HTS_MAX_WAIT_MS || '1800000', 10);
@@ -35,11 +39,17 @@ async function login(): Promise<string> {
     password: ADMIN_PASSWORD,
   });
 
-  if (!response.data?.accessToken) {
+  const token =
+    response.data?.accessToken ||
+    response.data?.data?.accessToken ||
+    response.data?.tokens?.accessToken ||
+    response.data?.data?.tokens?.accessToken;
+
+  if (!token) {
     throw new Error('Login failed: no access token');
   }
 
-  return response.data.accessToken as string;
+  return token as string;
 }
 
 async function triggerImport(token: string): Promise<string> {
@@ -83,6 +93,16 @@ async function getValidation(token: string, importId: string) {
   return response.data?.data || [];
 }
 
+async function getFormulaGate(token: string, importId: string) {
+  const response = await axios.get(
+    `${BASE_URL}/admin/hts-imports/${importId}/stage/formula-gate`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return response.data?.data || null;
+}
+
 async function promote(token: string, importId: string) {
   return axios.post(`${BASE_URL}/admin/hts-imports/${importId}/promote`, {}, {
     headers: { Authorization: `Bearer ${token}` },
@@ -102,7 +122,13 @@ async function pollUntilStable(token: string, importId: string): Promise<ImportS
     const status = current?.status as ImportStatus;
     log(`status=${status}`);
 
-    if (status === 'COMPLETED' || status === 'FAILED' || status === 'REQUIRES_REVIEW') {
+    if (
+      status === 'COMPLETED' ||
+      status === 'FAILED' ||
+      status === 'REQUIRES_REVIEW' ||
+      status === 'STAGED_READY' ||
+      status === 'REJECTED'
+    ) {
       return status;
     }
 
@@ -110,6 +136,14 @@ async function pollUntilStable(token: string, importId: string): Promise<ImportS
   }
 
   throw new Error(`Timed out waiting for import ${importId}`);
+}
+
+async function promoteAndWait(token: string, importId: string): Promise<ImportStatus> {
+  await promote(token, importId);
+  log('Promotion requested; waiting for completion.');
+  const status = await pollUntilStable(token, importId);
+  log(`Post-promotion status: ${status}`);
+  return status;
 }
 
 async function main() {
@@ -126,21 +160,55 @@ async function main() {
     throw new Error(`Import failed: ${importId}`);
   }
 
-  if (status === 'REQUIRES_REVIEW') {
+  if (status === 'REJECTED') {
+    log(`Import already rejected: ${importId}`);
+    return;
+  }
+
+  if (status === 'STAGED_READY' || status === 'REQUIRES_REVIEW') {
     const summary = await getSummary(token, importId);
     log(`Summary: staged=${summary?.stagedCount} errors=${summary?.validationCounts?.ERROR || 0}`);
 
     const issues = await getValidation(token, importId);
     log(`Validation issues (${VALIDATION_SEVERITY}): ${issues.length}`);
 
-    if (issues.length === 0 && AUTO_APPROVE) {
-      await promote(token, importId);
-      log('Promotion requested (no errors).');
+    const formulaGate = await getFormulaGate(token, importId);
+    const formulaGatePassed = formulaGate?.formulaGatePassed !== false;
+    const coverage =
+      typeof formulaGate?.formulaCoverage === 'number'
+        ? `${(formulaGate.formulaCoverage * 100).toFixed(2)}%`
+        : 'n/a';
+    log(`Formula gate: passed=${formulaGatePassed} coverage=${coverage}`);
+
+    const formulaGateBlocking = ENFORCE_FORMULA_GATE && !formulaGatePassed;
+
+    if (issues.length === 0 && !formulaGateBlocking && AUTO_APPROVE) {
+      const finalStatus = await promoteAndWait(token, importId);
+      if (finalStatus === 'FAILED') {
+        throw new Error(`Promotion failed: ${importId}`);
+      }
+      if (finalStatus === 'COMPLETED') {
+        log('Import completed successfully after promotion.');
+      }
       return;
     }
 
-    if (issues.length > 0 && AUTO_REJECT) {
-      await reject(token, importId, `${issues.length} validation issues`);
+    if ((issues.length > 0 || formulaGateBlocking) && AUTO_APPROVE_WITH_OVERRIDE) {
+      const finalStatus = await promoteAndWait(token, importId);
+      if (finalStatus === 'FAILED') {
+        throw new Error(`Promotion failed after override: ${importId}`);
+      }
+      if (finalStatus === 'COMPLETED') {
+        log('Import completed successfully with override promotion.');
+      }
+      return;
+    }
+
+    if ((issues.length > 0 || formulaGateBlocking) && AUTO_REJECT) {
+      const reasons: string[] = [];
+      if (issues.length > 0) reasons.push(`${issues.length} validation issues`);
+      if (formulaGateBlocking) reasons.push('formula gate failed');
+      await reject(token, importId, reasons.join('; '));
       log('Import rejected due to validation errors.');
       return;
     }
