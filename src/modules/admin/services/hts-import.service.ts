@@ -543,17 +543,25 @@ export class HtsImportService {
       metadata.validationOverrideAt = new Date().toISOString();
     }
 
+    // Advance checkpoint to PROCESSING stage so job resumes at promotion
+    const checkpoint = importHistory.checkpoint || {};
+    checkpoint.stage = 'PROCESSING';
+    checkpoint.processedBatches = 0;
+    checkpoint.processedRecords = 0;
+
     await this.importHistoryRepo.update(importId, {
       metadata,
-      status: 'PENDING',
+      checkpoint,
+      status: 'IN_PROGRESS',
       errorMessage: null,
       errorStack: null,
     });
 
-    await this.appendLog(
-      importId,
-      `Promotion requested by ${userId}; validation override enabled`,
-    );
+    const logMessage = errorCount > 0
+      ? `Promotion requested by ${userId} with validation override (${errorCount} errors bypassed)`
+      : `Promotion requested by ${userId}`;
+
+    await this.appendLog(importId, logMessage);
 
     const jobId = await this.queueService.sendJob(
       'hts-import',

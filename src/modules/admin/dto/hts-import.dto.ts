@@ -86,10 +86,10 @@ export class ListImportsDto {
 
   @ApiPropertyOptional({
     description: 'Filter by import status',
-    enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REQUIRES_REVIEW', 'REJECTED'],
+    enum: ['PENDING', 'IN_PROGRESS', 'STAGED_READY', 'REQUIRES_REVIEW', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REJECTED'],
   })
   @IsOptional()
-  @IsIn(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REQUIRES_REVIEW', 'REJECTED'])
+  @IsIn(['PENDING', 'IN_PROGRESS', 'STAGED_READY', 'REQUIRES_REVIEW', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REJECTED'])
   status?: string;
 
   @ApiPropertyOptional({

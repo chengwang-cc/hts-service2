@@ -133,12 +133,41 @@ export class HtsImportJobHandler {
       if (checkpoint.stage === 'DIFFING') {
         await this.diffStagedEntries(importHistory);
 
-        checkpoint.stage = 'PROCESSING';
-        checkpoint.processedBatches = 0;
-        checkpoint.processedRecords = 0;
-        await this.saveCheckpoint(importId, checkpoint);
+        // After diffing, check validation and stop for manual promotion
+        const validationSummary = await this.getValidationSummary(importHistory.id);
+
+        if (validationSummary.errorCount > 0) {
+          // Has validation errors - requires admin review
+          await this.importHistoryRepo.update(importHistory.id, {
+            status: 'REQUIRES_REVIEW',
+          });
+          await this.htsImportService.appendLog(
+            importHistory.id,
+            `✓ Staging complete. ${validationSummary.errorCount} validation errors require review before promotion.`,
+          );
+          this.logger.log(
+            `Import ${importHistory.id} staged with ${validationSummary.errorCount} errors - requires review`,
+          );
+          // Don't advance checkpoint - leave at DIFFING stage
+          return;
+        } else {
+          // No validation errors - ready for promotion but requires manual action
+          await this.importHistoryRepo.update(importHistory.id, {
+            status: 'STAGED_READY',
+          });
+          await this.htsImportService.appendLog(
+            importHistory.id,
+            `✓ Staging complete. No validation errors found. Ready for promotion.`,
+          );
+          this.logger.log(
+            `Import ${importHistory.id} staged successfully - ready for manual promotion`,
+          );
+          // Don't advance checkpoint - leave at DIFFING stage
+          return;
+        }
       }
 
+      // PROCESSING stage - only reached when admin explicitly calls /promote
       if (checkpoint.stage === 'PROCESSING') {
         const validationSummary = await this.getValidationSummary(importHistory.id);
         const refreshedImport = await this.importHistoryRepo.findOne({
@@ -154,15 +183,18 @@ export class HtsImportJobHandler {
           });
           await this.htsImportService.appendLog(
             importHistory.id,
-            `✗ Validation blocked promotion: ${validationSummary.errorCount} errors found`,
+            `✗ Promotion blocked: ${validationSummary.errorCount} validation errors found. Override permission required.`,
           );
           this.logger.warn(
-            `Import ${importHistory.id} blocked for review: ${validationSummary.errorCount} errors`,
+            `Import ${importHistory.id} promotion blocked: ${validationSummary.errorCount} errors`,
           );
           return;
         }
 
-        await this.htsImportService.appendLog(importId, 'Starting processing stage...');
+        await this.htsImportService.appendLog(
+          importId,
+          `Starting promotion to production HTS...${validationOverride ? ' (validation override enabled)' : ''}`,
+        );
         await this.processFromStage(importHistory, checkpoint);
 
         // Mark as completed
@@ -979,17 +1011,19 @@ export class HtsImportJobHandler {
       processed += batch.length;
     }
 
-    await this.importHistoryRepo.update(importHistory.id, {
-      metadata: {
-        ...(importHistory.metadata || {}),
-        validationSummary: {
-          total,
-          errorCount,
-          warningCount,
-          infoCount,
-          validatedAt: new Date().toISOString(),
-        },
+    const metadata = {
+      ...(importHistory.metadata || {}),
+      validationSummary: {
+        total,
+        errorCount,
+        warningCount,
+        infoCount,
+        validatedAt: new Date().toISOString(),
       },
+    };
+
+    await this.importHistoryRepo.update(importHistory.id, {
+      metadata: metadata as any,
     });
 
     await this.htsImportService.appendLog(

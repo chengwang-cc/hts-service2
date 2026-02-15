@@ -39,9 +39,9 @@ export class HtsImportHistoryEntity {
 
   /**
    * Status - Import status
-   * Options: PENDING, IN_PROGRESS, COMPLETED, FAILED, ROLLED_BACK
+   * Options: PENDING, IN_PROGRESS, STAGED_READY, REQUIRES_REVIEW, COMPLETED, FAILED, ROLLED_BACK, REJECTED
    */
-  @Column('varchar', { length: 20, default: 'PENDING' })
+  @Column('varchar', { length: 30, default: 'PENDING' })
   status: string;
 
   /**
