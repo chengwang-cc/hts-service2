@@ -78,12 +78,31 @@ export class PdfParserService {
       'SECTION NOTES',
       'CHAPTER NOTES',
     ];
+    const escapedPatterns = sectionPatterns.map((pattern) =>
+      pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    );
+    const sectionBoundary = escapedPatterns
+      .map((pattern) => `${pattern}(?:\\s*\\(CON\\.\\))?`)
+      .join('|');
 
-    for (const pattern of sectionPatterns) {
-      const regex = new RegExp(`${pattern}([\\s\\S]*?)(?=${sectionPatterns.join('|')}|$)`, 'i');
-      const match = text.match(regex);
-      if (match) {
-        sections[pattern] = match[1].trim();
+    for (let index = 0; index < sectionPatterns.length; index++) {
+      const pattern = sectionPatterns[index];
+      const escapedPattern = escapedPatterns[index];
+      const regex = new RegExp(
+        `${escapedPattern}(?:\\s*\\(CON\\.\\))?([\\s\\S]*?)(?=${sectionBoundary}|$)`,
+        'gi',
+      );
+
+      const chunks: string[] = [];
+      for (const match of text.matchAll(regex)) {
+        const chunk = (match[1] || '').trim();
+        if (chunk.length > 0) {
+          chunks.push(chunk);
+        }
+      }
+
+      if (chunks.length > 0) {
+        sections[pattern] = chunks.join('\n\n').trim();
       }
     }
 

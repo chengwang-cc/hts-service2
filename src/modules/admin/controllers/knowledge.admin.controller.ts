@@ -20,7 +20,11 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { KnowledgeAdminService } from '../services/knowledge.admin.service';
-import { UploadDocumentDto, ListDocumentsDto } from '../dto/knowledge.dto';
+import {
+  UploadDocumentDto,
+  ListDocumentsDto,
+  NoteBackfillOptionsDto,
+} from '../dto/knowledge.dto';
 
 @ApiTags('Admin - Knowledge Library')
 @ApiBearerAuth()
@@ -153,6 +157,39 @@ export class KnowledgeAdminController {
     return {
       success: true,
       data: stats,
+    };
+  }
+
+  /**
+   * POST /admin/knowledge/notes/backfill/preview
+   * Preview note backfill targets and impact
+   */
+  @Post('notes/backfill/preview')
+  @ApiOperation({ summary: 'Preview HTS note backfill plan' })
+  @ApiResponse({ status: 200, description: 'Backfill preview generated successfully' })
+  async previewNoteBackfill(@Body() dto: NoteBackfillOptionsDto): Promise<any> {
+    const result = await this.knowledgeService.previewNoteBackfill(dto);
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  /**
+   * POST /admin/knowledge/notes/backfill/apply
+   * Execute note backfill workflow (download -> parse -> dedupe -> resolve references)
+   */
+  @Post('notes/backfill/apply')
+  @ApiOperation({ summary: 'Run HTS note backfill' })
+  @ApiResponse({ status: 201, description: 'Backfill run completed' })
+  async applyNoteBackfill(@Body() dto: NoteBackfillOptionsDto): Promise<any> {
+    const result = await this.knowledgeService.applyNoteBackfill(dto);
+
+    return {
+      success: true,
+      data: result,
+      message: 'Note backfill completed',
     };
   }
 }

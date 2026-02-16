@@ -6,10 +6,12 @@ import {
   UpdateDateColumn,
   OneToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { HtsNoteEntity } from './hts-note.entity';
 
 @Entity('hts_note_embeddings')
+@Index(['isCurrent'])
 export class HtsNoteEmbeddingEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

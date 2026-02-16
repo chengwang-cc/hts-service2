@@ -8,10 +8,12 @@ import {
   IsOptional,
   IsNumber,
   IsIn,
+  IsBoolean,
+  IsArray,
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
@@ -145,4 +147,84 @@ export class ListDocumentsDto {
   @Min(1)
   @Max(100)
   pageSize?: number = 20;
+}
+
+const toBoolean = ({ value }: { value: unknown }): boolean | undefined => {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n'].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return value as boolean;
+};
+
+const toChapterList = ({ value }: { value: unknown }): string[] | undefined => {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return value as string[];
+};
+
+export class NoteBackfillOptionsDto {
+  @ApiPropertyOptional({
+    description: 'HTS year to target. Defaults to latest active HTS year when omitted.',
+    example: 2026,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  year?: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional chapter list. Supports array or comma-separated input.',
+    example: ['58', '99'],
+  })
+  @IsOptional()
+  @Transform(toChapterList)
+  @IsArray()
+  @IsString({ each: true })
+  chapters?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Force chapter import even when notes already exist for year/chapter.',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  force?: boolean = false;
+
+  @ApiPropertyOptional({
+    description: 'Run duplicate note cleanup after import.',
+    default: true,
+  })
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  dedupe?: boolean = true;
 }

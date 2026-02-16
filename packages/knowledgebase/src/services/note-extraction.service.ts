@@ -146,12 +146,19 @@ export class NoteExtractionService {
       if (!noteNumber || !note?.content) continue;
       note.number = noteNumber;
       if (typeof note.content === 'string') {
-        note.content = note.content.trim();
+        note.content = this.trimNoteContent(note.content.trim());
       }
       const key = `${noteType}:${noteNumber}`;
       const existing = noteMap.get(key);
+      const existingScore = existing ? this.scoreExtractedNote(existing) : Number.NEGATIVE_INFINITY;
+      const candidateScore = this.scoreExtractedNote(note);
 
-      if (!existing || (note.content?.length || 0) > (existing.content?.length || 0)) {
+      if (
+        !existing ||
+        candidateScore > existingScore ||
+        (candidateScore === existingScore &&
+          (note.content?.length || 0) > (existing.content?.length || 0))
+      ) {
         noteMap.set(key, note);
       }
     }
@@ -159,11 +166,16 @@ export class NoteExtractionService {
     const savedNotes: HtsNoteEntity[] = [];
 
     for (const note of noteMap.values()) {
-      const extractionSource =
-        typeof note.source === 'string' ? note.source : 'llm';
+      const extractionSource = typeof note.source === 'string' ? note.source : 'llm';
       const explicitRateText = typeof note?.rateText === 'string' ? note.rateText.trim() : '';
       const derivedRateCandidates = this.getRateCandidates(note);
-      const entity = this.noteRepository.create({
+      const noteYear = year ?? new Date().getFullYear();
+      const hasRate =
+        explicitRateText.length > 0 ||
+        derivedRateCandidates.length > 0 ||
+        Boolean(note.containsRate || note.rateText);
+
+      const saved = await this.upsertNote({
         documentId,
         chapter,
         noteType,
@@ -171,11 +183,8 @@ export class NoteExtractionService {
         title: note.title || null,
         content: note.content,
         scope: note.scope || null,
-        year: year ?? new Date().getFullYear(),
-        hasRate:
-          explicitRateText.length > 0 ||
-          derivedRateCandidates.length > 0 ||
-          Boolean(note.containsRate || note.rateText),
+        year: noteYear,
+        hasRate,
         extractedData: {
           crossReferences: note.crossReferences || [],
           htsCodes: note.htsCodes || [],
@@ -187,9 +196,10 @@ export class NoteExtractionService {
           extractionSource,
         },
       });
-
-      const saved = await this.noteRepository.save(entity);
       savedNotes.push(saved);
+
+      // Replace rate rows for this note key to avoid stale formulas after re-import.
+      await this.rateRepository.delete({ noteId: saved.id });
 
       if (explicitRateText.length > 0) {
         await this.extractRate(saved.id, explicitRateText, note.rateType, true);
@@ -210,6 +220,58 @@ export class NoteExtractionService {
     }
 
     return savedNotes;
+  }
+
+  private async upsertNote(payload: {
+    documentId: string;
+    chapter: string;
+    noteType: string;
+    noteNumber: string;
+    title: string | null;
+    content: string;
+    scope: string | null;
+    year: number;
+    hasRate: boolean;
+    extractedData: Record<string, any> | null;
+    confidence: number | null;
+    metadata: Record<string, any> | null;
+  }): Promise<HtsNoteEntity> {
+    const existingRows = await this.noteRepository
+      .createQueryBuilder('note')
+      .where('note.year = :year', { year: payload.year })
+      .andWhere('note.chapter = :chapter', { chapter: payload.chapter })
+      .andWhere('note.type = :noteType', { noteType: payload.noteType })
+      .andWhere('note.note_number = :noteNumber', { noteNumber: payload.noteNumber })
+      .orderBy('note.updated_at', 'DESC')
+      .addOrderBy('note.created_at', 'DESC')
+      .getMany();
+
+    let entity: HtsNoteEntity;
+    if (existingRows.length > 0) {
+      entity = existingRows[0];
+
+      if (existingRows.length > 1) {
+        const duplicateIds = existingRows.slice(1).map((item) => item.id);
+        await this.noteRepository.delete(duplicateIds);
+      }
+    } else {
+      entity = this.noteRepository.create();
+    }
+
+    entity.documentId = payload.documentId;
+    entity.chapter = payload.chapter;
+    entity.noteType = payload.noteType;
+    entity.noteNumber = payload.noteNumber;
+    entity.title = payload.title;
+    entity.content = payload.content;
+    entity.scope = payload.scope;
+    entity.year = payload.year;
+    entity.hasRate = payload.hasRate;
+    entity.extractedData = payload.extractedData;
+    entity.confidence = payload.confidence;
+    entity.metadata = payload.metadata;
+
+    return this.noteRepository.save(entity);
   }
 
   private async extractNotesFromChunk(noteType: string, text: string): Promise<any[]> {
@@ -444,7 +506,7 @@ Return JSON with: formula, variables, confidence, rateType.`;
       candidates.push(this.buildFallbackNote(number, content));
     }
 
-    if (candidates.length === 0 && !isLargeText) {
+    if (!isLargeText) {
       const numberedRegex =
         /(?:^|\n)\s*([0-9]+[A-Za-z]?(?:\([a-z0-9]+\))*)\.\s+([\s\S]*?)(?=\n\s*[0-9]+[A-Za-z]?(?:\([a-z0-9]+\))*\.\s+|$)/g;
       for (const match of normalizedText.matchAll(numberedRegex)) {
@@ -494,6 +556,66 @@ Return JSON with: formula, variables, confidence, rateType.`;
       .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]+/g, ' ')
       .trim();
+  }
+
+  private trimNoteContent(content: string): string {
+    let normalized = this.sanitizeFallbackContent(content);
+
+    const trailingMarkers = [
+      /harmonized tariff schedule of the united states/i,
+      /annotated for statistical reporting purposes/i,
+      /\n\s*heading\/\s*stat\./i,
+      /\n\s*heading\/\s*subheading/i,
+    ];
+
+    for (const marker of trailingMarkers) {
+      const match = normalized.match(marker);
+      if (match?.index && match.index > 120) {
+        normalized = normalized.slice(0, match.index).trim();
+      }
+    }
+
+    return normalized;
+  }
+
+  private scoreExtractedNote(note: any): number {
+    const content = typeof note?.content === 'string' ? note.content : '';
+    const length = content.length;
+    let score = 0;
+
+    if (/the rates of duty applicable to subheading/i.test(content)) {
+      score += 50;
+    }
+    if (/column\s+1\s*\(general\)/i.test(content)) {
+      score += 20;
+    }
+    if (/column\s+2/i.test(content)) {
+      score += 10;
+    }
+    if (/\.{4,}/.test(content)) {
+      score -= 15;
+    }
+    if (/harmonized tariff schedule of the united states/i.test(content)) {
+      score -= 20;
+    }
+    if (/annotated for statistical reporting purposes/i.test(content)) {
+      score -= 20;
+    }
+    if (/u\.s\.\s*note\s+\d+/i.test(content) && !/the rates of duty applicable to subheading/i.test(content)) {
+      score -= 10;
+    }
+
+    if (length < 80) {
+      score -= 40;
+    } else if (length <= 2500) {
+      score += 20;
+    } else if (length <= 5000) {
+      score += 5;
+    } else {
+      score -= 30;
+    }
+
+    return score;
   }
 
   private buildFallbackNote(number: string, content: string): any {

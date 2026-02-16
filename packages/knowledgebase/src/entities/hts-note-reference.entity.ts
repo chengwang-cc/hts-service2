@@ -13,6 +13,7 @@ import { HtsNoteEntity } from './hts-note.entity';
 @Entity('hts_note_references')
 @Index(['htsNumber', 'noteId'])
 @Index(['htsNumber', 'year'])
+@Index(['htsNumber', 'noteId', 'sourceColumn', 'year'])
 export class HtsNoteReferenceEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -10,7 +10,8 @@ import { NoteExtractionService } from './note-extraction.service';
 @Injectable()
 export class DocumentService {
   private readonly logger = new Logger(DocumentService.name);
-  private readonly baseUrl = 'https://www.usitc.gov/publications/docs/tata/hts/baci';
+  private readonly reststopFileUrl = 'https://hts.usitc.gov/reststop/file';
+  private readonly legacyChapterBaseUrl = 'https://www.usitc.gov/publications/docs/tata/hts/baci';
 
   constructor(
     @InjectRepository(HtsDocumentEntity)
@@ -20,20 +21,54 @@ export class DocumentService {
   ) {}
 
   async downloadDocument(year: number, chapter: string): Promise<HtsDocumentEntity> {
-    const url = `${this.baseUrl}/hts${year}c${chapter.padStart(2, '0')}.pdf`;
-    this.logger.log(`Downloading ${url}`);
+    const normalizedChapter = chapter.padStart(2, '0');
+    const candidateUrls = this.buildCandidateUrls(year, normalizedChapter);
+    this.logger.log(
+      `Downloading chapter ${normalizedChapter} (${year}) from ${candidateUrls.length} candidate source(s)`,
+    );
+
+    let selectedUrl: string | null = null;
+    let pdfData: Buffer | null = null;
+    let lastError: Error | null = null;
+
+    for (const url of candidateUrls) {
+      try {
+        this.logger.log(`Attempting download: ${url}`);
+        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+        const buffer = Buffer.from(response.data);
+
+        if (!this.isLikelyPdf(buffer, response.headers?.['content-type'])) {
+          this.logger.warn(`Source ${url} did not return a valid PDF payload; trying fallback`);
+          continue;
+        }
+
+        selectedUrl = url;
+        pdfData = buffer;
+        break;
+      } catch (error) {
+        lastError = error as Error;
+        this.logger.warn(`Download attempt failed for ${url}: ${lastError.message}`);
+      }
+    }
+
+    if (!selectedUrl || !pdfData) {
+      const reason = lastError?.message || 'no candidate URL returned a valid PDF';
+      throw new Error(
+        `Failed to download HTS chapter ${normalizedChapter} for ${year}: ${reason}`,
+      );
+    }
+
+    this.logger.log(`Download source selected: ${selectedUrl}`);
 
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      const pdfData = Buffer.from(response.data);
       const fileHash = crypto.createHash('sha256').update(pdfData).digest('hex');
 
       const document = this.documentRepository.create({
         year,
-        chapter,
-        documentType: chapter === '00' ? 'GENERAL' : 'CHAPTER',
+        chapter: normalizedChapter,
+        documentType: normalizedChapter === '00' ? 'GENERAL' : 'CHAPTER',
         sourceVersion: `${year}`,
-        sourceUrl: url,
+        sourceUrl: selectedUrl,
         pdfData,
         fileHash,
         fileSize: pdfData.length,
@@ -44,9 +79,40 @@ export class DocumentService {
 
       return this.documentRepository.save(document);
     } catch (error) {
-      this.logger.error(`Failed to download ${url}: ${error.message}`);
+      this.logger.error(`Failed to persist downloaded chapter ${normalizedChapter}: ${error.message}`);
       throw error;
     }
+  }
+
+  private buildCandidateUrls(year: number, chapter: string): string[] {
+    const chapterNumber = parseInt(chapter, 10);
+    const urls: string[] = [];
+
+    if (Number.isFinite(chapterNumber) && chapterNumber > 0) {
+      const reststopParams = new URLSearchParams({
+        release: 'currentRelease',
+        filename: `Chapter ${chapterNumber}`,
+      });
+      urls.push(`${this.reststopFileUrl}?${reststopParams.toString()}`);
+    }
+
+    urls.push(`${this.legacyChapterBaseUrl}/hts${year}c${chapter}.pdf`);
+
+    return urls;
+  }
+
+  private isLikelyPdf(data: Buffer, contentTypeHeader?: string): boolean {
+    const signature = data.subarray(0, 4).toString('utf-8');
+    if (signature === '%PDF') {
+      return true;
+    }
+
+    const contentType = (contentTypeHeader || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      return false;
+    }
+
+    return contentType.includes('pdf');
   }
 
   async downloadAllDocuments(year: number): Promise<void> {

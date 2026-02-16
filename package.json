@@ -39,7 +39,12 @@
     "cli:job-status": "npm run cli job-status",
     "cli:list-imports": "npm run cli list-imports",
     "cli:list-documents": "npm run cli list-documents",
-    "cli:help": "npm run cli help"
+    "cli:help": "npm run cli help",
+    "notes:audit": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts",
+    "notes:audit:fix": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes",
+    "notes:audit:fix-all": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes --dedupe-notes",
+    "notes:backfill": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts",
+    "notes:backfill:dry": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.990.0",

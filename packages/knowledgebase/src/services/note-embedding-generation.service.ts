@@ -115,17 +115,29 @@ export class NoteEmbeddingGenerationService {
           searchText,
         );
 
-        // Create embedding entity
-        const embedding = this.embeddingRepository.create({
-          noteId: note.id,
-          embedding: embeddingVector,
-          searchText,
-          model: modelVersion,
-          isCurrent: true,
-          generatedAt: new Date(),
+        const existing = await this.embeddingRepository.findOne({
+          where: { noteId: note.id },
         });
 
-        await this.embeddingRepository.save(embedding);
+        if (existing) {
+          existing.embedding = embeddingVector;
+          existing.searchText = searchText;
+          existing.model = modelVersion;
+          existing.isCurrent = true;
+          existing.generatedAt = new Date();
+          await this.embeddingRepository.save(existing);
+        } else {
+          const embedding = this.embeddingRepository.create({
+            noteId: note.id,
+            embedding: embeddingVector,
+            searchText,
+            model: modelVersion,
+            isCurrent: true,
+            generatedAt: new Date(),
+          });
+          await this.embeddingRepository.save(embedding);
+        }
+
         generated++;
       } catch (error) {
         this.logger.error(
@@ -152,9 +164,6 @@ export class NoteEmbeddingGenerationService {
       throw new Error(`Note ${noteId} not found`);
     }
 
-    // Mark existing embeddings as not current
-    await this.embeddingRepository.update({ noteId }, { isCurrent: false });
-
     // Build search text
     const searchText = this.buildSearchText(note);
 
@@ -167,7 +176,19 @@ export class NoteEmbeddingGenerationService {
       searchText,
     );
 
-    // Create embedding entity
+    const existing = await this.embeddingRepository.findOne({
+      where: { noteId: note.id },
+    });
+
+    if (existing) {
+      existing.embedding = embeddingVector;
+      existing.searchText = searchText;
+      existing.model = modelVersion;
+      existing.isCurrent = true;
+      existing.generatedAt = new Date();
+      return this.embeddingRepository.save(existing);
+    }
+
     const embedding = this.embeddingRepository.create({
       noteId: note.id,
       embedding: embeddingVector,
