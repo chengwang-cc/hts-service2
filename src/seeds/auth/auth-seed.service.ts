@@ -150,9 +150,15 @@ export class AuthSeedService {
           emailVerified: item.emailVerified,
         });
 
-        // Update roles
-        existing.roles = roles;
-        await this.userRepo.save(existing);
+        // Update role mapping without re-saving stale user fields.
+        await this.userRepo
+          .createQueryBuilder()
+          .relation(UserEntity, 'roles')
+          .of(item.id)
+          .addAndRemove(
+            roles.map((role) => role.id),
+            (existing.roles || []).map((role) => role.id),
+          );
         updated++;
       } else {
         // Create new

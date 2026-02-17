@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
@@ -21,7 +21,11 @@ async function bootstrap() {
   app.enableCors({});
 
   // Set global API prefix
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    // Keep backward compatibility for legacy controllers that already include "api/v1"
+    // in their route decorators, while still prefixing newer module routes.
+    exclude: [{ path: 'api/v1/(.*)', method: RequestMethod.ALL }],
+  });
 
   // Enable global validation pipe
   app.useGlobalPipes(

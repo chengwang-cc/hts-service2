@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query } from '@nestjs/common';
 import { SearchService, ClassificationService } from '../services';
 import { SearchDto, ClassifyProductDto } from '../dto';
 
@@ -20,6 +20,25 @@ export class LookupController {
       query: searchDto.query,
       results,
       count: results.length,
+    };
+  }
+
+  @Get('autocomplete')
+  async autocomplete(
+    @Query('q') query: string,
+    @Query('limit') limit?: string,
+  ) {
+    const maxResults = Math.min(Math.max(parseInt(limit || '10', 10) || 10, 1), 20);
+    const results = await this.searchService.autocomplete(query || '', maxResults);
+
+    return {
+      success: true,
+      data: results,
+      meta: {
+        query: query || '',
+        count: results.length,
+        limit: maxResults,
+      },
     };
   }
 

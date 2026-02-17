@@ -21,10 +21,12 @@ import {
   HtsStageValidationIssueEntity,
   HtsStageDiffEntity,
   HtsExtraTaxEntity,
-  HtsFormulaGenerationService,
-  FormulaGenerationService,
-  HtsChapter99FormulaService,
-} from '@hts/core';
+    HtsFormulaUpdateEntity,
+    HtsFormulaGenerationService,
+    FormulaGenerationService,
+    HtsChapter99FormulaService,
+    HtsEmbeddingGenerationService,
+  } from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
 import axios from 'axios';
@@ -75,12 +77,15 @@ export class HtsImportJobHandler {
     private htsStageDiffRepo: Repository<HtsStageDiffEntity>,
     @InjectRepository(HtsExtraTaxEntity)
     private htsExtraTaxRepo: Repository<HtsExtraTaxEntity>,
+    @InjectRepository(HtsFormulaUpdateEntity)
+    private htsFormulaUpdateRepo: Repository<HtsFormulaUpdateEntity>,
     private htsProcessor: HtsProcessorService,
     private htsImportService: HtsImportService,
     private s3Storage: S3StorageService,
     private htsFormulaGenerationService: HtsFormulaGenerationService,
     private htsChapter99FormulaService: HtsChapter99FormulaService,
     private formulaGenerationService: FormulaGenerationService,
+    @Optional() private htsEmbeddingGenerationService?: HtsEmbeddingGenerationService,
     @Optional() private noteResolutionService?: NoteResolutionService,
   ) {
     this.S3_BUCKET = this.s3Storage.getDefaultBucket();
@@ -325,23 +330,167 @@ export class HtsImportJobHandler {
       `✓ Chapter 99 synthesis complete: processed=${chapter99Result.processed}, linked=${chapter99Result.linked}, updated=${chapter99Result.updated}, unresolved=${chapter99Result.unresolved}, nonNtrDefaultsApplied=${chapter99Result.nonNtrDefaultsApplied}`,
     );
 
+    if (!this.htsEmbeddingGenerationService) {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Embedding generation service unavailable; skipped HTS embedding refresh.',
+      );
+    } else {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Refreshing HTS embeddings for promoted source version...',
+      );
+      const embeddingResult =
+        await this.htsEmbeddingGenerationService.generateEmbeddingsForSourceVersion(
+          sourceVersion,
+          200,
+        );
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        `✓ HTS embedding refresh complete: total=${embeddingResult.total}, generated=${embeddingResult.generated}, failed=${embeddingResult.failed}`,
+      );
+    }
+
     if (!this.noteResolutionService) {
       await this.htsImportService.appendLog(
         importHistory.id,
         'Knowledgebase note resolution is not available; skipped note formula enrichment.',
       );
-      return;
+    } else {
+      const noteResolutionResult = await this.enrichFormulasFromNotes(
+        importHistory,
+        sourceVersion,
+      );
+
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        `✓ Note enrichment complete: resolved=${noteResolutionResult.resolved}, unresolved=${noteResolutionResult.unresolved}, failed=${noteResolutionResult.failed}`,
+      );
     }
 
-    const noteResolutionResult = await this.enrichFormulasFromNotes(
+    const overrideCarryoverResult = await this.applyCarryoverFormulaOverrides(
       importHistory,
       sourceVersion,
     );
 
     await this.htsImportService.appendLog(
       importHistory.id,
-      `✓ Note enrichment complete: resolved=${noteResolutionResult.resolved}, unresolved=${noteResolutionResult.unresolved}, failed=${noteResolutionResult.failed}`,
+      `✓ Carryover formula overrides applied: entriesPatched=${overrideCarryoverResult.entriesPatched}, overridesApplied=${overrideCarryoverResult.overridesApplied}, skippedCountrySpecific=${overrideCarryoverResult.skippedCountrySpecific}`,
     );
+  }
+
+  private async applyCarryoverFormulaOverrides(
+    importHistory: HtsImportHistoryEntity,
+    sourceVersion: string,
+  ): Promise<{ entriesPatched: number; overridesApplied: number; skippedCountrySpecific: number }> {
+    const activeEntries = await this.htsRepo.find({
+      where: {
+        sourceVersion,
+        isActive: true,
+      },
+    });
+
+    if (activeEntries.length === 0) {
+      return { entriesPatched: 0, overridesApplied: 0, skippedCountrySpecific: 0 };
+    }
+
+    const overrides = await this.htsFormulaUpdateRepo
+      .createQueryBuilder('hfu')
+      .where('hfu.active = true')
+      .andWhere('(hfu.updateVersion = :sourceVersion OR hfu.carryover = true)', { sourceVersion })
+      .orderBy('hfu.updatedAt', 'DESC')
+      .getMany();
+
+    if (overrides.length === 0) {
+      return { entriesPatched: 0, overridesApplied: 0, skippedCountrySpecific: 0 };
+    }
+
+    const entryMap = new Map(activeEntries.map((entry) => [entry.htsNumber, entry]));
+    const appliedKeys = new Set<string>();
+    const modifiedEntryIds = new Set<string>();
+    let overridesApplied = 0;
+    let skippedCountrySpecific = 0;
+
+    for (const update of overrides) {
+      const key = `${update.htsNumber}|${update.countryCode}|${update.formulaType}`;
+      if (appliedKeys.has(key)) {
+        continue;
+      }
+      appliedKeys.add(key);
+
+      const entry = entryMap.get(update.htsNumber);
+      if (!entry) {
+        continue;
+      }
+
+      const formulaType = (update.formulaType || '').toUpperCase();
+      const countryCode = (update.countryCode || 'ALL').toUpperCase();
+      const isCountrySpecific = countryCode !== 'ALL';
+      let updated = false;
+
+      if (formulaType === 'GENERAL') {
+        if (isCountrySpecific) {
+          skippedCountrySpecific += 1;
+          continue;
+        }
+        entry.rateFormula = update.formula;
+        updated = true;
+      } else if (formulaType === 'OTHER') {
+        if (isCountrySpecific) {
+          skippedCountrySpecific += 1;
+          continue;
+        }
+        entry.otherRateFormula = update.formula;
+        updated = true;
+      } else if (formulaType === 'ADJUSTED') {
+        entry.adjustedFormula = update.formula;
+        if (isCountrySpecific) {
+          const countries = new Set((entry.chapter99ApplicableCountries || []).map((code) => code.toUpperCase()));
+          countries.add(countryCode);
+          entry.chapter99ApplicableCountries = Array.from(countries);
+        }
+        updated = true;
+      } else if (formulaType === 'OTHER_CHAPTER99') {
+        const countries = new Set(
+          (entry.otherChapter99Detail?.countries || []).map((code) => code.toUpperCase()),
+        );
+        if (isCountrySpecific) {
+          countries.add(countryCode);
+        }
+        entry.otherChapter99Detail = {
+          ...(entry.otherChapter99Detail || {}),
+          formula: update.formula,
+          variables: update.formulaVariables || entry.otherChapter99Detail?.variables || undefined,
+          countries: Array.from(countries),
+        };
+        updated = true;
+      }
+
+      if (updated) {
+        entry.confirmed = true;
+        entry.requiredReview = false;
+        entry.updateFormulaComment = `Carryover override applied (${formulaType}) from hts_formula_updates`;
+        entry.metadata = {
+          ...(entry.metadata || {}),
+          carryoverOverrideAppliedAt: new Date().toISOString(),
+          carryoverOverrideFormulaType: formulaType,
+          carryoverOverrideCountry: countryCode,
+        };
+        overridesApplied += 1;
+        modifiedEntryIds.add(entry.id);
+      }
+    }
+
+    const changedEntries = activeEntries.filter((entry) => modifiedEntryIds.has(entry.id));
+    if (changedEntries.length > 0) {
+      await this.htsRepo.save(changedEntries);
+    }
+
+    return {
+      entriesPatched: changedEntries.length,
+      overridesApplied,
+      skippedCountrySpecific,
+    };
   }
 
   private async enrichFormulasFromNotes(

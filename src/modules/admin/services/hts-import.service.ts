@@ -5,7 +5,7 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   HtsImportHistoryEntity,
   HtsEntity,
@@ -573,7 +573,10 @@ export class HtsImportService {
 
       if (missingCodes.length > 0) {
         const activeReferences = await this.htsRepo.find({
-          where: missingCodes.map((htsNumber) => ({ htsNumber, isActive: true })),
+          where: {
+            htsNumber: In(missingCodes),
+            isActive: true,
+          },
           order: { updatedAt: 'DESC' },
         });
 
@@ -588,19 +591,6 @@ export class HtsImportService {
             });
           }
         }
-      }
-    }
-
-    const activeRows = nonChapter99.length
-      ? await this.htsRepo.find({
-          where: nonChapter99.map((entry) => ({ htsNumber: entry.htsNumber, isActive: true })),
-          order: { updatedAt: 'DESC' },
-        })
-      : [];
-    const currentByHts = new Map<string, HtsEntity>();
-    for (const row of activeRows) {
-      if (!currentByHts.has(row.htsNumber)) {
-        currentByHts.set(row.htsNumber, row);
       }
     }
 
@@ -636,8 +626,6 @@ export class HtsImportService {
         continue;
       }
 
-      const current = currentByHts.get(entry.htsNumber) || null;
-
       rows.push({
         htsNumber: entry.htsNumber,
         description: entry.description,
@@ -654,6 +642,40 @@ export class HtsImportService {
           adjustedFormula: preview.adjustedFormula,
           adjustedFormulaVariables: preview.adjustedFormulaVariables,
         },
+      });
+    }
+
+    const total = rows.length;
+    const data = rows.slice(offset, offset + limit);
+    const dataHtsNumbers = Array.from(
+      new Set(
+        data
+          .map((row) => String(row.htsNumber || '').trim())
+          .filter((value) => value.length > 0),
+      ),
+    );
+
+    const currentByHts = new Map<string, HtsEntity>();
+    if (dataHtsNumbers.length > 0) {
+      const activeRows = await this.htsRepo.find({
+        where: {
+          htsNumber: In(dataHtsNumbers),
+          isActive: true,
+        },
+        order: { updatedAt: 'DESC' },
+      });
+
+      for (const row of activeRows) {
+        if (!currentByHts.has(row.htsNumber)) {
+          currentByHts.set(row.htsNumber, row);
+        }
+      }
+    }
+
+    const enrichedData = data.map((row) => {
+      const current = currentByHts.get(row.htsNumber) || null;
+      return {
+        ...row,
         current: current
           ? {
               sourceVersion: current.sourceVersion,
@@ -664,14 +686,11 @@ export class HtsImportService {
               chapter99ApplicableCountries: current.chapter99ApplicableCountries,
             }
           : null,
-      });
-    }
-
-    const total = rows.length;
-    const data = rows.slice(offset, offset + limit);
+      };
+    });
 
     return {
-      data,
+      data: enrichedData,
       meta: {
         total,
         offset,

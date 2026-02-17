@@ -40,6 +40,8 @@
     "cli:list-imports": "npm run cli list-imports",
     "cli:list-documents": "npm run cli list-documents",
     "cli:help": "npm run cli help",
+    "external:validate": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/external-provider-validate.ts",
+    "external:validate:chapter-sweep": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/external-provider-chapter-sweep.ts",
     "notes:audit": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts",
     "notes:audit:fix": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes",
     "notes:audit:fix-all": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes --dedupe-notes",

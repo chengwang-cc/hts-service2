@@ -25,6 +25,7 @@ export class CalculationHistoryEntity {
     countryOfOrigin: string;
     declaredValue: number;
     currency: string;
+    entryDate?: string | null;
     weightKg?: number;
     quantity?: number;
     quantityUnit?: string;

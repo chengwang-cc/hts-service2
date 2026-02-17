@@ -10,6 +10,7 @@ export interface CalculationInput {
   htsNumber: string;
   countryOfOrigin: string;
   declaredValue: number;
+  entryDate?: string;
   currency?: string;
   weightKg?: number;
   quantity?: number;
@@ -19,6 +20,9 @@ export interface CalculationInput {
   scenarioId?: string;
   tradeAgreementCode?: string;
   tradeAgreementCertificate?: boolean;
+  tradeAgreement?: string;
+  claimPreferential?: boolean;
+  additionalInputs?: Record<string, any>;
   htsVersion?: string;
 }
 
@@ -46,6 +50,35 @@ export interface CalculationResult {
 export class CalculationService {
   private readonly logger = new Logger(CalculationService.name);
   private readonly ENGINE_VERSION = '1.0.0';
+  private readonly EU_COUNTRY_CODES = new Set<string>([
+    'AT',
+    'BE',
+    'BG',
+    'HR',
+    'CY',
+    'CZ',
+    'DK',
+    'EE',
+    'FI',
+    'FR',
+    'DE',
+    'GR',
+    'HU',
+    'IE',
+    'IT',
+    'LV',
+    'LT',
+    'LU',
+    'MT',
+    'NL',
+    'PL',
+    'PT',
+    'RO',
+    'SK',
+    'SI',
+    'ES',
+    'SE',
+  ]);
 
   constructor(
     @InjectRepository(CalculationHistoryEntity)
@@ -62,20 +95,21 @@ export class CalculationService {
     const calculationId = this.generateCalculationId();
 
     try {
+      const normalizedInput = this.normalizeCalculationInput(input);
       const rateInfo = await this.rateRetrievalService.getRate(
-        input.htsNumber,
-        input.countryOfOrigin,
-        input.htsVersion,
+        normalizedInput.htsNumber,
+        normalizedInput.countryOfOrigin,
+        normalizedInput.htsVersion,
       );
 
       const baseVariables = {
-        value: input.declaredValue,
-        weight: input.weightKg,
-        quantity: input.quantity,
+        value: normalizedInput.declaredValue,
+        weight: normalizedInput.weightKg,
+        quantity: normalizedInput.quantity,
       };
 
       // Check for trade agreement eligibility
-      const tradeAgreementInfo = await this.checkTradeAgreement(input);
+      const tradeAgreementInfo = await this.checkTradeAgreement(normalizedInput);
 
       // Use preferential rate if eligible, otherwise use standard rate
       let baseDuty: number;
@@ -102,14 +136,14 @@ export class CalculationService {
       const variables = {
         ...baseVariables,
         duty: baseDuty,
-        total: input.declaredValue + baseDuty,
+        total: normalizedInput.declaredValue + baseDuty,
       };
 
       const applyExtraTaxes = !rateInfo.overrideExtraTax;
 
       // Calculate additional tariffs (entity-driven)
       const additionalTariffs = applyExtraTaxes
-        ? await this.calculateAdditionalTariffs(input, variables)
+        ? await this.calculateAdditionalTariffs(normalizedInput, variables)
         : [];
 
       const totalAdditionalTariffs = additionalTariffs.reduce(
@@ -118,11 +152,11 @@ export class CalculationService {
       );
 
       // Calculate taxes (entity-driven)
-      const taxes = applyExtraTaxes ? await this.calculateTaxes(input, variables) : [];
+      const taxes = applyExtraTaxes ? await this.calculateTaxes(normalizedInput, variables) : [];
 
       const totalTaxes = taxes.reduce((sum, t) => sum + t.amount, 0);
       const totalDuty = baseDuty + totalAdditionalTariffs;
-      const landedCost = input.declaredValue + totalDuty + totalTaxes;
+      const landedCost = normalizedInput.declaredValue + totalDuty + totalTaxes;
 
       const result: CalculationResult = {
         calculationId,
@@ -145,7 +179,7 @@ export class CalculationService {
         tradeAgreementInfo: tradeAgreementInfo.eligible ? tradeAgreementInfo : null,
       };
 
-      await this.saveCalculationHistory(input, result);
+      await this.saveCalculationHistory(normalizedInput, result);
 
       return result;
     } catch (error) {
@@ -163,41 +197,64 @@ export class CalculationService {
     variables: Record<string, any>,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
     const chapter = input.htsNumber.substring(0, 2);
-    const now = new Date();
+    const calculationDate = this.resolveCalculationDate(input);
+    const selectedChapter99Headings = this.extractSelectedChapter99Headings(
+      input.additionalInputs,
+    );
 
-    // Query for all active ADD_ON tariffs
+    // Load ADD_ON/STANDALONE/CONDITIONAL so conditional exclusions can gate ADD_ON rules.
     const allTariffs = await this.extraTaxRepository.find({
-      where: {
-        isActive: true,
-        extraRateType: 'ADD_ON',
-      },
+      where: [
+        { isActive: true, extraRateType: 'ADD_ON' },
+        { isActive: true, extraRateType: 'STANDALONE' },
+        { isActive: true, extraRateType: 'CONDITIONAL' },
+      ],
       order: {
         priority: 'ASC',
       },
     });
 
+    const matchedConditionalPolicies = allTariffs.filter((policy) => {
+      const type = (policy.extraRateType || '').toUpperCase();
+      if (type !== 'CONDITIONAL') {
+        return false;
+      }
+      if (!this.matchesTaxScope(policy, input, chapter, calculationDate)) {
+        return false;
+      }
+      return this.evaluateTaxConditions(policy.conditions, input, selectedChapter99Headings);
+    });
+    const excludeReciprocalBaseline = matchedConditionalPolicies.some((policy) =>
+      this.isTruthyFlag((policy.conditions || {}).excludesReciprocalBaseline),
+    );
+
     const results: Array<{ type: string; amount: number; description: string }> = [];
 
     for (const tariff of allTariffs) {
-      // Check if tariff applies to this HTS code
-      const htsMatches =
-        !tariff.htsNumber ||
-        tariff.htsNumber === '*' ||
-        tariff.htsNumber === input.htsNumber ||
-        (tariff.htsChapter && tariff.htsChapter === chapter);
+      const type = (tariff.extraRateType || '').toUpperCase();
+      if (type === 'CONDITIONAL') {
+        continue;
+      }
+      if (type !== 'ADD_ON' && type !== 'STANDALONE') {
+        continue;
+      }
+      if (!this.matchesTaxScope(tariff, input, chapter, calculationDate)) {
+        continue;
+      }
+      if (!this.evaluateTaxConditions(tariff.conditions, input, selectedChapter99Headings)) {
+        continue;
+      }
+      if (this.isPolicyMarkerOnly(tariff.conditions)) {
+        continue;
+      }
 
-      if (!htsMatches) continue;
-
-      // Check country code match
-      const countryMatches =
-        tariff.countryCode === 'ALL' ||
-        tariff.countryCode === input.countryOfOrigin;
-
-      if (!countryMatches) continue;
-
-      // Check effective/expiration dates
-      if (tariff.effectiveDate && tariff.effectiveDate > now) continue;
-      if (tariff.expirationDate && tariff.expirationDate < now) continue;
+      // Reciprocal baseline rows are suppressed when a matching conditional exception is present.
+      if (excludeReciprocalBaseline && this.isReciprocalBaselineRule(tariff)) {
+        this.logger.debug(
+          `Skipping reciprocal baseline tariff ${tariff.taxCode} due to matched conditional exclusion`,
+        );
+        continue;
+      }
 
       // Evaluate formula
       if (tariff.rateFormula) {
@@ -206,6 +263,9 @@ export class CalculationService {
             tariff.rateFormula,
             variables,
           );
+          if (amount <= 0) {
+            continue;
+          }
 
           results.push({
             type: tariff.taxCode,
@@ -231,8 +291,11 @@ export class CalculationService {
     input: CalculationInput,
     variables: Record<string, any>,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
-    const now = new Date();
+    const calculationDate = this.resolveCalculationDate(input);
     const chapter = input.htsNumber.substring(0, 2);
+    const selectedChapter99Headings = this.extractSelectedChapter99Headings(
+      input.additionalInputs,
+    );
 
     // Query for all active POST_CALCULATION taxes
     const allTaxes = await this.extraTaxRepository.find({
@@ -248,25 +311,15 @@ export class CalculationService {
     const results: Array<{ type: string; amount: number; description: string }> = [];
 
     for (const tax of allTaxes) {
-      // Check if tax applies to this HTS code
-      const htsMatches =
-        !tax.htsNumber ||
-        tax.htsNumber === '*' ||
-        tax.htsNumber === input.htsNumber ||
-        (tax.htsChapter && tax.htsChapter === chapter);
-
-      if (!htsMatches) continue;
-
-      // Check country code match
-      const countryMatches =
-        tax.countryCode === 'ALL' ||
-        tax.countryCode === input.countryOfOrigin;
-
-      if (!countryMatches) continue;
-
-      // Check effective/expiration dates
-      if (tax.effectiveDate && tax.effectiveDate > now) continue;
-      if (tax.expirationDate && tax.expirationDate < now) continue;
+      if (!this.matchesTaxScope(tax, input, chapter, calculationDate)) {
+        continue;
+      }
+      if (!this.evaluateTaxConditions(tax.conditions, input, selectedChapter99Headings)) {
+        continue;
+      }
+      if (this.isPolicyMarkerOnly(tax.conditions)) {
+        continue;
+      }
 
       // Evaluate formula
       if (tax.rateFormula) {
@@ -275,6 +328,9 @@ export class CalculationService {
             tax.rateFormula,
             variables,
           );
+          if (amount <= 0) {
+            continue;
+          }
 
           // Apply min/max constraints
           if (tax.minimumAmount !== null) {
@@ -384,6 +440,13 @@ export class CalculationService {
         weightKg: input.weightKg,
         quantity: input.quantity,
         quantityUnit: input.quantityUnit,
+        entryDate: input.entryDate || null,
+        tradeAgreement: input.tradeAgreementCode || input.tradeAgreement,
+        claimPreferential:
+          typeof input.tradeAgreementCertificate === 'boolean'
+            ? input.tradeAgreementCertificate
+            : input.claimPreferential,
+        additionalInputs: input.additionalInputs,
       },
       baseDuty: result.baseDuty,
       additionalTariffs: result.additionalTariffs,
@@ -414,5 +477,383 @@ export class CalculationService {
     return this.historyRepository.findOne({
       where: { calculationId },
     });
+  }
+
+  private normalizeCalculationInput(input: CalculationInput): CalculationInput {
+    const tradeAgreementCodeRaw =
+      typeof input.tradeAgreementCode === 'string' && input.tradeAgreementCode.trim()
+        ? input.tradeAgreementCode
+        : input.tradeAgreement;
+    const tradeAgreementCode = tradeAgreementCodeRaw
+      ? tradeAgreementCodeRaw.trim().toUpperCase()
+      : undefined;
+
+    const tradeAgreementCertificate =
+      typeof input.tradeAgreementCertificate === 'boolean'
+        ? input.tradeAgreementCertificate
+        : typeof input.claimPreferential === 'boolean'
+          ? input.claimPreferential
+          : undefined;
+
+    const additionalInputs =
+      input.additionalInputs && typeof input.additionalInputs === 'object'
+        ? input.additionalInputs
+        : undefined;
+
+    return {
+      ...input,
+      htsNumber: (input.htsNumber || '').trim(),
+      countryOfOrigin: (input.countryOfOrigin || '').trim().toUpperCase(),
+      entryDate:
+        typeof input.entryDate === 'string' && input.entryDate.trim()
+          ? input.entryDate.trim()
+          : undefined,
+      tradeAgreementCode,
+      tradeAgreementCertificate,
+      additionalInputs,
+    };
+  }
+
+  private matchesTaxScope(
+    tax: HtsExtraTaxEntity,
+    input: CalculationInput,
+    chapter: string,
+    calculationDate: Date,
+  ): boolean {
+    const inputCountry = (input.countryOfOrigin || '').toUpperCase();
+    const taxCountry = (tax.countryCode || 'ALL').toUpperCase();
+    const htsNumber = (input.htsNumber || '').trim();
+
+    const htsMatches =
+      !tax.htsNumber ||
+      tax.htsNumber === '*' ||
+      tax.htsNumber === htsNumber ||
+      (tax.htsChapter && tax.htsChapter === chapter);
+    if (!htsMatches) return false;
+
+    const countryMatches = this.isCountryMatch(taxCountry, inputCountry);
+    if (!countryMatches) return false;
+
+    const normalizedCalcDate = this.toDateOnlyUtc(calculationDate);
+    const effectiveDate = this.toDateOnlyUtc(tax.effectiveDate as any);
+    const expirationDate = this.toDateOnlyUtc(tax.expirationDate as any);
+
+    if (!normalizedCalcDate) {
+      return true;
+    }
+
+    if (effectiveDate && effectiveDate.getTime() > normalizedCalcDate.getTime()) return false;
+    if (expirationDate && expirationDate.getTime() < normalizedCalcDate.getTime()) return false;
+
+    return true;
+  }
+
+  private evaluateTaxConditions(
+    conditions: Record<string, any> | null,
+    input: CalculationInput,
+    selectedChapter99Headings: Set<string>,
+  ): boolean {
+    if (!conditions || typeof conditions !== 'object') {
+      return true;
+    }
+
+    // Marker-only rows are metadata and should not execute as charge rows.
+    if (this.isPolicyMarkerOnly(conditions)) {
+      return false;
+    }
+
+    if (
+      this.isTruthyFlag(conditions.requiresAnnexMapping) &&
+      !this.isTruthyFlag(input.additionalInputs?.annexEligibilityConfirmed)
+    ) {
+      return false;
+    }
+
+    if (
+      this.isTruthyFlag(conditions.frameworkRateOnly) &&
+      !this.isTruthyFlag(input.additionalInputs?.allowFrameworkRate)
+    ) {
+      return false;
+    }
+
+    const requiredHeading = this.normalizeChapter99Heading(
+      typeof conditions.htsHeading === 'string' ? conditions.htsHeading : null,
+    );
+    if (requiredHeading && !selectedChapter99Headings.has(requiredHeading)) {
+      return false;
+    }
+
+    const exceptionHeading = this.normalizeChapter99Heading(
+      typeof conditions.exceptionHeading === 'string' ? conditions.exceptionHeading : null,
+    );
+    if (exceptionHeading && !selectedChapter99Headings.has(exceptionHeading)) {
+      return false;
+    }
+
+    if (typeof conditions.tradeAgreementCode === 'string' && conditions.tradeAgreementCode.trim()) {
+      const expected = conditions.tradeAgreementCode.trim().toUpperCase();
+      if ((input.tradeAgreementCode || '').toUpperCase() !== expected) {
+        return false;
+      }
+    }
+
+    if (
+      this.isTruthyFlag(conditions.requiresCertificate) &&
+      !this.isTruthyFlag(input.tradeAgreementCertificate)
+    ) {
+      return false;
+    }
+
+    const minValue = this.toFiniteNumber(conditions.minValue);
+    if (minValue !== null && input.declaredValue < minValue) {
+      return false;
+    }
+
+    const maxValue = this.toFiniteNumber(conditions.maxValue);
+    if (maxValue !== null && input.declaredValue > maxValue) {
+      return false;
+    }
+
+    if (Array.isArray(conditions.countryIn) && conditions.countryIn.length > 0) {
+      const inputCountry = (input.countryOfOrigin || '').toUpperCase();
+      const whitelist = conditions.countryIn.map((code: any) =>
+        String(code || '').toUpperCase().trim(),
+      );
+      const countryAllowed = whitelist.some((code) => this.isCountryMatch(code, inputCountry));
+      if (!countryAllowed) {
+        return false;
+      }
+    }
+
+    if (Array.isArray(conditions.countryNotIn) && conditions.countryNotIn.length > 0) {
+      const inputCountry = (input.countryOfOrigin || '').toUpperCase();
+      const blacklist = conditions.countryNotIn.map((code: any) =>
+        String(code || '').toUpperCase().trim(),
+      );
+      const countryBlocked = blacklist.some((code) => this.isCountryMatch(code, inputCountry));
+      if (countryBlocked) {
+        return false;
+      }
+    }
+
+    if (typeof conditions.modeOfTransport === 'string' && conditions.modeOfTransport.trim()) {
+      const actualMode = String(input.additionalInputs?.modeOfTransport || '')
+        .trim()
+        .toUpperCase();
+      if (actualMode !== conditions.modeOfTransport.trim().toUpperCase()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private extractSelectedChapter99Headings(
+    additionalInputs?: Record<string, any>,
+  ): Set<string> {
+    const headings = new Set<string>();
+    if (!additionalInputs || typeof additionalInputs !== 'object') {
+      return headings;
+    }
+
+    const directCandidates = [
+      additionalInputs.chapter99Heading,
+      additionalInputs.selectedChapter99Heading,
+      additionalInputs.chapter99Code,
+      additionalInputs.chapter99Hts,
+    ];
+    for (const candidate of directCandidates) {
+      const normalized = this.normalizeChapter99Heading(
+        typeof candidate === 'string' ? candidate : null,
+      );
+      if (normalized) {
+        headings.add(normalized);
+      }
+    }
+
+    const arrayCandidates = [
+      additionalInputs.chapter99Headings,
+      additionalInputs.selectedChapter99Headings,
+    ];
+    for (const values of arrayCandidates) {
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        const normalized = this.normalizeChapter99Heading(
+          typeof value === 'string' ? value : null,
+        );
+        if (normalized) {
+          headings.add(normalized);
+        }
+      }
+    }
+
+    const mapCandidates = [
+      additionalInputs.chapter99Selections,
+      additionalInputs.FIELD_CHOSEN_HTS_CODES,
+    ];
+    for (const mapValue of mapCandidates) {
+      if (!mapValue || typeof mapValue !== 'object' || Array.isArray(mapValue)) {
+        continue;
+      }
+      for (const [rawCode, enabled] of Object.entries(mapValue)) {
+        if (!this.isTruthyFlag(enabled)) {
+          continue;
+        }
+        const normalized = this.normalizeChapter99Heading(rawCode);
+        if (normalized) {
+          headings.add(normalized);
+        }
+      }
+    }
+
+    return headings;
+  }
+
+  private normalizeChapter99Heading(value: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (/^99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const digits = trimmed.replace(/[^0-9]/g, '');
+    if (/^99\d{6}$/.test(digits)) {
+      return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`;
+    }
+    if (/^99\d{8}$/.test(digits)) {
+      return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}.${digits.slice(8, 10)}`;
+    }
+
+    return null;
+  }
+
+  private isReciprocalBaselineRule(tax: HtsExtraTaxEntity): boolean {
+    const taxCode = (tax.taxCode || '').toUpperCase();
+    const countryCode = (tax.countryCode || '').toUpperCase();
+    return taxCode.startsWith('RECIP_') && countryCode === 'ALL';
+  }
+
+  private isPolicyMarkerOnly(conditions: Record<string, any> | null | undefined): boolean {
+    if (!conditions || typeof conditions !== 'object') {
+      return false;
+    }
+    return (
+      this.isTruthyFlag((conditions as any).policyMarkerOnly) ||
+      this.isTruthyFlag((conditions as any).requiresManualReview)
+    );
+  }
+
+  private isTruthyFlag(value: any): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      return ['1', 'true', 'yes', 'y', 'on'].includes(normalized);
+    }
+    return false;
+  }
+
+  private toFiniteNumber(value: any): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  private resolveCalculationDate(input: CalculationInput): Date {
+    const candidates = [
+      input.entryDate,
+      input.additionalInputs?.entryDate,
+      input.additionalInputs?.FIELD_DATE_OF_LOADING,
+      input.additionalInputs?.dateOfLoading,
+      input.additionalInputs?.entryDateOverride,
+    ];
+
+    for (const candidate of candidates) {
+      const parsed = this.parseFlexibleDate(candidate);
+      if (parsed) {
+        return parsed;
+      }
+    }
+
+    return new Date();
+  }
+
+  private parseFlexibleDate(value: unknown): Date | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const raw = value.trim();
+    if (!raw) {
+      return null;
+    }
+
+    const unquoted = raw.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+    const dateOnlyMatch = unquoted.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnlyMatch) {
+      const parsed = new Date(`${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}T12:00:00Z`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const parsed = new Date(unquoted);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private toDateOnlyUtc(value: Date | string | null | undefined): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    let parsed: Date | null = null;
+    if (value instanceof Date) {
+      parsed = Number.isNaN(value.getTime()) ? null : value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        parsed = new Date(`${trimmed}T12:00:00Z`);
+      } else {
+        parsed = new Date(trimmed);
+      }
+      if (Number.isNaN(parsed.getTime())) {
+        return null;
+      }
+    }
+
+    if (!parsed) {
+      return null;
+    }
+
+    return new Date(
+      Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate(), 12),
+    );
+  }
+
+  private isCountryMatch(ruleCountryRaw: string, inputCountryRaw: string): boolean {
+    const ruleCountry = (ruleCountryRaw || '').trim().toUpperCase();
+    const inputCountry = (inputCountryRaw || '').trim().toUpperCase();
+    if (!ruleCountry || !inputCountry) {
+      return false;
+    }
+
+    if (ruleCountry === 'ALL' || ruleCountry === inputCountry) {
+      return true;
+    }
+
+    if (ruleCountry === 'EU') {
+      return inputCountry === 'EU' || this.EU_COUNTRY_CODES.has(inputCountry);
+    }
+    if (inputCountry === 'EU') {
+      return this.EU_COUNTRY_CODES.has(ruleCountry);
+    }
+
+    return false;
   }
 }

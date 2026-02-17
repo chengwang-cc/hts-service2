@@ -185,6 +185,8 @@ export class RolesAdminService {
           { key: 'formula:generate', title: 'Generate Formulas', isLeaf: true },
           { key: 'formula:approve', title: 'Approve Formulas', isLeaf: true },
           { key: 'formula:override', title: 'Override Formulas', isLeaf: true },
+          { key: 'formula:external:view', title: 'View External Provider Snapshots', isLeaf: true },
+          { key: 'formula:external:write', title: 'Write External Provider Snapshots', isLeaf: true },
         ],
       },
       {

@@ -25,7 +25,9 @@ import { UsitcDownloaderService, S3StorageService, CustomNamingStrategy } from '
 import {
   HtsDocumentEntity,
   KnowledgeChunkEntity,
+  DocumentService,
   NoteExtractionService,
+  NoteResolutionService,
   PdfParserService,
 } from '@hts/knowledgebase';
 
@@ -93,6 +95,8 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
   let documentProcessingHandler: DocumentProcessingJobHandler;
   let queueServiceMock: { sendJob: jest.Mock; registerHandler: jest.Mock };
   let noteExtractionServiceMock: { extractNotes: jest.Mock };
+  let documentServiceMock: { downloadDocument: jest.Mock; parseAndExtractNotes: jest.Mock };
+  let noteResolutionServiceMock: { resolveNoteReference: jest.Mock };
   let chunks: StoredChunk[];
   let adminToken: string;
 
@@ -106,6 +110,13 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
     };
     noteExtractionServiceMock = {
       extractNotes: jest.fn().mockResolvedValue([{ id: 'note-1' }]),
+    };
+    documentServiceMock = {
+      downloadDocument: jest.fn(),
+      parseAndExtractNotes: jest.fn().mockResolvedValue({}),
+    };
+    noteResolutionServiceMock = {
+      resolveNoteReference: jest.fn().mockResolvedValue(null),
     };
 
     const chunkRepoMock = {
@@ -159,6 +170,8 @@ describe('Admin Knowledge PDF Processing (E2E)', () => {
         DocumentProcessingJobHandler,
         PdfParserService,
         { provide: NoteExtractionService, useValue: noteExtractionServiceMock },
+        { provide: DocumentService, useValue: documentServiceMock },
+        { provide: NoteResolutionService, useValue: noteResolutionServiceMock },
         { provide: QueueService, useValue: queueServiceMock },
         { provide: S3StorageService, useClass: InMemoryS3StorageService },
         {

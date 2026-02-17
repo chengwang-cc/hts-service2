@@ -380,6 +380,35 @@ describe('HTS Lookup API (E2E)', () => {
     });
   });
 
+  describe('GET /api/v1/hts/autocomplete', () => {
+    it('should return ranked autocomplete matches for code prefix', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/hts/autocomplete?q=0101')
+        .set('X-API-Key', validApiKey)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.data.length).toBeGreaterThan(0);
+      expect(response.body.data[0]).toHaveProperty('htsNumber');
+      expect(response.body.data[0]).toHaveProperty('description');
+      expect(response.body.meta.count).toBe(response.body.data.length);
+    });
+
+    it('should enforce minimum query length', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/hts/autocomplete?q=0')
+        .set('X-API-Key', validApiKey)
+        .expect(400);
+    });
+
+    it('should enforce authentication', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/hts/autocomplete?q=0101')
+        .expect(401);
+    });
+  });
+
   describe('GET /api/v1/hts/hierarchy', () => {
     it('should return hierarchy for an HTS code', async () => {
       const response = await request(app.getHttpServer())

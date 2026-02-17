@@ -30,6 +30,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private readonly queueDisabled =
     process.env.JEST_WORKER_ID !== undefined ||
     (process.env.QUEUE_DISABLED ?? 'false') === 'true';
+  private readonly inlineFallbackEnabled =
+    (process.env.QUEUE_INLINE_FALLBACK ?? 'true') === 'true';
 
   constructor(private configService: ConfigService) {}
 
@@ -55,7 +57,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const dbPort = this.configService.get<number>('DB_PORT', 5432);
     const dbUsername = this.configService.get<string>('DB_USERNAME', 'postgres');
     const dbPassword = this.configService.get<string>('DB_PASSWORD', 'postgres');
-    const dbName = this.configService.get<string>('DB', 'hts');
+    const dbName =
+      this.configService.get<string>('DB_DATABASE') ||
+      this.configService.get<string>('DB') ||
+      'hts';
 
     const databaseUrl = `postgresql://${dbUsername}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
 
@@ -219,14 +224,21 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     data: Record<string, any>,
     options?: SendJobOptions
   ): Promise<string> {
+    const inlineJobId = `job-inline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     if (this.queueDisabled) {
-      return `job-disabled-${Date.now()}`;
+      this.triggerInlineFallback(queueName, inlineJobId, data, 'queue_disabled');
+      return inlineJobId;
     }
 
     if (!this.boss || !this.isStarted) {
       this.logger.error(
         `Cannot send job to ${queueName}: pg-boss not started`
       );
+      if (this.inlineFallbackEnabled) {
+        this.triggerInlineFallback(queueName, inlineJobId, data, 'queue_not_started');
+        return inlineJobId;
+      }
       throw new Error('Queue service not available');
     }
 
@@ -256,8 +268,48 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         `Failed to send job to ${queueName}: ${error.message}`,
         error.stack
       );
+      if (this.inlineFallbackEnabled) {
+        this.triggerInlineFallback(queueName, inlineJobId, data, 'send_failed');
+        return inlineJobId;
+      }
       throw error;
     }
+  }
+
+  private triggerInlineFallback(
+    queueName: string,
+    jobId: string,
+    data: Record<string, any>,
+    reason: 'queue_disabled' | 'queue_not_started' | 'send_failed',
+  ): void {
+    const handler = this.handlers.get(queueName);
+    if (!handler) {
+      this.logger.warn(
+        `Inline fallback skipped for queue ${queueName}: no handler registered (${reason})`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `Queue fallback active for ${queueName} (${reason}); executing job inline with id=${jobId}`,
+    );
+
+    Promise.resolve()
+      .then(async () => {
+        const fallbackJob = {
+          id: jobId,
+          name: queueName,
+          data,
+        } as Job;
+        await handler(fallbackJob);
+        this.logger.log(`Inline fallback job completed for ${queueName}: ${jobId}`);
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Inline fallback job failed for ${queueName}: ${error?.message || error}`,
+          error?.stack,
+        );
+      });
   }
 
   /**

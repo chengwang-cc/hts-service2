@@ -20,9 +20,11 @@ import {
   HtsStageValidationIssueEntity,
   HtsStageDiffEntity,
   HtsExtraTaxEntity,
+  HtsFormulaUpdateEntity,
   HtsFormulaCandidateEntity,
   HtsTestCaseEntity,
   HtsTestResultEntity,
+  ExternalProviderFormulaEntity,
 } from '@hts/core';
 
 // Entities - Phase 3
@@ -54,6 +56,8 @@ import { TestCaseAdminController } from './controllers/test-case.admin.controlle
 
 // Controllers - Phase 3
 import { KnowledgeAdminController } from './controllers/knowledge.admin.controller';
+import { ExternalProviderFormulaAdminController } from './controllers/external-provider-formula.admin.controller';
+import { ReciprocalTariffAdminController } from './controllers/reciprocal-tariff.admin.controller';
 
 // Services - Phase 1
 import { UsersAdminService } from './services/users.admin.service';
@@ -67,6 +71,8 @@ import { TestCaseService } from './services/test-case.service';
 
 // Services - Phase 3
 import { KnowledgeAdminService } from './services/knowledge.admin.service';
+import { ExternalProviderFormulaAdminService } from './services/external-provider-formula.admin.service';
+import { ReciprocalTariffAdminService } from './services/reciprocal-tariff.admin.service';
 
 // Job Handlers - Phase 2
 import { HtsImportJobHandler } from './jobs/hts-import.job-handler';
@@ -93,9 +99,11 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       HtsStageValidationIssueEntity,
       HtsStageDiffEntity,
       HtsExtraTaxEntity,
+      HtsFormulaUpdateEntity,
       HtsFormulaCandidateEntity,
       HtsTestCaseEntity,
       HtsTestResultEntity,
+      ExternalProviderFormulaEntity,
       // Phase 3 entities
       HtsDocumentEntity,
       KnowledgeChunkEntity,
@@ -119,6 +127,8 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     TestCaseAdminController,
     // Phase 3 controllers
     KnowledgeAdminController,
+    ExternalProviderFormulaAdminController,
+    ReciprocalTariffAdminController,
   ],
   providers: [
     // Phase 1 services
@@ -131,6 +141,8 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     TestCaseService,
     // Phase 3 services
     KnowledgeAdminService,
+    ExternalProviderFormulaAdminService,
+    ReciprocalTariffAdminService,
     // Job handlers - Phase 2
     HtsImportJobHandler,
     FormulaGenerationJobHandler,
@@ -151,6 +163,8 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     FormulaAdminService,
     TestCaseService,
     KnowledgeAdminService,
+    ExternalProviderFormulaAdminService,
+    ReciprocalTariffAdminService,
   ],
 })
 export class AdminModule implements OnModuleInit {

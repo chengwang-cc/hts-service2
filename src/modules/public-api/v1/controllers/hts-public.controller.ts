@@ -156,7 +156,10 @@ export class HtsPublicController {
     }
 
     try {
-      const maxResults = limit ? parseInt(limit, 10) : 10;
+      const parsedLimit = limit ? parseInt(limit, 10) : 10;
+      const maxResults = Number.isFinite(parsedLimit)
+        ? Math.min(Math.max(parsedLimit, 1), 100)
+        : 10;
       const results = await this.searchService.hybridSearch(query, maxResults);
 
       return {
@@ -180,6 +183,66 @@ export class HtsPublicController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Autocomplete HTS codes
+   * GET /api/v1/hts/autocomplete?q=0101&limit=10
+   */
+  @Get('autocomplete')
+  @ApiOperation({
+    summary: 'Autocomplete HTS codes',
+    description:
+      'Fast prefix/keyword autocomplete optimized for real-time UI search.',
+  })
+  @ApiQuery({
+    name: 'q',
+    description: 'Autocomplete query',
+    example: '0101',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Maximum number of results (default: 10, max: 20)',
+    example: 10,
+  })
+  @ApiResponse({ status: 200, description: 'Autocomplete results' })
+  @ApiResponse({ status: 400, description: 'Query is required' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiPermissions('hts:lookup')
+  async autocomplete(
+    @Query('q') query: string,
+    @Query('limit') limit?: string,
+    @CurrentApiKey() apiKey?: ApiKeyEntity,
+  ) {
+    if (!query || query.trim().length < 2) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Query must be at least 2 characters',
+          error: 'Bad Request',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const parsedLimit = limit ? parseInt(limit, 10) : 10;
+    const maxResults = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 20)
+      : 10;
+    const results = await this.searchService.autocomplete(query, maxResults);
+
+    return {
+      success: true,
+      data: results,
+      meta: {
+        apiVersion: 'v1',
+        query,
+        limit: maxResults,
+        count: results.length,
+        organizationId: apiKey?.organizationId,
+      },
+    };
   }
 
   /**

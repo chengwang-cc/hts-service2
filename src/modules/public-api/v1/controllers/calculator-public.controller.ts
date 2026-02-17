@@ -95,6 +95,11 @@ export class CalculatorPublicController {
           description: 'Unit of quantity (e.g., pcs, kg)',
           example: 'pcs',
         },
+        entryDate: {
+          type: 'string',
+          description: 'Entry date (YYYY-MM-DD) used for date-effective policy windows',
+          example: '2026-02-15',
+        },
         tradeAgreementCode: {
           type: 'string',
           description: 'Trade agreement code (e.g., USMCA, CAFTA-DR)',
@@ -131,9 +136,18 @@ export class CalculatorPublicController {
     }
 
     try {
+      const entryDate =
+        typeof input.entryDate === 'string' && input.entryDate.trim()
+          ? input.entryDate.trim()
+          : typeof input.additionalInputs?.entryDate === 'string' &&
+              input.additionalInputs.entryDate.trim()
+            ? input.additionalInputs.entryDate.trim()
+            : undefined;
+
       // Override organizationId with API key's organization
       const calculationInput = {
         ...input,
+        entryDate,
         organizationId: apiKey.organizationId,
       };
 

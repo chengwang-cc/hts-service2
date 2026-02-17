@@ -19,8 +19,17 @@ export class CalculatorController {
     @Query('organizationId') organizationId: string,
     @Query('userId') userId?: string,
   ) {
+    const tradeAgreementCode =
+      calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
+    const tradeAgreementCertificate =
+      typeof calculateDto.tradeAgreementCertificate === 'boolean'
+        ? calculateDto.tradeAgreementCertificate
+        : calculateDto.claimPreferential;
+
     const result = await this.calculationService.calculate({
       ...calculateDto,
+      tradeAgreementCode,
+      tradeAgreementCertificate,
       organizationId,
       userId,
     });
@@ -98,6 +107,18 @@ export class CalculatorController {
       throw new HttpException('Scenario not found', HttpStatus.NOT_FOUND);
     }
 
+    const tradeAgreementCode =
+      overrides?.tradeAgreementCode ||
+      overrides?.tradeAgreement ||
+      scenario.tradeAgreement ||
+      undefined;
+    const tradeAgreementCertificate =
+      typeof overrides?.tradeAgreementCertificate === 'boolean'
+        ? overrides.tradeAgreementCertificate
+        : typeof overrides?.claimPreferential === 'boolean'
+          ? overrides.claimPreferential
+          : scenario.claimPreferential;
+
     // Merge scenario with any overrides
     const calculationInput = {
       htsNumber: overrides?.htsNumber || scenario.htsNumber,
@@ -107,6 +128,15 @@ export class CalculatorController {
       weightKg: overrides?.weightKg ?? scenario.weightKg ?? undefined,
       quantity: overrides?.quantity ?? scenario.quantity ?? undefined,
       quantityUnit: overrides?.quantityUnit ?? scenario.quantityUnit ?? undefined,
+      entryDate:
+        overrides?.entryDate ??
+        (typeof scenario.additionalInputs?.entryDate === 'string'
+          ? scenario.additionalInputs.entryDate
+          : undefined),
+      additionalInputs: overrides?.additionalInputs ?? scenario.additionalInputs ?? undefined,
+      htsVersion: overrides?.htsVersion ?? undefined,
+      tradeAgreementCode,
+      tradeAgreementCertificate,
       organizationId: scenario.organizationId,
       userId: scenario.userId ?? undefined,
       scenarioId: scenario.id,

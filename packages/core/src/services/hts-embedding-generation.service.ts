@@ -45,9 +45,6 @@ export class HtsEmbeddingGenerationService {
       errors: [] as string[],
     };
 
-    // Mark all existing embeddings as not current
-    await this.embeddingRepository.update({}, { isCurrent: false });
-
     // Get all active HTS entries
     const allHts = await this.htsRepository.find({
       where: { isActive: true },
@@ -67,6 +64,7 @@ export class HtsEmbeddingGenerationService {
       try {
         const generated = await this.generateBatchEmbeddings(batch, modelVersion);
         result.generated += generated;
+        result.failed += batch.length - generated;
 
         // Rate limiting - wait 1 second between batches
         if (i + batchSize < allHts.length) {
@@ -105,18 +103,15 @@ export class HtsEmbeddingGenerationService {
         // Generate embedding
         const embeddingVector = await this.embeddingService.generateEmbedding(searchText);
 
-        // Create embedding entity
-        const embedding = this.embeddingRepository.create({
+        await this.upsertEmbedding({
           htsNumber: hts.htsNumber,
           embedding: embeddingVector,
           searchText: searchText,
           model: modelVersion,
-          modelVersion: null,
+          modelVersion: modelVersion,
           isCurrent: true,
           generatedAt: new Date(),
         });
-
-        await this.embeddingRepository.save(embedding);
         generated++;
       } catch (error) {
         this.logger.error(
@@ -143,27 +138,72 @@ export class HtsEmbeddingGenerationService {
       throw new Error(`HTS entry ${htsNumber} not found or inactive`);
     }
 
-    // Mark existing embeddings as not current
-    await this.embeddingRepository.update({ htsNumber }, { isCurrent: false });
-
     // Build search text
     const searchText = this.buildSearchText(hts);
 
     // Generate embedding
     const embeddingVector = await this.embeddingService.generateEmbedding(searchText);
 
-    // Create embedding entity
-    const embedding = this.embeddingRepository.create({
+    await this.upsertEmbedding({
       htsNumber: hts.htsNumber,
       embedding: embeddingVector,
       searchText: searchText,
       model: modelVersion,
-      modelVersion: null,
+      modelVersion: modelVersion,
       isCurrent: true,
       generatedAt: new Date(),
     });
 
-    return this.embeddingRepository.save(embedding);
+    const saved = await this.embeddingRepository.findOne({
+      where: { htsNumber: hts.htsNumber },
+    });
+    if (!saved) {
+      throw new Error(`Failed to persist embedding for ${hts.htsNumber}`);
+    }
+    return saved;
+  }
+
+  /**
+   * Regenerate embeddings for all active rows in a specific source version.
+   */
+  async generateEmbeddingsForSourceVersion(
+    sourceVersion: string,
+    batchSize: number = 100,
+    modelVersion: string = 'text-embedding-3-small',
+  ): Promise<{ total: number; generated: number; failed: number; errors: string[] }> {
+    const rows = await this.htsRepository.find({
+      where: { sourceVersion, isActive: true },
+      order: { htsNumber: 'ASC' },
+    });
+
+    const result = {
+      total: rows.length,
+      generated: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      for (const hts of batch) {
+        try {
+          await this.generateSingleEmbedding(hts.htsNumber, modelVersion);
+          result.generated++;
+        } catch (error) {
+          result.failed++;
+          result.errors.push(`${hts.htsNumber}: ${error.message}`);
+          this.logger.error(
+            `Failed to generate embedding for ${hts.htsNumber}: ${error.message}`,
+          );
+        }
+      }
+
+      if (i + batchSize < rows.length) {
+        await this.sleep(1000);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -230,6 +270,21 @@ export class HtsEmbeddingGenerationService {
     }
 
     return parts.join(' ');
+  }
+
+  private async upsertEmbedding(
+    payload: Pick<
+      HtsEmbeddingEntity,
+      | 'htsNumber'
+      | 'embedding'
+      | 'searchText'
+      | 'model'
+      | 'modelVersion'
+      | 'isCurrent'
+      | 'generatedAt'
+    >,
+  ): Promise<void> {
+    await this.embeddingRepository.upsert(payload, ['htsNumber']);
   }
 
   /**

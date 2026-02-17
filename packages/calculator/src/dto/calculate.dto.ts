@@ -35,11 +35,23 @@ export class CalculateDto {
 
   @IsString()
   @IsOptional()
+  entryDate?: string;
+
+  @IsString()
+  @IsOptional()
   tradeAgreement?: string;
+
+  @IsString()
+  @IsOptional()
+  tradeAgreementCode?: string;
 
   @IsBoolean()
   @IsOptional()
   claimPreferential?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  tradeAgreementCertificate?: boolean;
 
   @IsOptional()
   additionalInputs?: Record<string, any>;
