@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
-import { ConnectorsModule as ConnectorsPackageModule } from '@hts/connectors';
 import {
   ConnectorEntity,
   SyncLogEntity,
@@ -13,7 +12,6 @@ import { ConnectorsController } from './controllers/connectors.controller';
 
 @Module({
   imports: [
-    ConnectorsPackageModule,
     TypeOrmModule.forFeature([ConnectorEntity, SyncLogEntity]),
     HttpModule.register({
       timeout: 30000,

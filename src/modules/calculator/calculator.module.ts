@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CalculatorModule as CalculatorPackageModule } from '@hts/calculator';
 import {
   CalculationScenarioEntity,
   TradeAgreementEntity,
@@ -21,7 +20,6 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 
 @Module({
   imports: [
-    CalculatorPackageModule.forRoot(),
     CoreWrapperModule,
     KnowledgebaseModule,
     TypeOrmModule.forFeature([

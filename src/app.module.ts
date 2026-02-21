@@ -23,8 +23,8 @@ import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
-import { DataSource } from 'typeorm/data-source/index.js';
-import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes.js';
+import { DataSource } from 'typeorm';
+import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
 @Module({
   imports: [
@@ -45,7 +45,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes.js';
         database: process.env?.DB_DATABASE ?? 'hts',
         namingStrategy: new CustomNamingStrategy(),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: false,
+        synchronize: (process.env?.DB_SYNCHRONIZE ?? 'false') === 'true',
         migrations: [__dirname + '/db/migrations/**/*{.ts,.js}'],
         migrationsTableName: 'typeorm_migrations',
         ssl:

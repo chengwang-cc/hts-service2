@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { KnowledgebaseModule as KnowledgebasePackageModule } from '@hts/knowledgebase';
 import {
   HtsDocumentEntity,
   HtsNoteEntity,
@@ -19,7 +18,6 @@ import { FormulaGenerationService } from '@hts/core';
 
 @Module({
   imports: [
-    KnowledgebasePackageModule.forRoot(),
     TypeOrmModule.forFeature([
       HtsDocumentEntity,
       HtsNoteEntity,

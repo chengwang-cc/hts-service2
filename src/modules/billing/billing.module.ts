@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import Stripe from 'stripe';
 import {
-  BillingPackageModule,
   SubscriptionEntity,
   InvoiceEntity,
   UsageRecordEntity,
@@ -13,13 +13,13 @@ import {
   SubscriptionService,
   UsageTrackingService,
   CreditPurchaseService,
+  CreditController,
+  SubscriptionController,
 } from '@hts/billing';
 import { BillingController } from './controllers/billing.controller';
-import { CreditController, SubscriptionController } from '@hts/billing';
 
 @Module({
   imports: [
-    // Register entities in the main app context where DataSource is available
     TypeOrmModule.forFeature([
       SubscriptionEntity,
       InvoiceEntity,
@@ -28,13 +28,18 @@ import { CreditController, SubscriptionController } from '@hts/billing';
       CreditBalanceEntity,
       AutoTopUpConfigEntity,
     ]),
-    BillingPackageModule.forRoot({
-      stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
-      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
-    }),
   ],
   providers: [
-    // Provide services here so they have access to repositories
+    {
+      provide: 'STRIPE_CLIENT',
+      useFactory: () => new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+        apiVersion: '2024-11-20.acacia' as any,
+      }),
+    },
+    {
+      provide: 'STRIPE_WEBHOOK_SECRET',
+      useValue: process.env.STRIPE_WEBHOOK_SECRET || '',
+    },
     EntitlementService,
     StripeService,
     SubscriptionService,

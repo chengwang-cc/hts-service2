@@ -1,10 +1,8 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
     "esModuleInterop": true,
-    "isolatedModules": true,
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -20,10 +18,32 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "paths": {
+      "@hts/core": ["src/core/index"],
+      "@hts/core/*": ["src/core/*"],
+      "@hts/knowledgebase": ["src/modules/knowledgebase/index"],
+      "@hts/knowledgebase/*": ["src/modules/knowledgebase/*"],
+      "@hts/calculator": ["src/modules/calculator/index"],
+      "@hts/calculator/*": ["src/modules/calculator/*"],
+      "@hts/billing": ["src/modules/billing/index"],
+      "@hts/billing/*": ["src/modules/billing/*"],
+      "@hts/connectors": ["src/modules/connectors/index"],
+      "@hts/connectors/*": ["src/modules/connectors/*"],
+      "@hts/export": ["src/modules/export/index"],
+      "@hts/export/*": ["src/modules/export/*"],
+      "@hts/i18n": ["src/modules/i18n/index"],
+      "@hts/i18n/*": ["src/modules/i18n/*"],
+      "@hts/lookup": ["src/modules/lookup/index"],
+      "@hts/lookup/*": ["src/modules/lookup/*"],
+      "@hts/onboarding": ["src/modules/onboarding/index"],
+      "@hts/onboarding/*": ["src/modules/onboarding/*"]
+    }
   },
+  "include": ["src/**/*"],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "packages"
   ]
 }

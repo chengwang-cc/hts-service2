@@ -2,7 +2,7 @@
 export * from './core.module';
 
 // Configs
-export * from './configs/custom-naming.strategy';
+export * from '../configs/custom-naming.strategy';
 
 // Entities
 export * from './entities';
