@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-02-17T23:31:58.685Z",
+  "apiBaseUrl": "http://localhost:3101",
+  "testInput": {
+    "countryOfOrigin": "CA",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 212
+  },
+  "countsByStatus": {
+    "api_error_422": 12828,
+    "match": 211,
+    "mismatch": 1,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 1,
+    "mismatchesOver1Dollar": 1,
+    "mismatchesOver5Dollars": 1,
+    "mismatchByRateSource": {
+      "adjusted": 1
+    }
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": [
+    {
+      "hts8": "64034060",
+      "apiHtsNumber": "6403.40.60.00",
+      "apiRateSource": "adjusted",
+      "apiFormulaUsed": "(value * 0.085) + (value * 0.4)",
+      "expected2025BaseDuty": 8.5,
+      "api2026BaseDuty": 48.5,
+      "absDelta": 40,
+      "pctDelta": 470.59,
+      "mfnTextRate": "8.5%",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    }
+  ]
+}

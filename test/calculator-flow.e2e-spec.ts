@@ -119,7 +119,14 @@ describe('Calculator Flow (E2E)', () => {
   }
 
   async function seedCalculatorExtraTaxes(): Promise<void> {
-    const taxCodes = ['E2E_DATE_WINDOW_ADDON', 'E2E_EU_REGIONAL_ADDON'];
+    const taxCodes = [
+      'E2E_DATE_WINDOW_ADDON',
+      'E2E_EU_REGIONAL_ADDON',
+      'E2E_RECIP_BASELINE',
+      'E2E_RECIP_CA_EXCEPTION',
+      'RECIP_E2E_BASELINE',
+      'RECIP_E2E_CA_EXCEPTION',
+    ];
 
     await extraTaxRepository.delete({
       taxCode: In(taxCodes),
@@ -171,6 +178,55 @@ describe('Calculator Flow (E2E)', () => {
         legalReference: 'E2E deterministic test fixture',
         notes: null,
         metadata: { e2e: true },
+      }),
+      extraTaxRepository.create({
+        taxCode: 'RECIP_E2E_BASELINE',
+        taxName: 'E2E Reciprocal Baseline',
+        description: 'Reciprocal baseline test row',
+        htsNumber: '*',
+        htsChapter: '99',
+        countryCode: 'ALL',
+        extraRateType: 'ADD_ON',
+        rateText: '10% ad valorem',
+        rateFormula: 'value * 0.10',
+        minimumAmount: null,
+        maximumAmount: null,
+        isPercentage: true,
+        applyTo: 'VALUE',
+        conditions: { htsHeading: '9903.01.25' },
+        priority: 1,
+        isActive: true,
+        effectiveDate: new Date('2025-01-01T12:00:00Z'),
+        expirationDate: null,
+        legalReference: 'E2E deterministic reciprocal baseline fixture',
+        notes: null,
+        metadata: { e2e: true, policyType: 'RECIPROCAL_TARIFF' },
+      }),
+      extraTaxRepository.create({
+        taxCode: 'RECIP_E2E_CA_EXCEPTION',
+        taxName: 'E2E Reciprocal Canada Exception',
+        description: 'Reciprocal baseline suppression test row',
+        htsNumber: '*',
+        htsChapter: '99',
+        countryCode: 'CA',
+        extraRateType: 'CONDITIONAL',
+        rateText: '0%',
+        rateFormula: '0',
+        minimumAmount: null,
+        maximumAmount: null,
+        isPercentage: true,
+        applyTo: 'VALUE',
+        conditions: {
+          exceptionHeading: '9903.01.26',
+          excludesReciprocalBaseline: true,
+        },
+        priority: 0,
+        isActive: true,
+        effectiveDate: new Date('2025-01-01T12:00:00Z'),
+        expirationDate: null,
+        legalReference: 'E2E deterministic reciprocal exception fixture',
+        notes: null,
+        metadata: { e2e: true, policyType: 'RECIPROCAL_TARIFF' },
       }),
     ]);
   }
@@ -395,6 +451,51 @@ describe('Calculator Flow (E2E)', () => {
       expect(euTariff).toBeDefined();
       expect(euTariff.amount).toBe(20);
       expect(nonEuTariff).toBeUndefined();
+    });
+
+    it('should apply reciprocal baseline from extra taxes when heading is selected', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/calculator/calculate')
+        .set('X-API-Key', validApiKey)
+        .send({
+          htsNumber: '0101.21.0000',
+          countryOfOrigin: 'CN',
+          declaredValue: 1000,
+          entryDate: '2026-02-15',
+          additionalInputs: {
+            chapter99Heading: '9903.01.25',
+          },
+        })
+        .expect(201);
+
+      const reciprocalTariff = response.body.data.breakdown.additionalTariffs.find(
+        (tariff: any) => tariff.type === 'RECIP_E2E_BASELINE',
+      );
+
+      expect(reciprocalTariff).toBeDefined();
+      expect(reciprocalTariff.amount).toBe(100);
+    });
+
+    it('should suppress reciprocal baseline when conditional exception matches', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/calculator/calculate')
+        .set('X-API-Key', validApiKey)
+        .send({
+          htsNumber: '0101.21.0000',
+          countryOfOrigin: 'CA',
+          declaredValue: 1000,
+          entryDate: '2026-02-15',
+          additionalInputs: {
+            chapter99Headings: ['9903.01.25', '9903.01.26'],
+          },
+        })
+        .expect(201);
+
+      const reciprocalTariff = response.body.data.breakdown.additionalTariffs.find(
+        (tariff: any) => tariff.type === 'RECIP_E2E_BASELINE',
+      );
+
+      expect(reciprocalTariff).toBeUndefined();
     });
   });
 

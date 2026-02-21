@@ -10,7 +10,12 @@ import {
   CalculationService,
   CalculatorController,
 } from '@hts/calculator';
-import { CalculationHistoryEntity, HtsEntity, HtsExtraTaxEntity } from '@hts/core';
+import {
+  CalculationHistoryEntity,
+  HtsEntity,
+  HtsExtraTaxEntity,
+  HtsTariffHistory2025Entity,
+} from '@hts/core';
 import { CoreWrapperModule } from '../core/core.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 
@@ -26,6 +31,7 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
       TradeAgreementEligibilityEntity,
       HtsEntity,
       HtsExtraTaxEntity,
+      HtsTariffHistory2025Entity,
     ]),
   ],
   controllers: [CalculatorController],

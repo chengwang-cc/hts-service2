@@ -314,6 +314,33 @@ export class HtsImportJobHandler {
       `✓ Formula generation complete: general=${formulaResult.generalUpdated}, other=${formulaResult.otherUpdated}, adjusted=${formulaResult.adjustedUpdated}, unresolved=${formulaResult.unresolvedGeneral + formulaResult.unresolvedOther + formulaResult.unresolvedAdjusted}`,
     );
 
+    if (!this.noteResolutionService) {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Knowledgebase note resolution is not available; skipped note formula enrichment.',
+      );
+    } else {
+      const noteResolutionResult = await this.enrichFormulasFromNotes(
+        importHistory,
+        sourceVersion,
+      );
+
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        `✓ Note enrichment complete: resolved=${noteResolutionResult.resolved}, unresolved=${noteResolutionResult.unresolved}, failed=${noteResolutionResult.failed}`,
+      );
+    }
+
+    const overrideCarryoverResult = await this.applyCarryoverFormulaOverrides(
+      importHistory,
+      sourceVersion,
+    );
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      `✓ Carryover formula overrides applied: entriesPatched=${overrideCarryoverResult.entriesPatched}, overridesApplied=${overrideCarryoverResult.overridesApplied}, skippedCountrySpecific=${overrideCarryoverResult.skippedCountrySpecific}`,
+    );
+
     await this.htsImportService.appendLog(
       importHistory.id,
       'Running deterministic Chapter 99 synthesis...',
@@ -350,33 +377,6 @@ export class HtsImportJobHandler {
         `✓ HTS embedding refresh complete: total=${embeddingResult.total}, generated=${embeddingResult.generated}, failed=${embeddingResult.failed}`,
       );
     }
-
-    if (!this.noteResolutionService) {
-      await this.htsImportService.appendLog(
-        importHistory.id,
-        'Knowledgebase note resolution is not available; skipped note formula enrichment.',
-      );
-    } else {
-      const noteResolutionResult = await this.enrichFormulasFromNotes(
-        importHistory,
-        sourceVersion,
-      );
-
-      await this.htsImportService.appendLog(
-        importHistory.id,
-        `✓ Note enrichment complete: resolved=${noteResolutionResult.resolved}, unresolved=${noteResolutionResult.unresolved}, failed=${noteResolutionResult.failed}`,
-      );
-    }
-
-    const overrideCarryoverResult = await this.applyCarryoverFormulaOverrides(
-      importHistory,
-      sourceVersion,
-    );
-
-    await this.htsImportService.appendLog(
-      importHistory.id,
-      `✓ Carryover formula overrides applied: entriesPatched=${overrideCarryoverResult.entriesPatched}, overridesApplied=${overrideCarryoverResult.overridesApplied}, skippedCountrySpecific=${overrideCarryoverResult.skippedCountrySpecific}`,
-    );
   }
 
   private async applyCarryoverFormulaOverrides(
@@ -433,17 +433,32 @@ export class HtsImportJobHandler {
           skippedCountrySpecific += 1;
           continue;
         }
+        if (!entry.generalRate || entry.generalRate.trim() === '') {
+          continue;
+        }
         entry.rateFormula = update.formula;
+        if (update.formulaVariables !== undefined) {
+          entry.rateVariables = update.formulaVariables ?? null;
+        }
         updated = true;
       } else if (formulaType === 'OTHER') {
         if (isCountrySpecific) {
           skippedCountrySpecific += 1;
           continue;
         }
+        if (!entry.otherRate || entry.otherRate.trim() === '') {
+          continue;
+        }
         entry.otherRateFormula = update.formula;
+        if (update.formulaVariables !== undefined) {
+          entry.otherRateVariables = update.formulaVariables ?? null;
+        }
         updated = true;
       } else if (formulaType === 'ADJUSTED') {
         entry.adjustedFormula = update.formula;
+        if (update.formulaVariables !== undefined) {
+          entry.adjustedFormulaVariables = update.formulaVariables ?? null;
+        }
         if (isCountrySpecific) {
           const countries = new Set((entry.chapter99ApplicableCountries || []).map((code) => code.toUpperCase()));
           countries.add(countryCode);
@@ -1022,18 +1037,51 @@ export class HtsImportJobHandler {
           );
         }
       } catch (error) {
-        this.logger.error(`Stage batch ${batchNumber} failed: ${error.message}`, error.stack);
-        failedCount += batch.length;
+        const failedBatchNumber = batchNumber + 1;
+        this.logger.error(
+          `Stage batch ${failedBatchNumber} failed: ${error.message}`,
+          error.stack,
+        );
 
         await this.htsImportService.addFailedEntry(
           importHistory.id,
-          `Stage batch ${batchNumber}`,
-          error.message
+          `Stage batch ${failedBatchNumber}`,
+          error.message,
         );
+
+        await this.htsImportService.appendLog(
+          importHistory.id,
+          `Stage batch ${failedBatchNumber} failed, retrying row-level fallback...`,
+        );
+
+        const fallbackResult = await this.processStageBatchRowByRow(
+          importHistory,
+          batch,
+        );
+
+        importedCount += fallbackResult.batchImported;
+        updatedCount += fallbackResult.batchUpdated;
+        skippedCount += fallbackResult.batchSkipped;
+        failedCount += fallbackResult.batchFailed;
+        processedCount += batch.length;
+        batchNumber++;
 
         checkpoint.processedBatches = batchNumber;
         checkpoint.processedRecords = processedCount;
         await this.saveCheckpoint(importHistory.id, checkpoint);
+
+        await this.htsImportService.updateCounters(importHistory.id, {
+          importedEntries: importedCount,
+          updatedEntries: updatedCount,
+          skippedEntries: skippedCount,
+          failedEntries: failedCount,
+        });
+
+        this.logger.warn(
+          `Stage batch ${failedBatchNumber} recovered with row-level fallback: ` +
+          `+${fallbackResult.batchImported} ~${fallbackResult.batchUpdated} ` +
+          `=${fallbackResult.batchSkipped} !${fallbackResult.batchFailed}`,
+        );
       }
     }
 
@@ -1050,6 +1098,57 @@ export class HtsImportJobHandler {
       `${updatedCount.toLocaleString()} updated, ${skippedCount.toLocaleString()} skipped, ` +
       `${failedCount.toLocaleString()} failed`
     );
+  }
+
+  private async processStageBatchRowByRow(
+    importHistory: HtsImportHistoryEntity,
+    batch: HtsStageEntryEntity[],
+  ): Promise<{
+    batchImported: number;
+    batchUpdated: number;
+    batchSkipped: number;
+    batchFailed: number;
+  }> {
+    let batchImported = 0;
+    let batchUpdated = 0;
+    let batchSkipped = 0;
+    let batchFailed = 0;
+
+    for (const staged of batch) {
+      try {
+        const result = await this.htsRepo.manager.transaction(
+          async (transactionalEntityManager) =>
+            this.processStagedEntry(
+              staged,
+              importHistory.sourceVersion,
+              transactionalEntityManager,
+            ),
+        );
+
+        if (result === 'CREATED') batchImported++;
+        else if (result === 'UPDATED') batchUpdated++;
+        else if (result === 'SKIPPED') batchSkipped++;
+      } catch (rowError) {
+        const rowErrorMessage =
+          rowError instanceof Error ? rowError.message : String(rowError);
+        batchFailed++;
+        await this.htsImportService.addFailedEntry(
+          importHistory.id,
+          staged.htsNumber || 'UNKNOWN',
+          rowErrorMessage || 'Unknown row error',
+        );
+        this.logger.error(
+          `Failed staged row ${staged.htsNumber}: ${rowErrorMessage}`,
+        );
+      }
+    }
+
+    return {
+      batchImported,
+      batchUpdated,
+      batchSkipped,
+      batchFailed,
+    };
   }
 
   /**
@@ -2478,7 +2577,7 @@ export class HtsImportJobHandler {
 
     for (const [key, stagedValue] of Object.entries(stagedFields)) {
       const currentValue = (currentFields as any)[key];
-      if (stagedValue !== currentValue) {
+      if (this.haveDiffValueMismatch(key, currentValue, stagedValue)) {
         changes[key] = { current: currentValue, staged: stagedValue };
       }
     }
@@ -2494,6 +2593,44 @@ export class HtsImportJobHandler {
         extraTaxes,
       },
     };
+  }
+
+  private haveDiffValueMismatch(
+    key: string,
+    currentValue: unknown,
+    stagedValue: unknown,
+  ): boolean {
+    const normalizedCurrent = this.normalizeDiffValue(key, currentValue);
+    const normalizedStaged = this.normalizeDiffValue(key, stagedValue);
+    return this.stableSerialize(normalizedCurrent) !== this.stableSerialize(normalizedStaged);
+  }
+
+  private normalizeDiffValue(key: string, value: unknown): unknown {
+    if (key === 'chapter99Links') {
+      const normalized = Array.isArray(value)
+        ? value
+            .map((entry) => (entry == null ? '' : String(entry).trim()))
+            .filter((entry) => entry.length > 0)
+        : [];
+      return normalized.sort();
+    }
+
+    return value ?? null;
+  }
+
+  private stableSerialize(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((entry) => this.stableSerialize(entry)).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([entryKey, entryValue]) => `${JSON.stringify(entryKey)}:${this.stableSerialize(entryValue)}`);
+      return `{${entries.join(',')}}`;
+    }
+
+    return JSON.stringify(value);
   }
 
   private async loadExtraTaxes(

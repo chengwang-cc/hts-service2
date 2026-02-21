@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-02-18T03:45:36.956Z",
+  "apiBaseUrl": "http://localhost:3100",
+  "testInput": {
+    "countryOfOrigin": "CN",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 0
+  },
+  "countsByStatus": {
+    "api_error_401": 11726,
+    "intentional_unresolved": 1314,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 0,
+    "mismatchesOver1Dollar": 0,
+    "mismatchesOver5Dollars": 0,
+    "mismatchByRateSource": {}
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": []
+}

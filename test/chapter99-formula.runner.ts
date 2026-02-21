@@ -91,6 +91,25 @@ async function run(): Promise<void> {
       footnotes: '[{"columns":["general"],"value":"See 9903.88.39.","type":"endnote"}]',
     }),
     htsRepo.create({
+      htsNumber: '1202.41.82',
+      version,
+      sourceVersion: version,
+      isActive: true,
+      indent: 3,
+      chapter: '12',
+      heading: '1202',
+      subheading: '120241',
+      description: 'Other peanuts (reciprocal-only link test)',
+      generalRate: '20%',
+      general: '20%',
+      rateFormula: 'value * 0.2',
+      rateVariables: [{ name: 'value', type: 'number', description: 'Declared value of goods in USD' }],
+      adjustedFormula: 'value * 0.99',
+      adjustedFormulaVariables: [{ name: 'value', type: 'number' }],
+      isAdjustedFormulaGenerated: true,
+      footnotes: '[{"columns":["general"],"value":"See 9903.01.25.","type":"endnote"}]',
+    }),
+    htsRepo.create({
       htsNumber: '9903.88.15',
       version,
       sourceVersion: version,
@@ -118,6 +137,19 @@ async function run(): Promise<void> {
       generalRate: 'The duty provided in the applicable subheading',
       general: 'The duty provided in the applicable subheading',
     }),
+    htsRepo.create({
+      htsNumber: '9903.01.25',
+      version,
+      sourceVersion: version,
+      isActive: true,
+      indent: 0,
+      chapter: '99',
+      heading: '9903',
+      subheading: '990301',
+      description: 'Reciprocal tariff baseline heading',
+      generalRate: '10%',
+      general: '10%',
+    }),
   ]);
 
   const synthesisResult = await chapter99Service.synthesizeAdjustedFormulas({
@@ -131,6 +163,9 @@ async function run(): Promise<void> {
   });
   const exclusionUpdated = await htsRepo.findOneOrFail({
     where: { htsNumber: '1202.41.81', sourceVersion: version },
+  });
+  const reciprocalOnlyUpdated = await htsRepo.findOneOrFail({
+    where: { htsNumber: '1202.41.82', sourceVersion: version },
   });
 
   const assert = (condition: boolean, message: string) => {
@@ -156,6 +191,18 @@ async function run(): Promise<void> {
     exclusionUpdated.adjustedFormula === 'value * 0.1',
     `expected no additional duty for exclusion heading; got ${exclusionUpdated.adjustedFormula}`,
   );
+  assert(
+    reciprocalOnlyUpdated.adjustedFormula === null,
+    `expected reciprocal-only adjusted formula to be cleared; got ${reciprocalOnlyUpdated.adjustedFormula}`,
+  );
+  assert(
+    reciprocalOnlyUpdated.isAdjustedFormulaGenerated === false,
+    'expected reciprocal-only entry to disable adjusted formula generated flag',
+  );
+  assert(
+    reciprocalOnlyUpdated.metadata?.chapter99Synthesis?.reciprocalOnly === true,
+    'expected reciprocal-only synthesis metadata marker',
+  );
 
   const cnRate = await rateRetrievalService.getRate('1202.41.80', 'CN', version);
   assert(cnRate.formulaType === 'ADJUSTED', `expected ADJUSTED, got ${cnRate.formulaType}`);
@@ -171,6 +218,16 @@ async function run(): Promise<void> {
   const ruRate = await rateRetrievalService.getRate('1202.41.80', 'RU', version);
   assert(ruRate.formulaType === 'OTHER', `expected OTHER, got ${ruRate.formulaType}`);
   assert(ruRate.formula === 'value * 1.927', `unexpected RU formula ${ruRate.formula}`);
+
+  const reciprocalOnlyCnRate = await rateRetrievalService.getRate('1202.41.82', 'CN', version);
+  assert(
+    reciprocalOnlyCnRate.formulaType === 'GENERAL',
+    `expected reciprocal-only CN formulaType GENERAL, got ${reciprocalOnlyCnRate.formulaType}`,
+  );
+  assert(
+    reciprocalOnlyCnRate.formula === 'value * 0.2',
+    `unexpected reciprocal-only CN formula ${reciprocalOnlyCnRate.formula}`,
+  );
 
   await htsRepo.update(
     { htsNumber: '1202.41.80', sourceVersion: version },

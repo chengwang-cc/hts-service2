@@ -5,12 +5,17 @@ import {
   SubscriptionEntity,
   InvoiceEntity,
   UsageRecordEntity,
+  CreditPurchaseEntity,
+  CreditBalanceEntity,
+  AutoTopUpConfigEntity,
   EntitlementService,
   StripeService,
   SubscriptionService,
   UsageTrackingService,
+  CreditPurchaseService,
 } from '@hts/billing';
 import { BillingController } from './controllers/billing.controller';
+import { CreditController, SubscriptionController } from '@hts/billing';
 
 @Module({
   imports: [
@@ -19,6 +24,9 @@ import { BillingController } from './controllers/billing.controller';
       SubscriptionEntity,
       InvoiceEntity,
       UsageRecordEntity,
+      CreditPurchaseEntity,
+      CreditBalanceEntity,
+      AutoTopUpConfigEntity,
     ]),
     BillingPackageModule.forRoot({
       stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
@@ -31,13 +39,15 @@ import { BillingController } from './controllers/billing.controller';
     StripeService,
     SubscriptionService,
     UsageTrackingService,
+    CreditPurchaseService,
   ],
-  controllers: [BillingController],
+  controllers: [BillingController, CreditController, SubscriptionController],
   exports: [
     EntitlementService,
     StripeService,
     SubscriptionService,
     UsageTrackingService,
+    CreditPurchaseService,
   ],
 })
 export class BillingModule {}

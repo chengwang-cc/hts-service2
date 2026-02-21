@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-02-17T23:46:08.090Z",
+  "apiBaseUrl": "http://localhost:3101",
+  "testInput": {
+    "countryOfOrigin": "CA",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 11865
+  },
+  "countsByStatus": {
+    "match": 11863,
+    "api_error_422": 1173,
+    "expected_unresolved": 2,
+    "mismatch": 2,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 2,
+    "mismatchesOver1Dollar": 0,
+    "mismatchesOver5Dollars": 0,
+    "mismatchByRateSource": {
+      "general": 2
+    }
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": [
+    {
+      "hts8": "99034522",
+      "apiHtsNumber": "9903.45.22",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.14",
+      "expected2025BaseDuty": 14.25,
+      "api2026BaseDuty": 14,
+      "absDelta": 0.25,
+      "pctDelta": -1.75,
+      "mfnTextRate": "14.25%",
+      "beginEffectDate": "2024-02-06",
+      "endEffectiveDate": "2025-02-05"
+    },
+    {
+      "hts8": "99034525",
+      "apiHtsNumber": "9903.45.25",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.14",
+      "expected2025BaseDuty": 14.25,
+      "api2026BaseDuty": 14,
+      "absDelta": 0.25,
+      "pctDelta": -1.75,
+      "mfnTextRate": "14.25%",
+      "beginEffectDate": "2024-02-06",
+      "endEffectiveDate": "2025-02-05"
+    }
+  ]
+}

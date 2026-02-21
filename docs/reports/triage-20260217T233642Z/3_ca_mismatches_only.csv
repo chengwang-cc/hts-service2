@@ -1,0 +1,7 @@
+row_id,hts8,api_hts_number,api_rate_source,api_formula_used,status,http_status,api_message,expected_2025_base_duty,api_2026_base_duty,delta,abs_delta,pct_delta,quantity1_code,quantity2_code,mfn_text_rate,begin_effect_date,end_effective_date
+0ddb06c3-e30e-4d78-a58a-9ac0ea865d88,58109100,5810.91.00,general,value * 0.9,mismatch,201,,0,90,90,90,,KG,,See additional U.S. note 1,2020-06-30,2050-12-30
+f8c522be-9403-4f7f-bbb8-49c0caeaabd8,64034060,6403.40.60.00,adjusted,(value * 0.085) + (value * 0.4),mismatch,201,,8.5,48.5,40,40,470.59,PRS,,8.5%,2020-06-30,2050-12-30
+61fbde6e-67c1-4077-81bc-72b427a76bb0,99034522,9903.45.22,general,value * 0.3,mismatch,201,,14.25,30,15.75,15.75,110.53,No,W,14.25%,2024-02-06,2025-02-05
+5f7cbca5-ba6b-4104-a579-23b0b7a7107f,99034522,9903.45.22,general,value * 0.3,mismatch,201,,14,30,16,16,114.29,No,W,14.0%,2025-02-06,2026-02-05
+2e5fdc15-e295-42a7-995f-7972020cbfcb,99034525,9903.45.25,general,value * 0.3,mismatch,201,,14.25,30,15.75,15.75,110.53,No,W,14.25%,2024-02-06,2025-02-05
+283d60cb-ff69-4e54-8205-e15db6a284bf,99034525,9903.45.25,general,value * 0.3,mismatch,201,,14,30,16,16,114.29,No,W,14%,2025-02-06,2026-02-05

@@ -331,7 +331,7 @@ describe('Admin HTS Import (E2E)', () => {
         currentHtsId: null,
         htsNumber: '0101.21.0000',
         diffType: 'CHANGED',
-        diffSummary: { changes: { description: { current: 'A', staged: 'B' } } },
+        diffSummary: { changes: { description: { current: 'A', staged: 'B' } } } as any,
       },
     ]);
 

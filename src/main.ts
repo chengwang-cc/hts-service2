@@ -7,18 +7,18 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Enable CORS for frontend
-  // app.enableCors({
-  //   origin: [
-  //     'http://localhost:7000',  // Development frontend
-  //     'http://localhost:4200',  // Alternative dev port
-  //     'http://localhost:4201',  // Widget dev port
-  //     'http://localhost:4202',  // Admin dev port
-  //   ],
-  //   credentials: true,
-  //   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  //   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
-  // });
-  app.enableCors({});
+  app.enableCors({
+    origin: [
+      'http://localhost:7000',  // Development frontend
+      'http://localhost:4200',  // Alternative dev port
+      'http://localhost:4201',  // Widget dev port
+      'http://localhost:4202',  // Admin dev port
+      'http://127.0.0.1:4200',  // Same as localhost but explicit IP
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  });
 
   // Set global API prefix
   app.setGlobalPrefix('api/v1', {

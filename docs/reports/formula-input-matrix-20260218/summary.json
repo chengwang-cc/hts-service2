@@ -1,0 +1,507 @@
+{
+  "generatedAt": "2026-02-18T05:08:10.574Z",
+  "inputFile": ".tmp/usitc/tariff_database_2025.txt",
+  "targetPerChapter": 20,
+  "majorCountries": [
+    "CN",
+    "CA",
+    "EU",
+    "JP",
+    "RU"
+  ],
+  "chaptersCovered": 98,
+  "rowsSelected": 1887,
+  "matrixRows": 9435,
+  "chapterBreakdown": [
+    {
+      "chapter": "01",
+      "totalAvailable": 37,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "02",
+      "totalAvailable": 111,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "03",
+      "totalAvailable": 279,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "04",
+      "totalAvailable": 259,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "05",
+      "totalAvailable": 21,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "06",
+      "totalAvailable": 31,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "07",
+      "totalAvailable": 192,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "08",
+      "totalAvailable": 133,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "09",
+      "totalAvailable": 57,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "10",
+      "totalAvailable": 30,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "11",
+      "totalAvailable": 38,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "12",
+      "totalAvailable": 74,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "13",
+      "totalAvailable": 14,
+      "selectedCount": 14
+    },
+    {
+      "chapter": "14",
+      "totalAvailable": 11,
+      "selectedCount": 11
+    },
+    {
+      "chapter": "15",
+      "totalAvailable": 78,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "16",
+      "totalAvailable": 117,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "17",
+      "totalAvailable": 70,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "18",
+      "totalAvailable": 78,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "19",
+      "totalAvailable": 80,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "20",
+      "totalAvailable": 184,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "21",
+      "totalAvailable": 90,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "22",
+      "totalAvailable": 76,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "23",
+      "totalAvailable": 35,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "24",
+      "totalAvailable": 67,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "25",
+      "totalAvailable": 79,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "26",
+      "totalAvailable": 48,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "27",
+      "totalAvailable": 76,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "28",
+      "totalAvailable": 274,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "29",
+      "totalAvailable": 1051,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "30",
+      "totalAvailable": 60,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "31",
+      "totalAvailable": 24,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "32",
+      "totalAvailable": 107,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "33",
+      "totalAvailable": 43,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "34",
+      "totalAvailable": 41,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "35",
+      "totalAvailable": 24,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "36",
+      "totalAvailable": 16,
+      "selectedCount": 16
+    },
+    {
+      "chapter": "37",
+      "totalAvailable": 37,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "38",
+      "totalAvailable": 182,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "39",
+      "totalAvailable": 236,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "40",
+      "totalAvailable": 142,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "41",
+      "totalAvailable": 121,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "42",
+      "totalAvailable": 89,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "43",
+      "totalAvailable": 21,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "44",
+      "totalAvailable": 263,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "45",
+      "totalAvailable": 19,
+      "selectedCount": 19
+    },
+    {
+      "chapter": "46",
+      "totalAvailable": 48,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "47",
+      "totalAvailable": 21,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "48",
+      "totalAvailable": 225,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "49",
+      "totalAvailable": 29,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "50",
+      "totalAvailable": 13,
+      "selectedCount": 13
+    },
+    {
+      "chapter": "51",
+      "totalAvailable": 101,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "52",
+      "totalAvailable": 233,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "53",
+      "totalAvailable": 31,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "54",
+      "totalAvailable": 131,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "55",
+      "totalAvailable": 133,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "56",
+      "totalAvailable": 55,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "57",
+      "totalAvailable": 50,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "58",
+      "totalAvailable": 72,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "59",
+      "totalAvailable": 59,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "60",
+      "totalAvailable": 60,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "61",
+      "totalAvailable": 252,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "62",
+      "totalAvailable": 395,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "63",
+      "totalAvailable": 99,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "64",
+      "totalAvailable": 147,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "65",
+      "totalAvailable": 29,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "66",
+      "totalAvailable": 8,
+      "selectedCount": 8
+    },
+    {
+      "chapter": "67",
+      "totalAvailable": 13,
+      "selectedCount": 13
+    },
+    {
+      "chapter": "68",
+      "totalAvailable": 68,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "69",
+      "totalAvailable": 82,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "70",
+      "totalAvailable": 198,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "71",
+      "totalAvailable": 108,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "72",
+      "totalAvailable": 262,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "73",
+      "totalAvailable": 250,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "74",
+      "totalAvailable": 89,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "75",
+      "totalAvailable": 28,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "76",
+      "totalAvailable": 65,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "78",
+      "totalAvailable": 11,
+      "selectedCount": 11
+    },
+    {
+      "chapter": "79",
+      "totalAvailable": 13,
+      "selectedCount": 13
+    },
+    {
+      "chapter": "80",
+      "totalAvailable": 10,
+      "selectedCount": 10
+    },
+    {
+      "chapter": "81",
+      "totalAvailable": 74,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "82",
+      "totalAvailable": 135,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "83",
+      "totalAvailable": 59,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "84",
+      "totalAvailable": 824,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "85",
+      "totalAvailable": 624,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "86",
+      "totalAvailable": 32,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "87",
+      "totalAvailable": 212,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "88",
+      "totalAvailable": 28,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "89",
+      "totalAvailable": 32,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "90",
+      "totalAvailable": 302,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "91",
+      "totalAvailable": 174,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "92",
+      "totalAvailable": 41,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "93",
+      "totalAvailable": 33,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "94",
+      "totalAvailable": 110,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "95",
+      "totalAvailable": 85,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "96",
+      "totalAvailable": 127,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "97",
+      "totalAvailable": 19,
+      "selectedCount": 19
+    },
+    {
+      "chapter": "98",
+      "totalAvailable": 432,
+      "selectedCount": 20
+    },
+    {
+      "chapter": "99",
+      "totalAvailable": 1213,
+      "selectedCount": 20
+    }
+  ]
+}

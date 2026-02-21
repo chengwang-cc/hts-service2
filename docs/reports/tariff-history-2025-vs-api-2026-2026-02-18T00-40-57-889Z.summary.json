@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-02-18T00:40:57.886Z",
+  "apiBaseUrl": "http://localhost:3101",
+  "testInput": {
+    "countryOfOrigin": "CA",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 11514
+  },
+  "countsByStatus": {
+    "match": 11514,
+    "api_error_422": 210,
+    "expected_unresolved": 2,
+    "intentional_unresolved": 1314,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 0,
+    "mismatchesOver1Dollar": 0,
+    "mismatchesOver5Dollars": 0,
+    "mismatchByRateSource": {}
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": []
+}

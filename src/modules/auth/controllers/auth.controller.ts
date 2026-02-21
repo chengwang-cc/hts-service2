@@ -59,6 +59,21 @@ export class AuthController {
   }
 
   @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() body: { refreshToken: string }) {
+    if (!body.refreshToken) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    try {
+      return await this.authService.refreshTokens(body.refreshToken);
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+  }
+
+  @Public()
   @Get('health')
   health() {
     return { status: 'ok', service: 'auth' };

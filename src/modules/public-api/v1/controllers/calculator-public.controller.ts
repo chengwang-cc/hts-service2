@@ -5,6 +5,9 @@ import {
   UseGuards,
   HttpException,
   HttpStatus,
+  NotFoundException,
+  BadRequestException,
+  UnprocessableEntityException,
   Get,
   Param,
   Query,
@@ -28,6 +31,7 @@ import { CalculationService } from '@hts/calculator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CalculationHistoryEntity } from '@hts/core';
+import { CalculatePublicDto } from '../dto/calculate-public.dto';
 
 /**
  * Public API v1 - Calculator
@@ -54,65 +58,7 @@ export class CalculatorPublicController {
     description:
       'Calculate duties, tariffs, and taxes for an HTS code with declared value, country of origin, and other parameters.',
   })
-  @ApiBody({
-    description: 'Calculation input parameters',
-    schema: {
-      type: 'object',
-      required: ['htsNumber', 'countryOfOrigin', 'declaredValue'],
-      properties: {
-        htsNumber: {
-          type: 'string',
-          description: 'HTS code (e.g., 0101.21.0000)',
-          example: '0101.21.0000',
-        },
-        countryOfOrigin: {
-          type: 'string',
-          description: 'ISO country code (e.g., CN, MX, CA)',
-          example: 'CN',
-        },
-        declaredValue: {
-          type: 'number',
-          description: 'Declared value in USD',
-          example: 1000,
-        },
-        currency: {
-          type: 'string',
-          description: 'Currency code (default: USD)',
-          example: 'USD',
-        },
-        weightKg: {
-          type: 'number',
-          description: 'Weight in kilograms',
-          example: 5.5,
-        },
-        quantity: {
-          type: 'number',
-          description: 'Quantity of items',
-          example: 10,
-        },
-        quantityUnit: {
-          type: 'string',
-          description: 'Unit of quantity (e.g., pcs, kg)',
-          example: 'pcs',
-        },
-        entryDate: {
-          type: 'string',
-          description: 'Entry date (YYYY-MM-DD) used for date-effective policy windows',
-          example: '2026-02-15',
-        },
-        tradeAgreementCode: {
-          type: 'string',
-          description: 'Trade agreement code (e.g., USMCA, CAFTA-DR)',
-          example: 'USMCA',
-        },
-        tradeAgreementCertificate: {
-          type: 'boolean',
-          description: 'Has valid trade agreement certificate',
-          example: true,
-        },
-      },
-    },
-  })
+  @ApiBody({ type: CalculatePublicDto })
   @ApiResponse({ status: 200, description: 'Calculation successful' })
   @ApiResponse({ status: 400, description: 'Invalid input parameters' })
   @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
@@ -120,21 +66,9 @@ export class CalculatorPublicController {
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @ApiPermissions('hts:calculate')
   async calculate(
-    @Body() input: any,
+    @Body() input: CalculatePublicDto,
     @CurrentApiKey() apiKey: ApiKeyEntity,
   ) {
-    // Validate required fields
-    if (!input.htsNumber || !input.countryOfOrigin || !input.declaredValue) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: 'Missing required fields: htsNumber, countryOfOrigin, declaredValue',
-          error: 'Bad Request',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
     try {
       const entryDate =
         typeof input.entryDate === 'string' && input.entryDate.trim()
@@ -162,15 +96,67 @@ export class CalculatorPublicController {
         },
       };
     } catch (error) {
+      const mapped = this.mapCalculationError(error);
+
       throw new HttpException(
         {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to calculate duties',
-          error: error.message,
+          statusCode: mapped.status,
+          message: mapped.message,
+          error: mapped.error,
         },
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        mapped.status,
       );
     }
+  }
+
+  private mapCalculationError(error: any): {
+    status: HttpStatus;
+    message: string;
+    error: string;
+  } {
+    if (error instanceof HttpException) {
+      const status = error.getStatus();
+      const response = error.getResponse() as any;
+      return {
+        status,
+        message: response?.message || error.message || 'Request failed',
+        error: response?.error || error.name || 'HttpException',
+      };
+    }
+
+    const message = String(error?.message || '');
+    if (/HTS code .+ not found/i.test(message)) {
+      const mapped = new NotFoundException(message);
+      return {
+        status: mapped.getStatus(),
+        message,
+        error: mapped.name,
+      };
+    }
+
+    if (/No formula available for HTS/i.test(message)) {
+      const mapped = new UnprocessableEntityException(message);
+      return {
+        status: mapped.getStatus(),
+        message,
+        error: mapped.name,
+      };
+    }
+
+    if (/Formula evaluation error/i.test(message)) {
+      const mapped = new BadRequestException(message);
+      return {
+        status: mapped.getStatus(),
+        message,
+        error: mapped.name,
+      };
+    }
+
+    return {
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      message: 'Failed to calculate duties',
+      error: message || 'Internal Server Error',
+    };
   }
 
   /**

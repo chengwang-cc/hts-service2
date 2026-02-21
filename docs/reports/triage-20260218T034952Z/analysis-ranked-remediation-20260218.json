@@ -1,0 +1,287 @@
+{
+  "generatedAt": "2026-02-18T04:01:33.140Z",
+  "csvPath": "docs/reports/tariff-history-2025-vs-api-2026-2026-02-18T03-49-47-181Z.csv",
+  "totals": {
+    "rows": 13100,
+    "mismatch": 10071,
+    "apiError422": 145
+  },
+  "mismatchByTrailingAdjustedRate": [
+    {
+      "rate": "0.25",
+      "count": 7318,
+      "pct": 72.66,
+      "avgAbsDelta": 25
+    },
+    {
+      "rate": "0.075",
+      "count": 2722,
+      "pct": 27.03,
+      "avgAbsDelta": 7.5
+    },
+    {
+      "rate": "0.5",
+      "count": 20,
+      "pct": 0.2,
+      "avgAbsDelta": 50
+    },
+    {
+      "rate": "1",
+      "count": 11,
+      "pct": 0.11,
+      "avgAbsDelta": 100
+    }
+  ],
+  "topMismatchFormulas": [
+    {
+      "formula": "(0) + (value * 0.25)",
+      "count": 3174
+    },
+    {
+      "formula": "(0) + (value * 0.075)",
+      "count": 716
+    },
+    {
+      "formula": "(value * 0.065) + (value * 0.25)",
+      "count": 379
+    },
+    {
+      "formula": "(value * 0.037000000000000005) + (value * 0.25)",
+      "count": 237
+    },
+    {
+      "formula": "(value * 0.055) + (value * 0.25)",
+      "count": 187
+    },
+    {
+      "formula": "(value * 0.03) + (value * 0.25)",
+      "count": 155
+    },
+    {
+      "formula": "(value * 0.025) + (value * 0.25)",
+      "count": 155
+    },
+    {
+      "formula": "(value * 0.05) + (value * 0.25)",
+      "count": 125
+    },
+    {
+      "formula": "(value * 0.1) + (value * 0.075)",
+      "count": 108
+    },
+    {
+      "formula": "(value * 0.042) + (value * 0.25)",
+      "count": 97
+    },
+    {
+      "formula": "(value * 0.06) + (value * 0.25)",
+      "count": 89
+    },
+    {
+      "formula": "(value * 0.04) + (value * 0.25)",
+      "count": 88
+    },
+    {
+      "formula": "(value * 0.1) + (value * 0.25)",
+      "count": 83
+    },
+    {
+      "formula": "(value * 0.08) + (value * 0.25)",
+      "count": 80
+    },
+    {
+      "formula": "(value * 0.044000000000000004) + (value * 0.25)",
+      "count": 74
+    },
+    {
+      "formula": "(value * 0.027000000000000003) + (value * 0.25)",
+      "count": 69
+    },
+    {
+      "formula": "(value * 0.057999999999999996) + (value * 0.25)",
+      "count": 69
+    },
+    {
+      "formula": "(value * 0.031) + (value * 0.25)",
+      "count": 66
+    },
+    {
+      "formula": "(value * 0.033) + (value * 0.25)",
+      "count": 64
+    },
+    {
+      "formula": "(value * 0.039) + (value * 0.25)",
+      "count": 62
+    },
+    {
+      "formula": "(value * 0.149) + (value * 0.25)",
+      "count": 60
+    },
+    {
+      "formula": "(value * 0.024) + (value * 0.25)",
+      "count": 56
+    },
+    {
+      "formula": "(value * 0.12) + (value * 0.25)",
+      "count": 56
+    },
+    {
+      "formula": "(value * 0.027999999999999997) + (value * 0.25)",
+      "count": 49
+    },
+    {
+      "formula": "(value * 0.07) + (value * 0.25)",
+      "count": 48
+    },
+    {
+      "formula": "(value * 0.064) + (value * 0.075)",
+      "count": 47
+    },
+    {
+      "formula": "(value * 0.149) + (value * 0.075)",
+      "count": 46
+    },
+    {
+      "formula": "(value * 0.035) + (value * 0.25)",
+      "count": 44
+    },
+    {
+      "formula": "(value * 0.05) + (value * 0.075)",
+      "count": 40
+    },
+    {
+      "formula": "(value * 0.028999999999999998) + (value * 0.25)",
+      "count": 40
+    },
+    {
+      "formula": "(value * 0.075) + (value * 0.25)",
+      "count": 39
+    },
+    {
+      "formula": "(value * 0.032) + (value * 0.25)",
+      "count": 39
+    },
+    {
+      "formula": "(value * 0.049) + (value * 0.25)",
+      "count": 39
+    },
+    {
+      "formula": "(value * 0.16) + (value * 0.075)",
+      "count": 37
+    },
+    {
+      "formula": "(value * 0.053) + (value * 0.25)",
+      "count": 37
+    },
+    {
+      "formula": "(value * 0.034) + (value * 0.25)",
+      "count": 35
+    },
+    {
+      "formula": "(value * 0.02) + (value * 0.25)",
+      "count": 35
+    },
+    {
+      "formula": "(value * 0.085) + (value * 0.075)",
+      "count": 33
+    },
+    {
+      "formula": "(value * 0.048) + (value * 0.25)",
+      "count": 32
+    },
+    {
+      "formula": "(value * 0.25) + (value * 0.25)",
+      "count": 32
+    },
+    {
+      "formula": "(value * 0.026000000000000002) + (value * 0.25)",
+      "count": 31
+    },
+    {
+      "formula": "(value * 0.06) + (value * 0.075)",
+      "count": 30
+    },
+    {
+      "formula": "(value * 0.071) + (value * 0.075)",
+      "count": 30
+    },
+    {
+      "formula": "(value * 0.065) + (value * 0.075)",
+      "count": 29
+    },
+    {
+      "formula": "(value * 0.2) + (value * 0.075)",
+      "count": 28
+    },
+    {
+      "formula": "(value * 0.013999999999999999) + (value * 0.25)",
+      "count": 28
+    },
+    {
+      "formula": "(value * 0.027999999999999997) + (value * 0.075)",
+      "count": 28
+    },
+    {
+      "formula": "(value * 0.085) + (value * 0.25)",
+      "count": 27
+    },
+    {
+      "formula": "(value * 0.038) + (value * 0.25)",
+      "count": 27
+    },
+    {
+      "formula": "(value * 0.057) + (value * 0.25)",
+      "count": 27
+    }
+  ],
+  "apiError422ByChapter": [
+    {
+      "chapter": "91",
+      "count": 89
+    },
+    {
+      "chapter": "17",
+      "count": 12
+    },
+    {
+      "chapter": "62",
+      "count": 11
+    },
+    {
+      "chapter": "61",
+      "count": 10
+    },
+    {
+      "chapter": "82",
+      "count": 5
+    },
+    {
+      "chapter": "78",
+      "count": 4
+    },
+    {
+      "chapter": "90",
+      "count": 3
+    },
+    {
+      "chapter": "93",
+      "count": 3
+    },
+    {
+      "chapter": "96",
+      "count": 3
+    },
+    {
+      "chapter": "21",
+      "count": 2
+    },
+    {
+      "chapter": "22",
+      "count": 2
+    },
+    {
+      "chapter": "99",
+      "count": 1
+    }
+  ]
+}

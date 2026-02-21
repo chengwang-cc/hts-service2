@@ -69,7 +69,7 @@ export class FormulaGenerationService {
     unitOfQuantity?: string,
   ): { formula: string; variables: string[]; confidence: number } | null {
     // Free/No duty
-    if (/^(free|none|0%?)$/.test(rateText)) {
+    if (/^(free|none|0%?)$/.test(rateText) || /^free\b/.test(rateText)) {
       return { formula: '0', variables: [], confidence: 1.0 };
     }
 
@@ -97,84 +97,20 @@ export class FormulaGenerationService {
       };
     }
 
-    // Specific duty with currency: "$2.50/kg", "25¢/kg", "$0.50 per kg"
-    const specificMatch = rateText.match(
-      /^(?:\$|¢)?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*(?:\/|per)\s*(\w+)$/,
-    );
-    if (specificMatch) {
-      let amount = parseFloat(specificMatch[1]);
-      const unit = specificMatch[2].toLowerCase();
-
-      // Convert cents to dollars
-      if (rateText.includes('¢') || rateText.includes('cent')) {
-        amount = amount / 100;
-      }
-
-      // Map unit to variable
-      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
-
-      return {
-        formula: `${variable} * ${amount}`,
-        variables: [variable],
-        confidence: 0.9,
-      };
+    // Compound with ad valorem + specific component:
+    // "5% + 25¢/kg", "90 cents/pr. + 37.5%", "10.2 cents/kg + 2.8%"
+    const compoundRate = this.tryParseCompoundRate(rateText, unitOfQuantity);
+    if (compoundRate) {
+      return compoundRate;
     }
 
-    // Specific duty text: "2.5 cents per kg", "12 cents/kg"
-    const centsSpecificMatch = rateText.match(
-      /^(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*(?:\/|per)\s*(\w+)$/,
-    );
-    if (centsSpecificMatch) {
-      const amount = parseFloat(centsSpecificMatch[1]) / 100;
-      const unit = centsSpecificMatch[2].toLowerCase();
-      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
+    // Specific duty:
+    // "$2.50/kg", "25¢/kg", "0.9 cents each", "2.8 cents/doz.", "3.7 cents/kg on drained weight"
+    const specificComponent = this.parseSpecificComponent(rateText, unitOfQuantity);
+    if (specificComponent) {
       return {
-        formula: `${variable} * ${amount}`,
-        variables: [variable],
-        confidence: 0.9,
-      };
-    }
-
-    // Compound rate: "5% + 25¢/kg", "10% + $2/kg"
-    const compoundMatch = rateText.match(
-      /^(\d+(?:\.\d+)?)\s*%\s*\+\s*(?:\$|¢)?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*(?:\/|per)\s*(\w+)$/,
-    );
-    if (compoundMatch) {
-      const adValoremRate = parseFloat(compoundMatch[1]) / 100;
-      let specificAmount = parseFloat(compoundMatch[2]);
-      const unit = compoundMatch[3].toLowerCase();
-
-      // Convert cents to dollars
-      if (rateText.includes('¢') || rateText.includes('cent')) {
-        specificAmount = specificAmount / 100;
-      }
-
-      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
-
-      return {
-        formula: `value * ${adValoremRate} + ${variable} * ${specificAmount}`,
-        variables: ['value', variable],
-        confidence: 0.9,
-      };
-    }
-
-    // Reversed compound: "$2/kg + 5%", "25¢/kg + 5%"
-    const reversedCompoundMatch = rateText.match(
-      /^(?:\$|¢)?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*(?:\/|per)\s*(\w+)\s*\+\s*(\d+(?:\.\d+)?)\s*%$/,
-    );
-    if (reversedCompoundMatch) {
-      let specificAmount = parseFloat(reversedCompoundMatch[1]);
-      const unit = reversedCompoundMatch[2].toLowerCase();
-      const adValoremRate = parseFloat(reversedCompoundMatch[3]) / 100;
-
-      if (rateText.includes('¢') || rateText.includes('cent')) {
-        specificAmount = specificAmount / 100;
-      }
-
-      const variable = this.mapUnitToVariable(unit, unitOfQuantity);
-      return {
-        formula: `value * ${adValoremRate} + ${variable} * ${specificAmount}`,
-        variables: ['value', variable],
+        formula: `${specificComponent.variable} * ${specificComponent.amount}`,
+        variables: [specificComponent.variable],
         confidence: 0.9,
       };
     }
@@ -193,6 +129,147 @@ export class FormulaGenerationService {
     }
 
     return null;
+  }
+
+  private tryParseCompoundRate(
+    rateText: string,
+    unitOfQuantity?: string,
+  ): { formula: string; variables: string[]; confidence: number } | null {
+    const parts = rateText.split(/\s*\+\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2 || parts.length > 3) {
+      return null;
+    }
+    if (this.hasAmbiguousComponentContext(rateText)) {
+      return null;
+    }
+
+    const percentComponents = parts
+      .map((part, index) => ({
+        index,
+        rate: this.parsePercentComponent(part),
+      }))
+      .filter((entry) => entry.rate !== null) as Array<{ index: number; rate: number }>;
+    if (percentComponents.length !== 1) {
+      return null;
+    }
+    const adValoremRate = percentComponents[0].rate;
+    const specificComponents = parts
+      .map((part, index) => ({ part, index }))
+      .filter((entry) => entry.index !== percentComponents[0].index)
+      .map((entry) => this.parseSpecificComponent(entry.part, unitOfQuantity))
+      .filter((entry): entry is { variable: string; amount: number } => !!entry);
+
+    if (specificComponents.length !== parts.length - 1) {
+      return null;
+    }
+
+    const additiveTerms = specificComponents.map(
+      (component) => `${component.variable} * ${component.amount}`,
+    );
+    const variables = Array.from(
+      new Set(['value', ...specificComponents.map((component) => component.variable)]),
+    );
+
+    return {
+      formula: `value * ${adValoremRate} + ${additiveTerms.join(' + ')}`,
+      variables,
+      confidence: 0.9,
+    };
+  }
+
+  private parsePercentComponent(rateText: string): number | null {
+    const match = rateText.match(
+      /^(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)\s*(?:ad valorem)?(?:\s+on\s+the\s+entire\s+(?:set|article|item))?$/,
+    );
+    if (!match) {
+      return null;
+    }
+    return parseFloat(match[1]) / 100;
+  }
+
+  private parseSpecificComponent(
+    rateText: string,
+    unitOfQuantity?: string,
+  ): { variable: string; amount: number } | null {
+    // Example: "0.9 cents each", "90 cents/pr.", "$2.50/kg", "3.7 cents/kg on drained weight"
+    const eachStyleMatch = rateText.match(
+      /^([$¢])?\s*(\d+(?:\.\d+)?)\s*(¢|cents?)?\s*(each|ea|item|items|article|articles|unit|units|piece|pieces|pr\.?|pair|pairs|doz\.?|dozen)(?:\s+(?:on|of|for)\b.*)?$/,
+    );
+    if (eachStyleMatch) {
+      const amount = this.normalizeSpecificAmount(
+        eachStyleMatch[1] || null,
+        eachStyleMatch[2],
+        eachStyleMatch[3] || null,
+      );
+      const variable = this.mapUnitToVariable(eachStyleMatch[4], unitOfQuantity) || 'quantity';
+      return { variable, amount };
+    }
+
+    const perUnitMatch = rateText.match(
+      /^([$¢])?\s*(\d+(?:\.\d+)?)\s*(¢|cents?)?\s*(?:\/|per)\s*([a-z0-9.]+(?:\s+[a-z0-9.]+){0,2})(?:\s*(?:\/|per)\s*(\d+(?:\.\d+)?))?(?:\b|$)(?:\s+(?:on|of|for)\b.*)?$/,
+    );
+    if (!perUnitMatch) {
+      return null;
+    }
+
+    let amount = this.normalizeSpecificAmount(
+      perUnitMatch[1] || null,
+      perUnitMatch[2],
+      perUnitMatch[3] || null,
+    );
+    const token = (perUnitMatch[4] || '').trim();
+    const token2 = (perUnitMatch[5] || '').trim();
+
+    // Support rates like "89.6 cents/1000" and "$1.34/1000" (implicit quantity denominator)
+    if (/^\d+(?:\.\d+)?$/.test(token)) {
+      const denominator = parseFloat(token);
+      if (Number.isFinite(denominator) && denominator > 0) {
+        amount = amount / denominator;
+      }
+
+      const inferredUnit = (unitOfQuantity || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const inferredVariable = inferredUnit.length > 0
+        ? this.mapUnitToVariable(inferredUnit, unitOfQuantity)
+        : null;
+      const variable = inferredVariable || 'quantity';
+      return { variable, amount };
+    }
+
+    let denominator: number | null = null;
+    if (/^\d+(?:\.\d+)?$/.test(token2)) {
+      const parsedDenominator = parseFloat(token2);
+      if (Number.isFinite(parsedDenominator) && parsedDenominator > 0) {
+        denominator = parsedDenominator;
+      }
+    }
+    if (denominator !== null) {
+      amount = amount / denominator;
+    }
+
+    const variable = this.mapUnitToVariable(token, unitOfQuantity);
+    if (!variable) {
+      return null;
+    }
+    return { variable, amount };
+  }
+
+  private hasAmbiguousComponentContext(rateText: string): boolean {
+    return /\b(case|strap|band|bracelet|battery|movement|jewel|lead content)\b/.test(
+      rateText,
+    );
+  }
+
+  private normalizeSpecificAmount(
+    prefixSymbol: string | null,
+    amountText: string,
+    suffixUnit: string | null,
+  ): number {
+    let amount = parseFloat(amountText);
+    const isCents = prefixSymbol === '¢' || !!suffixUnit;
+    if (isCents) {
+      amount = amount / 100;
+    }
+    return amount;
   }
 
   private normalizeRateText(rateText: string): string {
@@ -278,7 +355,15 @@ Examples:
       const result = JSON.parse(outputText);
 
       // Validate response
-      if (!result.formula || !result.variables || !result.confidence) {
+      const hasValidFormula = typeof result.formula === 'string' && result.formula.trim().length > 0;
+      const hasValidVariables = Array.isArray(result.variables);
+      const hasValidConfidence =
+        typeof result.confidence === 'number' &&
+        Number.isFinite(result.confidence) &&
+        result.confidence >= 0 &&
+        result.confidence <= 1;
+
+      if (!hasValidFormula || !hasValidVariables || !hasValidConfidence) {
         throw new Error('Invalid AI response format');
       }
 
@@ -297,13 +382,28 @@ Examples:
   /**
    * Map unit to variable name
    */
-  private mapUnitToVariable(unit: string, unitOfQuantity?: string): string {
-    const normalized = unit.toLowerCase();
+  private mapUnitToVariable(unit: string, unitOfQuantity?: string): string | null {
+    const normalized = unit.toLowerCase().trim();
+    const normalizedWithoutQualifiers = normalized
+      .replace(/\b(clean|net|gross|drained|proof|pf\.?)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const compact = normalized.replace(/[^a-z0-9]/g, '');
+    const compactWithoutQualifiers = normalizedWithoutQualifiers.replace(/[^a-z0-9]/g, '');
 
     // Weight-based units
     if (
       /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
         normalized,
+      )
+      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+        compact,
+      )
+      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+        normalizedWithoutQualifiers,
+      )
+      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+        compactWithoutQualifiers,
       )
     ) {
       return 'weight';
@@ -311,8 +411,17 @@ Examples:
 
     // Quantity-based units
     if (
-      /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|set|sets)$/.test(
+      /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
         normalized,
+      )
+      || /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+        compact,
+      )
+      || /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+        normalizedWithoutQualifiers,
+      )
+      || /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+        compactWithoutQualifiers,
       )
     ) {
       return 'quantity';
@@ -322,6 +431,15 @@ Examples:
     if (
       /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts)$/.test(
         normalized,
+      )
+      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
+        compact,
+      )
+      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts)$/.test(
+        normalizedWithoutQualifiers,
+      )
+      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
+        compactWithoutQualifiers,
       )
     ) {
       return 'quantity'; // Treat as quantity for now
@@ -346,13 +464,18 @@ Examples:
     }
 
     // Default to quantity if unitOfQuantity matches
-    if (unitOfQuantity && normalized.includes(unitOfQuantity.toLowerCase())) {
+    if (
+      unitOfQuantity &&
+      (
+        compact.includes(unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''))
+        || compactWithoutQualifiers.includes(unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''))
+      )
+    ) {
       return 'quantity';
     }
 
-    // Default to weight for unknown units
-    this.logger.warn(`Unknown unit: ${unit}, defaulting to weight`);
-    return 'weight';
+    this.logger.warn(`Unknown unit: ${unit}, unable to map to formula variable`);
+    return null;
   }
 
   /**
@@ -525,12 +648,36 @@ ${promptLines}
         throw new Error('Invalid AI batch response format');
       }
 
-      return results.map((result: any) => ({
-        index: result.index,
-        formula: result.formula,
-        variables: result.variables,
-        confidence: Math.max(0, Math.min(1, result.confidence - 0.1)),
-      }));
+      const normalized = results
+        .filter((result: any) => {
+          const hasValidIndex =
+            typeof result.index === 'number' &&
+            Number.isInteger(result.index) &&
+            result.index >= 0;
+          const hasValidFormula =
+            typeof result.formula === 'string' &&
+            result.formula.trim().length > 0;
+          const hasValidVariables = Array.isArray(result.variables);
+          const hasValidConfidence =
+            typeof result.confidence === 'number' &&
+            Number.isFinite(result.confidence) &&
+            result.confidence >= 0 &&
+            result.confidence <= 1;
+          return (
+            hasValidIndex &&
+            hasValidFormula &&
+            hasValidVariables &&
+            hasValidConfidence
+          );
+        })
+        .map((result: any) => ({
+          index: result.index,
+          formula: result.formula,
+          variables: result.variables,
+          confidence: Math.max(0, Math.min(1, result.confidence - 0.1)),
+        }));
+
+      return normalized;
     } catch (error) {
       this.logger.error(`AI batch formula generation failed: ${error.message}`);
       return [];

@@ -1,0 +1,112 @@
+{
+  "generatedAt": "2026-02-17T23:36:35.965Z",
+  "apiBaseUrl": "http://localhost:3101",
+  "testInput": {
+    "countryOfOrigin": "CA",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 11407
+  },
+  "countsByStatus": {
+    "match": 11401,
+    "api_error_422": 1633,
+    "mismatch": 6,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 6,
+    "mismatchesOver1Dollar": 6,
+    "mismatchesOver5Dollars": 6,
+    "mismatchByRateSource": {
+      "general": 5,
+      "adjusted": 1
+    }
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": [
+    {
+      "hts8": "58109100",
+      "apiHtsNumber": "5810.91.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.9",
+      "expected2025BaseDuty": 0,
+      "api2026BaseDuty": 90,
+      "absDelta": 90,
+      "pctDelta": null,
+      "mfnTextRate": "See additional U.S. note 1",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "64034060",
+      "apiHtsNumber": "6403.40.60.00",
+      "apiRateSource": "adjusted",
+      "apiFormulaUsed": "(value * 0.085) + (value * 0.4)",
+      "expected2025BaseDuty": 8.5,
+      "api2026BaseDuty": 48.5,
+      "absDelta": 40,
+      "pctDelta": 470.59,
+      "mfnTextRate": "8.5%",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "99034522",
+      "apiHtsNumber": "9903.45.22",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.3",
+      "expected2025BaseDuty": 14,
+      "api2026BaseDuty": 30,
+      "absDelta": 16,
+      "pctDelta": 114.29,
+      "mfnTextRate": "14.0%",
+      "beginEffectDate": "2025-02-06",
+      "endEffectiveDate": "2026-02-05"
+    },
+    {
+      "hts8": "99034525",
+      "apiHtsNumber": "9903.45.25",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.3",
+      "expected2025BaseDuty": 14,
+      "api2026BaseDuty": 30,
+      "absDelta": 16,
+      "pctDelta": 114.29,
+      "mfnTextRate": "14%",
+      "beginEffectDate": "2025-02-06",
+      "endEffectiveDate": "2026-02-05"
+    },
+    {
+      "hts8": "99034522",
+      "apiHtsNumber": "9903.45.22",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.3",
+      "expected2025BaseDuty": 14.25,
+      "api2026BaseDuty": 30,
+      "absDelta": 15.75,
+      "pctDelta": 110.53,
+      "mfnTextRate": "14.25%",
+      "beginEffectDate": "2024-02-06",
+      "endEffectiveDate": "2025-02-05"
+    },
+    {
+      "hts8": "99034525",
+      "apiHtsNumber": "9903.45.25",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "value * 0.3",
+      "expected2025BaseDuty": 14.25,
+      "api2026BaseDuty": 30,
+      "absDelta": 15.75,
+      "pctDelta": 110.53,
+      "mfnTextRate": "14.25%",
+      "beginEffectDate": "2024-02-06",
+      "endEffectiveDate": "2025-02-05"
+    }
+  ]
+}

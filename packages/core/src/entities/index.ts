@@ -13,3 +13,4 @@ export * from './hts-setting.entity';
 export * from './hts-extra-tax.entity';
 export * from './calculation-history.entity';
 export * from './external-provider-formula.entity';
+export * from './hts-tariff-history-2025.entity';

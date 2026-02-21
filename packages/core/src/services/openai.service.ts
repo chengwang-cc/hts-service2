@@ -88,23 +88,17 @@ export class OpenAiService {
   }
 
   /**
-   * Send response request (Responses API - recommended)
-   * This is OpenAI's new standard API as of 2026
-   * Automatically falls back to Chat Completions if Responses API fails or is disabled
+   * Send response request (Responses API only)
+   * This is OpenAI's standard API as of 2026
    */
   async response(
     input: string,
     options: ResponseOptions = {},
   ): Promise<Response> {
-    // If configured to use Chat Completions, use fallback immediately
-    if (!this.useResponsesApi) {
-      return this.responseWithChatFallback(input, options);
-    }
-
     const {
       model = 'gpt-4o',
       instructions,
-      temperature = 0.7,
+      temperature,
       max_output_tokens,
       top_p,
       previous_response_id,
@@ -119,9 +113,13 @@ export class OpenAiService {
       const requestParams: ResponseCreateParamsNonStreaming = {
         model,
         input,
-        temperature,
         stream: false,
       };
+
+      // Only add temperature if specified (some models don't support it)
+      if (temperature !== undefined) {
+        requestParams.temperature = temperature;
+      }
 
       // Add optional instructions (replaces system message)
       if (instructions) requestParams.instructions = instructions;
@@ -165,12 +163,11 @@ export class OpenAiService {
 
       return response;
     } catch (error) {
-      this.logger.warn(
-        `Response API failed: ${error.message}, falling back to Chat Completions`,
+      this.logger.error(
+        `Response API failed: ${error.message}`,
+        error.stack,
       );
-
-      // Automatic fallback to Chat Completions API
-      return this.responseWithChatFallback(input, options);
+      throw error;
     }
   }
 

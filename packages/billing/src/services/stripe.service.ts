@@ -81,7 +81,7 @@ export class StripeService {
   }
 
   /**
-   * Create checkout session
+   * Create checkout session (original method for subscriptions)
    */
   async createCheckoutSession(params: {
     customerId: string;
@@ -96,6 +96,33 @@ export class StripeService {
       line_items: [{ price: params.priceId, quantity: 1 }],
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
+    });
+  }
+
+  /**
+   * Create flexible checkout session with full params
+   * Used for credit purchases and auto top-up setup
+   */
+  async createFlexibleCheckoutSession(params: {
+    mode: 'payment' | 'subscription' | 'setup';
+    line_items?: Stripe.Checkout.SessionCreateParams.LineItem[];
+    success_url: string;
+    cancel_url: string;
+    customer?: string;
+    client_reference_id?: string;
+    metadata?: Record<string, string>;
+    payment_intent_data?: Stripe.Checkout.SessionCreateParams.PaymentIntentData;
+    setup_intent_data?: Stripe.Checkout.SessionCreateParams.SetupIntentData;
+  }): Promise<Stripe.Checkout.Session> {
+    return this.stripe.checkout.sessions.create(params as any);
+  }
+
+  /**
+   * Retrieve checkout session
+   */
+  async retrieveSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+    return this.stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent', 'setup_intent', 'customer'],
     });
   }
 

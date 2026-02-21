@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-02-17T22:15:39.453Z",
+  "apiBaseUrl": "http://localhost:3100",
+  "testInput": {
+    "countryOfOrigin": "CN",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 0
+  },
+  "countsByStatus": {
+    "api_error_401": 12535,
+    "no_2026_match": 565
+  },
+  "mismatchStats": {
+    "mismatchCount": 0,
+    "mismatchesOver1Dollar": 0,
+    "mismatchesOver5Dollars": 0
+  },
+  "topMismatches": []
+}

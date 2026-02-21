@@ -10,12 +10,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuthSeedService } from './auth/auth-seed.service';
 import { organizationSeed, roleSeed, userSeed } from './auth';
+import { TariffHistory2025SeedService } from './tariff-history';
+import { ReciprocalTariffs2026SeedService } from './reciprocal';
 
 @Injectable()
 export class SeedService {
   private readonly logger = new Logger(SeedService.name);
 
-  constructor(private readonly authSeedService: AuthSeedService) {}
+  constructor(
+    private readonly authSeedService: AuthSeedService,
+    private readonly tariffHistory2025SeedService: TariffHistory2025SeedService,
+    private readonly reciprocalTariffs2026SeedService: ReciprocalTariffs2026SeedService,
+  ) {}
 
   /**
    * List of all seed operations for documentation
@@ -25,6 +31,16 @@ export class SeedService {
     { entityName: 'Roles', group: 'auth' },
     { entityName: 'Users', group: 'auth' },
     { entityName: 'Auth', group: 'auth', description: 'Seeds all auth entities (orgs, roles, users)' },
+    {
+      entityName: 'TariffHistory2025',
+      group: 'tariff',
+      description: 'One-time load of tariff_database_2025.txt for 2026 math reference',
+    },
+    {
+      entityName: 'ReciprocalTariffs2026',
+      group: 'tariff',
+      description: 'One-time load of reciprocal baseline/exception + country framework rows into hts_extra_taxes',
+    },
   ];
 
   /**
@@ -59,6 +75,23 @@ export class SeedService {
       return;
     }
 
+    if (
+      normalizedEntity === 'TARIFFHISTORY2025' ||
+      normalizedEntity === 'TARIFF2025'
+    ) {
+      await this.seedTariffHistory2025();
+      return;
+    }
+
+    if (
+      normalizedEntity === 'RECIPROCALTARIFFS2026' ||
+      normalizedEntity === 'RECIPROCAL2026' ||
+      normalizedEntity === 'RECIPROCALTARIFFS'
+    ) {
+      await this.seedReciprocalTariffs2026();
+      return;
+    }
+
     if (normalizedEntity === 'ALL') {
       await this.seedAll();
       return;
@@ -79,6 +112,8 @@ export class SeedService {
 
     // Seed in dependency order
     await this.seedAuth();
+    await this.seedTariffHistory2025();
+    await this.seedReciprocalTariffs2026();
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     this.logger.log(`\n✅ All seeds completed in ${duration}s`);
@@ -95,6 +130,37 @@ export class SeedService {
     await this.seedOrganizations();
     await this.seedRoles();
     await this.seedUsers();
+  }
+
+  /**
+   * One-time 2025 tariff history load for 2026 calculations.
+   */
+  private async seedTariffHistory2025(): Promise<void> {
+    this.logger.log('Seeding 2025 tariff history data...');
+
+    const result = await this.tariffHistory2025SeedService.upsertTariffHistory2025();
+
+    if (result.skipped) {
+      this.logger.log(`✅ Tariff history seed skipped: ${result.reason}\n`);
+      return;
+    }
+
+    this.logger.log(
+      `✅ Tariff history seed complete: ${result.processed} rows loaded from ${result.filePath}\n`,
+    );
+  }
+
+  private async seedReciprocalTariffs2026(): Promise<void> {
+    this.logger.log('Seeding reciprocal tariff policy data (2026)...');
+
+    const result = await this.reciprocalTariffs2026SeedService.upsertReciprocalTariffs2026();
+
+    if (result.skipped) {
+      this.logger.log(`✅ Reciprocal tariff seed skipped: ${result.reason}\n`);
+      return;
+    }
+
+    this.logger.log(`✅ Reciprocal tariff seed complete: ${result.processed} rows upserted\n`);
   }
 
   /**
@@ -166,12 +232,15 @@ export class SeedService {
     console.log('  npm run db:seed -- Roles           (seeds roles)');
     console.log('  npm run db:seed -- Users           (seeds users with role assignments)');
     console.log('  npm run db:seed -- Auth            (seeds all auth entities)');
+    console.log('  npm run db:seed -- TariffHistory2025 (one-time 2025 tariff history load)');
+    console.log('  npm run db:seed -- ReciprocalTariffs2026 (one-time reciprocal tariff baseline seed)');
     console.log('\nSeed everything:');
     console.log('  npm run db:seed -- All             (seeds all entities)');
     console.log('\nNotes:');
     console.log('  - Entity names are case-insensitive');
     console.log('  - All operations are idempotent (safe to run multiple times)');
     console.log('  - Existing records are updated, new records are created');
+    console.log('  - For TariffHistory2025, set TARIFF_DATABASE_2025_FILE if file is not in default paths');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     console.log('Available entities:');

@@ -1,0 +1,125 @@
+{
+  "generatedAt": "2026-02-18T00:23:51.586Z",
+  "apiBaseUrl": "http://localhost:3101",
+  "testInput": {
+    "countryOfOrigin": "CA",
+    "declaredValue": 100,
+    "quantity": 1,
+    "weightKg": 1,
+    "entryDate": "2025-12-31"
+  },
+  "totals": {
+    "historyRows": 13100,
+    "successfulApiCalculations": 11999
+  },
+  "countsByStatus": {
+    "match": 11992,
+    "api_error_422": 966,
+    "expected_unresolved": 75,
+    "mismatch": 7,
+    "legacy_ch99_placeholder": 59,
+    "no_2026_match": 1
+  },
+  "mismatchStats": {
+    "mismatchCount": 7,
+    "mismatchesOver1Dollar": 7,
+    "mismatchesOver5Dollars": 4,
+    "mismatchByRateSource": {
+      "general": 7
+    }
+  },
+  "noteBasedTextRows": 27,
+  "topMismatches": [
+    {
+      "hts8": "91070080",
+      "apiHtsNumber": "9107.00.80.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.45",
+      "expected2025BaseDuty": 6.88,
+      "api2026BaseDuty": 0.45,
+      "absDelta": 6.43,
+      "pctDelta": -93.46,
+      "mfnTextRate": "45 cents each + 6.4% + 2.5 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91061000",
+      "apiHtsNumber": "9106.10.00.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.36",
+      "expected2025BaseDuty": 5.98,
+      "api2026BaseDuty": 0.36,
+      "absDelta": 5.62,
+      "pctDelta": -93.98,
+      "mfnTextRate": "36 cents each + 5.6% + 2 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91069020",
+      "apiHtsNumber": "9106.90.20.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.36",
+      "expected2025BaseDuty": 5.98,
+      "api2026BaseDuty": 0.36,
+      "absDelta": 5.62,
+      "pctDelta": -93.98,
+      "mfnTextRate": "36 cents each + 5.6% + 2 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91069040",
+      "apiHtsNumber": "9106.90.40.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.36",
+      "expected2025BaseDuty": 5.98,
+      "api2026BaseDuty": 0.36,
+      "absDelta": 5.62,
+      "pctDelta": -93.98,
+      "mfnTextRate": "36 cents each + 5.6% + 2 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91059910",
+      "apiHtsNumber": "9105.99.10.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.17",
+      "expected2025BaseDuty": 2.68,
+      "api2026BaseDuty": 0.17,
+      "absDelta": 2.51,
+      "pctDelta": -93.66,
+      "mfnTextRate": "17 cents each + 2.5% + 1 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91069065",
+      "apiHtsNumber": "9106.90.65.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.15",
+      "expected2025BaseDuty": 2.46,
+      "api2026BaseDuty": 0.15,
+      "absDelta": 2.31,
+      "pctDelta": -93.9,
+      "mfnTextRate": "15 cents each + 2.3% + 0.8 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    },
+    {
+      "hts8": "91069085",
+      "apiHtsNumber": "9106.90.85.00",
+      "apiRateSource": "general",
+      "apiFormulaUsed": "quantity * 0.15",
+      "expected2025BaseDuty": 2.46,
+      "api2026BaseDuty": 0.15,
+      "absDelta": 2.31,
+      "pctDelta": -93.9,
+      "mfnTextRate": "15 cents each + 2.3% + 0.8 cents/jewel",
+      "beginEffectDate": "2020-06-30",
+      "endEffectiveDate": "2050-12-30"
+    }
+  ]
+}

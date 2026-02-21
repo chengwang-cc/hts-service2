@@ -25,6 +25,7 @@ import {
   HtsTestCaseEntity,
   HtsTestResultEntity,
   ExternalProviderFormulaEntity,
+  HtsTariffHistory2025Entity,
 } from '@hts/core';
 
 // Entities - Phase 3
@@ -104,6 +105,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       HtsTestCaseEntity,
       HtsTestResultEntity,
       ExternalProviderFormulaEntity,
+      HtsTariffHistory2025Entity,
       // Phase 3 entities
       HtsDocumentEntity,
       KnowledgeChunkEntity,

@@ -30,6 +30,7 @@ import { CustomNamingStrategy } from '../configs/custom-naming.strategy';
         password: configService.get('DB_PASSWORD', 'postgres'),
         database: configService.get('DB_DATABASE', 'hts'),
         entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+        autoLoadEntities: true,
         synchronize: false,
         namingStrategy: new CustomNamingStrategy(), // ← Add naming strategy
       }),
@@ -43,7 +44,7 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(SeedCliModule);
 
   const seedService = app.get(SeedService);
-  const entity = process.argv[2];
+  const entity = process.argv.slice(2).find((arg) => arg && arg !== '--');
 
   try {
     await seedService.upsertSeedData(entity);

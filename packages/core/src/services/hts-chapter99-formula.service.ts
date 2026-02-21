@@ -62,6 +62,7 @@ export class HtsChapter99FormulaService {
   private readonly logger = new Logger(HtsChapter99FormulaService.name);
   private readonly defaultNonNtrCountries = ['CU', 'KP', 'RU', 'BY'];
   private readonly chapter99CodePattern = /\b(99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g;
+  private readonly reciprocalChapter99Pattern = /^9903\.01\./;
   private readonly countryAliasToIso: Record<string, string> = {
     china: 'CN',
     "people's republic of china": 'CN',
@@ -143,6 +144,23 @@ export class HtsChapter99FormulaService {
           entry.chapter99Links = null;
           mutated = true;
         }
+        if (this.clearAdjustedFormulaState(entry)) {
+          mutated = true;
+        }
+        const metadata = {
+          ...(entry.metadata || {}),
+          chapter99Synthesis: {
+            unresolved: false,
+            reciprocalOnly: false,
+            reason: 'no chapter99 links',
+            links: [],
+            generatedAt: new Date().toISOString(),
+          },
+        };
+        if (!this.isDeepEqual(entry.metadata, metadata)) {
+          entry.metadata = metadata;
+          mutated = true;
+        }
         if (mutated) {
           entry.nonNtrApplicableCountries = nextNonNtr;
           toSave.push(entry);
@@ -151,16 +169,46 @@ export class HtsChapter99FormulaService {
       }
 
       linked++;
+      const nonReciprocalLinks = this.filterNonReciprocalChapter99Links(chapter99Links);
+      if (nonReciprocalLinks.length === 0) {
+        entry.chapter99Links = chapter99Links;
+        entry.nonNtrApplicableCountries = nextNonNtr;
+        if (this.clearAdjustedFormulaState(entry)) {
+          mutated = true;
+        }
+        const metadata = {
+          ...(entry.metadata || {}),
+          chapter99Synthesis: {
+            unresolved: false,
+            reciprocalOnly: true,
+            reason: 'reciprocal headings are resolved through hts_extra_taxes',
+            links: chapter99Links,
+            generatedAt: new Date().toISOString(),
+          },
+        };
+        if (!this.isDeepEqual(entry.metadata, metadata)) {
+          entry.metadata = metadata;
+          mutated = true;
+        }
+        if (mutated) {
+          toSave.push(entry);
+        }
+        continue;
+      }
 
-      const selected = this.selectChapter99Entry(chapter99Links, chapter99ByCode);
+      const selected = this.selectChapter99Entry(nonReciprocalLinks, chapter99ByCode);
       if (!selected) {
         unresolved++;
         entry.chapter99Links = chapter99Links;
         entry.nonNtrApplicableCountries = nextNonNtr;
+        if (this.clearAdjustedFormulaState(entry)) {
+          mutated = true;
+        }
         const metadata = {
           ...(entry.metadata || {}),
           chapter99Synthesis: {
             unresolved: true,
+            reciprocalOnly: false,
             reason: 'linked chapter99 heading not found',
             links: chapter99Links,
             generatedAt: new Date().toISOString(),
@@ -189,10 +237,14 @@ export class HtsChapter99FormulaService {
         unresolved++;
         entry.chapter99Links = chapter99Links;
         entry.nonNtrApplicableCountries = nextNonNtr;
+        if (this.clearAdjustedFormulaState(entry)) {
+          mutated = true;
+        }
         const metadata = {
           ...(entry.metadata || {}),
           chapter99Synthesis: {
             unresolved: true,
+            reciprocalOnly: false,
             reason: 'base general formula unavailable',
             links: chapter99Links,
             selectedChapter99: selected.entry.htsNumber,
@@ -215,6 +267,10 @@ export class HtsChapter99FormulaService {
         selected.adjustmentRate,
         selected.referencesApplicableSubheading,
       );
+      const baseVariables = this.mergeVariableObjects(
+        entry.rateVariables,
+        this.extractFormulaVariables(baseFormulaResult),
+      );
       const adjustedVariables = this.mergeVariableObjects(
         entry.rateVariables,
         ['value', ...this.extractFormulaVariables(baseFormulaResult)],
@@ -224,6 +280,7 @@ export class HtsChapter99FormulaService {
         ...(entry.metadata || {}),
         chapter99Synthesis: {
           unresolved: false,
+          reciprocalOnly: false,
           links: chapter99Links,
           selectedChapter99: selected.entry.htsNumber,
           adjustmentRate: selected.adjustmentRate,
@@ -246,6 +303,18 @@ export class HtsChapter99FormulaService {
       }
       if (!this.sameStringArray(entry.nonNtrApplicableCountries, nextNonNtr)) {
         entry.nonNtrApplicableCountries = nextNonNtr;
+        mutated = true;
+      }
+      if (!entry.rateFormula || !entry.rateFormula.trim()) {
+        entry.rateFormula = baseFormulaResult;
+        mutated = true;
+      }
+      if (!this.isDeepEqual(entry.rateVariables, baseVariables)) {
+        entry.rateVariables = baseVariables;
+        mutated = true;
+      }
+      if (!entry.isFormulaGenerated) {
+        entry.isFormulaGenerated = true;
         mutated = true;
       }
       if (entry.adjustedFormula !== adjustedFormula) {
@@ -323,7 +392,23 @@ export class HtsChapter99FormulaService {
       };
     }
 
-    const selected = this.selectChapter99Entry(chapter99Links, chapter99ByCode);
+    const nonReciprocalLinks = this.filterNonReciprocalChapter99Links(chapter99Links);
+    if (nonReciprocalLinks.length === 0) {
+      return {
+        status: 'NONE',
+        htsNumber: entryInput.htsNumber,
+        chapter99Links,
+        selectedChapter99: null,
+        chapter99ApplicableCountries: null,
+        nonNtrApplicableCountries,
+        baseFormula: this.resolveBaseFormula(entryInput),
+        adjustedFormula: null,
+        adjustedFormulaVariables: null,
+        reason: 'reciprocal headings are resolved through hts_extra_taxes',
+      };
+    }
+
+    const selected = this.selectChapter99Entry(nonReciprocalLinks, chapter99ByCode);
     if (!selected) {
       return {
         status: 'UNRESOLVED',
@@ -480,6 +565,9 @@ export class HtsChapter99FormulaService {
       }
     | null {
     for (const link of links) {
+      if (this.isReciprocalChapter99Heading(link)) {
+        continue;
+      }
       const entry = chapter99ByCode.get(link);
       if (!entry) {
         continue;
@@ -495,6 +583,9 @@ export class HtsChapter99FormulaService {
     }
 
     for (const link of links) {
+      if (this.isReciprocalChapter99Heading(link)) {
+        continue;
+      }
       const entry = chapter99ByCode.get(link);
       if (!entry) {
         continue;
@@ -707,6 +798,41 @@ export class HtsChapter99FormulaService {
           .filter((item) => /^99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?$/.test(item)),
       ),
     ).sort();
+  }
+
+  private filterNonReciprocalChapter99Links(links: string[]): string[] {
+    return links.filter((link) => !this.isReciprocalChapter99Heading(link));
+  }
+
+  private isReciprocalChapter99Heading(link: string): boolean {
+    return this.reciprocalChapter99Pattern.test((link || '').trim());
+  }
+
+  private clearAdjustedFormulaState(entry: HtsEntity): boolean {
+    let mutated = false;
+
+    if (entry.chapter99 !== null) {
+      entry.chapter99 = null;
+      mutated = true;
+    }
+    if (!this.sameStringArray(entry.chapter99ApplicableCountries, null)) {
+      entry.chapter99ApplicableCountries = null;
+      mutated = true;
+    }
+    if (entry.adjustedFormula !== null) {
+      entry.adjustedFormula = null;
+      mutated = true;
+    }
+    if (!this.isDeepEqual(entry.adjustedFormulaVariables, null)) {
+      entry.adjustedFormulaVariables = null;
+      mutated = true;
+    }
+    if (entry.isAdjustedFormulaGenerated) {
+      entry.isAdjustedFormulaGenerated = false;
+      mutated = true;
+    }
+
+    return mutated;
   }
 
   private toHtsEntity(value: Partial<HtsEntity> | Record<string, any>): HtsEntity {

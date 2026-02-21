@@ -1,31 +1,51 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { HttpModule } from '@nestjs/axios';
 import {
   ProductClassificationEntity,
+  ApiUsageEntity,
   SearchService,
   ClassificationService,
+  UrlClassifierService,
+  RateLimitService,
+  RateLimitGuard,
   LookupController,
 } from '@hts/lookup';
 import { HtsEntity, HtsEmbeddingEntity, CoreModule } from '@hts/core';
+import { AuthModule } from '../auth/auth.module';
 
 /**
  * Lookup Wrapper Module
  * Provides Lookup services with access to TypeORM repositories
  * in the main app context where DataSource is available
+ * 
+ * Authentication is handled by global JwtAuthGuard in AppModule
  */
 @Module({
   imports: [
-    // Import CoreModule for shared services (OpenAI, etc.)
+    HttpModule,
+    AuthModule, // Provides JWT authentication components
     CoreModule.forFeature(),
-    // Register entities in the main app context where DataSource is available
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
+      ApiUsageEntity,
       HtsEntity,
       HtsEmbeddingEntity,
     ]),
   ],
   controllers: [LookupController],
-  providers: [SearchService, ClassificationService],
-  exports: [SearchService, ClassificationService],
+  providers: [
+    SearchService,
+    ClassificationService,
+    UrlClassifierService,
+    RateLimitService,
+    RateLimitGuard,
+  ],
+  exports: [
+    SearchService,
+    ClassificationService,
+    UrlClassifierService,
+    RateLimitService,
+  ],
 })
 export class LookupModule {}

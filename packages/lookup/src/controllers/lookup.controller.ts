@@ -1,14 +1,20 @@
-import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { SearchService, ClassificationService } from '../services';
-import { SearchDto, ClassifyProductDto } from '../dto';
+import { Controller, Post, Get, Body, Query, SetMetadata } from '@nestjs/common';
+import { SearchService, ClassificationService, UrlClassifierService } from '../services';
+import { SearchDto, ClassifyProductDto, ClassifyUrlRequestDto } from '../dto';
+import { RateLimit } from '../decorators';
+
+// Public decorator for routes that don't require authentication
+const Public = () => SetMetadata('isPublic', true);
 
 @Controller('lookup')
 export class LookupController {
   constructor(
     private readonly searchService: SearchService,
     private readonly classificationService: ClassificationService,
+    private readonly urlClassifierService: UrlClassifierService,
   ) {}
 
+  @Public()
   @Post('search')
   async search(@Body() searchDto: SearchDto) {
     const results = await this.searchService.hybridSearch(
@@ -23,6 +29,7 @@ export class LookupController {
     };
   }
 
+  @Public()
   @Get('autocomplete')
   async autocomplete(
     @Query('q') query: string,
@@ -43,6 +50,7 @@ export class LookupController {
   }
 
   @Post('classify')
+  @RateLimit({ endpoint: 'classify' })
   async classifyProduct(
     @Body() classifyDto: ClassifyProductDto,
     @Query('organizationId') organizationId: string,
@@ -60,6 +68,13 @@ export class LookupController {
     };
   }
 
+  @Post('classify-url')
+  @RateLimit({ endpoint: 'classify-url' })
+  async classifyUrl(@Body() dto: ClassifyUrlRequestDto) {
+    return this.urlClassifierService.classifyUrl(dto.url);
+  }
+
+  @Public()
   @Get('health')
   health() {
     return { status: 'ok', service: 'lookup' };

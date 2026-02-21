@@ -1,0 +1,61 @@
+hts8,mfn_text_rate,begin_effect_date,end_effective_date,brief_description
+99120205,,2005-12-31,2050-12-30,"MA goods in subheading 0201.10.50, 0201.20.80, and like beef products subject to note 3 TRQ"
+99120401,,2005-12-31,2050-12-30,"MA goods in subheading 0401.40.25, 0401.50.25, 0403.90.16 or 2105.00.20 subject to note 4 TRQ"
+99120410,,2005-12-31,2050-12-30,"MA goods in subheading 0401.50.75,0402.21.90, and like dairy products subject to note 5 TRQ"
+99120420,,2005-12-31,2050-12-30,"MA goods in subheading 0402.10.50, 0402.21.25, and like milk powder products subject to note 6 TRQ"
+99120430,,2005-12-31,2050-12-30,"MA goods in subheading 0402.29.50, 0402.91.70, and like dairy products subject to note 7 TRQ"
+99120470,,2005-12-31,2050-12-30,"MA goods in subheading 0406.10.08,0406.10.18, and other like cheese products subject to note 8 TRQ"
+99120705,,2005-12-31,2050-12-30,MA goods in subheading 0712.20.20 or 0712.20.40 subject to U.S. note 9 TRQ
+99120735,,2005-12-31,2050-12-30,MA goods in subheading 0712.90.40 subject to note 10 TRQ
+99121205,,2005-12-31,2050-12-30,"MA goods in subheading 1202.41.80,1202.30.80,1202.42.80, 2008.11.15, 2008.11.35 or 2008.11.60 subject to note 11 TRQ"
+99121705,,2005-12-31,2050-12-30,"MA goods in subheading 1701.13.50,1701.14.50, 1701.12.50, and like sugar-containing articles subject to note 12(b) TRQ"
+99122005,,2005-12-31,2050-12-30,MA goods in subheading 2002.10.00 or 2002.90.80 subject to note 13 TRQ
+99122105,,2005-12-31,2050-12-30,MA goods in subheading 2103.20.40 subject to note 14 TRQ
+99122405,,2005-12-31,2050-12-30,"MA goods in subheading 2401.10.65, 2401.20.35, 2401.20.87, 2401.30.70, 2403.19.90, 2403.91.47 or 2403.99.90 subject to note 15 TRQ"
+99125205,,2005-12-31,2050-12-30,"MA goods in subheading 5201.00.18, 5201.00.28, 5201.00.38, 5201.00.80, 5202.99.30 or 5203.00.30 subject to note 16"
+99129506,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted > 0.3 kg< 40.25 cents/kg
+99129507,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted > 0.3 kg>=40.25 cents/kg< 64.4 cents/kg
+99129508,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted > 0.3 kg>=64.4 cents/kg< 96.6 cents/kg
+99129509,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted > 0.3 kg>=96.6 cents/kg< $1.449/kg
+99129510,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted > 0.3 kg>=$1.449/kg
+99129511,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted <=0.3 kg< 39 cents/kg
+99129512,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted <=0.3 kg>= 39 cents/kg< 62.4 cents/kg
+99129513,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted <=0.3 kg>= 62.4 cents/kg< 93.6 cents/kg
+99129514,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted <=0.3 kg>= 93.6 cents/kg< $1.404/kg
+99129515,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Whole pitted <=0.3 kg>=
+99129516,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Sliced < 44.75 cents/kg
+99129517,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Sliced >=44.75 cents/kg<71.6 cents/kg
+99129518,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Sliced >=71.6 cents/kg<$1.074/kg
+99129519,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Sliced >=$1.074/kg<$1.611/kg
+99129520,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Sliced >= $1.611/kg
+99129521,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Chopped or minced<24.25 cents/kg
+99129522,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Chopped or minced>=24.25 cents/kg<38.8 cents/kg
+99129523,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Chopped or minced>=38.8 cents/kg<58.2 cents/kg
+99129524,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Chopped or minced>=58.2 cents/kg<87.3 cents/kg
+99129525,,2014-12-31,2050-12-30,MA olives in subheading 2005.70.60 Chopped or minced>=87.3 cents/kg
+99129526,,2014-12-31,2050-12-30,"MA other olives in subheading 2005.70.60, including wedged or broken < 37.5 cents/kg"
+99129527,,2014-12-31,2050-12-30,"MA other olives in subheading 2005.70.60, including wedged or broken>= 37.5 cents/kg<60 cents/kg"
+99129528,,2014-12-31,2050-12-30,"MA other olives in subheading 2005.70.60, including wedged or broken>= 60 cents/kg<90 cents/kg"
+99129529,,2014-12-31,2050-12-30,"MA other olives in subheading 2005.70.60, including wedged or broken>= 90 cents/kg<$1.35/kg"
+99129530,,2014-12-31,2050-12-30,"MA other olives in subheading 2005.70.60, including wedged or broken>= $1.35/kg"
+99130205,,2004-12-31,2050-12-30,"Australia goods: Of 0201.10.50, 0201.20.80, 0201.30.80, 0202.10.50, 0202.20.80 or 0202.30.80, subject to quota in US note 3 this subchapter"
+99130405,,2004-12-31,2050-12-30,"Australia goods: Of subheading 0401.40.25, 0401.50.25, 0403.90.16 or 2105.00.20 subject to the quota specified in U.S. note 4 to this subcha"
+99130410,,2004-12-31,2050-12-30,Australia goods: Of certain butter subheadings subject to quota specified in US note 5 to this subchapter
+99130415,,2004-12-31,2050-12-30,Australia goods: Of subheading 0402.10.50 or 0402.21.25 subject to the quantitative limits specified in U.S. note 6 to this subchapter
+99130420,,2004-12-31,2050-12-30,"Australia goods: Of subheading 0402.21.50, 0403.90.45, 0403.90.55, 0404.10.90, 2309.90.28 or 2309.90.48 subject to quota in US note 7"
+99130425,,2004-12-31,2050-12-30,Australia goods: Of certain other dairy subheading subject to quota specified in US note 8 to this subchapter
+99130430,,2004-12-31,2050-12-30,"Australia goods: Of subheading 0402.91.70, 0402.91.90, 0402.99.45 or 0402.99.55 subject to the quota specified in US note 9 this subchapter"
+99130435,,2004-12-31,2050-12-30,"Australia goods: Of subheading 0406.10.08, 0406.10.88, 0406.20.91, 0406.30.91 or 0406.90.97 subject to quota in US note 10 this subchapter"
+99130440,,2004-12-31,2050-12-30,Australia goods: Of certain European-type cheese subheadings subject to quota specified in US note 11 this subchapter
+99130445,,2004-12-31,2050-12-30,Australia goods: Of 0406.10.28/0406.20.33/0406.20.67/0406.30.28/0406.30.67/0406.90.12/ 0406.90.78 subject quota US note 12 this subchapter
+99130450,,2004-12-31,2050-12-30,Australia goods: Of 0406.10.38/0406.20.39/0406.20.71/0406.30.38/0406.30.71/0406.90.54/0406.90.84 subject quota US note 13 this subchapter
+99130455,,2004-12-31,2050-12-30,Australia goods: Of subheading 0406.90.33 subject to the quantitative limits specified in U.S. note 14 to this subchapter
+99130465,,2004-12-31,2050-12-30,Australia goods: Of subheading 0406.90.48 subject to the quantitative limits specified in U.S. note 15 to this subchapter
+99130805,,2004-12-31,2050-12-30,"Australia goods: Of 0804.40.00, entered 1/1 to 1/31 or 9/16 to 12/31, subject to the quota in US note 16 to this subchapter"
+99130825,,2004-12-31,2050-12-30,"Australia goods: Of subheading 0804.40.00, if entered from 2/1 to 9/15, in any year, subject to the quota in US note 17 to this subchapter"
+99131205,,2004-12-31,2050-12-30,"Australia goods: Of subheading 1202.41.80, 1202.30.80,1202.42.80, 2008.11.15, 2008.11.35 or 2008.11.60 subject to quota in US note 18 this s"
+99132405,,2004-12-31,2050-12-30,Australia goods: Of 2401.10.65/2401.20.35/2401.20.87/2401.30.70/2403.19.90/2403.91.47/2403.99.90 subject quota US note 19 this subchapter
+99135205,,2004-12-31,2050-12-30,"Australia goods: Of 5201.00.18, 5201.00.28, 5201.00.38, 5201.00.80, 5202.99.30 or 5203.00.30 subject to quota in US note 20 this subchapter"
+99990020,Free,2003-12-31,2050-12-30,Merchandise recovered from a vessel sunk in territorial waters of US and abandoned by owner
+99990084,,2003-12-31,2050-12-30,Goods imported from Singapore and treated as originating goods under general note 25(m) for purposes of US-Singapore FTA
+99999500,,1988-12-31,2050-12-30,Estimated imports of low valued transactions

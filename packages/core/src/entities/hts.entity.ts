@@ -59,13 +59,13 @@ export class HtsEntity {
   /**
    * General Rate (NTR/MFN) - String representation (e.g., "5%", "$2.50/kg")
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   generalRate: string | null;
 
   /**
    * General (raw) - Stored to align with 1243 schema
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   general: string | null;
 
   /**
@@ -97,13 +97,13 @@ export class HtsEntity {
    * Other Rate (Non-NTR) - For countries without Normal Trade Relations
    * Applies to: Cuba (CU), North Korea (KP), Belarus (BY), Russia (RU)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   otherRate: string | null;
 
   /**
    * Other (raw) - Stored to align with 1243 schema
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   other: string | null;
 
   /**
@@ -135,13 +135,13 @@ export class HtsEntity {
   /**
    * Special (raw) - Stored to align with 1243 schema
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   special: string | null;
 
   /**
    * Chapter 99 Adjusted Rate - Additional tariffs (e.g., China tariffs)
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   chapter99: string | null;
 
   /**
@@ -187,7 +187,7 @@ export class HtsEntity {
   /**
    * Other Chapter 99 - Alternative Chapter 99 rate
    */
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('text', { nullable: true })
   otherChapter99: string | null;
 
   /**

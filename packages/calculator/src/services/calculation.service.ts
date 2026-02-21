@@ -96,20 +96,33 @@ export class CalculationService {
 
     try {
       const normalizedInput = this.normalizeCalculationInput(input);
+      const calculationDate = this.resolveCalculationDate(normalizedInput);
+      const canonicalEntryDate = this.formatDateOnly(calculationDate);
+      const calculationInput: CalculationInput = {
+        ...normalizedInput,
+        entryDate: canonicalEntryDate,
+      };
+      const selectedChapter99Headings = this.extractSelectedChapter99Headings(
+        calculationInput.additionalInputs,
+      );
       const rateInfo = await this.rateRetrievalService.getRate(
-        normalizedInput.htsNumber,
-        normalizedInput.countryOfOrigin,
-        normalizedInput.htsVersion,
+        calculationInput.htsNumber,
+        calculationInput.countryOfOrigin,
+        calculationInput.htsVersion,
+        {
+          entryDate: canonicalEntryDate,
+          selectedChapter99Headings: Array.from(selectedChapter99Headings),
+        },
       );
 
       const baseVariables = {
-        value: normalizedInput.declaredValue,
-        weight: normalizedInput.weightKg,
-        quantity: normalizedInput.quantity,
+        value: calculationInput.declaredValue,
+        weight: calculationInput.weightKg,
+        quantity: calculationInput.quantity,
       };
 
       // Check for trade agreement eligibility
-      const tradeAgreementInfo = await this.checkTradeAgreement(normalizedInput);
+      const tradeAgreementInfo = await this.checkTradeAgreement(calculationInput);
 
       // Use preferential rate if eligible, otherwise use standard rate
       let baseDuty: number;
@@ -133,17 +146,21 @@ export class CalculationService {
         rateSource = rateInfo.source;
       }
 
-      const variables = {
+      const additionalTariffVariables = {
         ...baseVariables,
         duty: baseDuty,
-        total: normalizedInput.declaredValue + baseDuty,
+        total: calculationInput.declaredValue + baseDuty,
       };
 
       const applyExtraTaxes = !rateInfo.overrideExtraTax;
 
       // Calculate additional tariffs (entity-driven)
       const additionalTariffs = applyExtraTaxes
-        ? await this.calculateAdditionalTariffs(normalizedInput, variables)
+        ? await this.calculateAdditionalTariffs(
+            calculationInput,
+            additionalTariffVariables,
+            calculationDate,
+          )
         : [];
 
       const totalAdditionalTariffs = additionalTariffs.reduce(
@@ -151,12 +168,22 @@ export class CalculationService {
         0,
       );
 
+      const postTariffDuty = baseDuty + totalAdditionalTariffs;
+      const postTariffTotal = calculationInput.declaredValue + postTariffDuty;
+      const taxVariables = {
+        ...baseVariables,
+        duty: postTariffDuty,
+        total: postTariffTotal,
+      };
+
       // Calculate taxes (entity-driven)
-      const taxes = applyExtraTaxes ? await this.calculateTaxes(normalizedInput, variables) : [];
+      const taxes = applyExtraTaxes
+        ? await this.calculateTaxes(calculationInput, taxVariables, calculationDate)
+        : [];
 
       const totalTaxes = taxes.reduce((sum, t) => sum + t.amount, 0);
-      const totalDuty = baseDuty + totalAdditionalTariffs;
-      const landedCost = normalizedInput.declaredValue + totalDuty + totalTaxes;
+      const totalDuty = postTariffDuty;
+      const landedCost = calculationInput.declaredValue + totalDuty + totalTaxes;
 
       const result: CalculationResult = {
         calculationId,
@@ -179,7 +206,7 @@ export class CalculationService {
         tradeAgreementInfo: tradeAgreementInfo.eligible ? tradeAgreementInfo : null,
       };
 
-      await this.saveCalculationHistory(normalizedInput, result);
+      await this.saveCalculationHistory(calculationInput, result);
 
       return result;
     } catch (error) {
@@ -195,9 +222,9 @@ export class CalculationService {
   private async calculateAdditionalTariffs(
     input: CalculationInput,
     variables: Record<string, any>,
+    calculationDate: Date,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
     const chapter = input.htsNumber.substring(0, 2);
-    const calculationDate = this.resolveCalculationDate(input);
     const selectedChapter99Headings = this.extractSelectedChapter99Headings(
       input.additionalInputs,
     );
@@ -290,8 +317,8 @@ export class CalculationService {
   private async calculateTaxes(
     input: CalculationInput,
     variables: Record<string, any>,
+    calculationDate: Date,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
-    const calculationDate = this.resolveCalculationDate(input);
     const chapter = input.htsNumber.substring(0, 2);
     const selectedChapter99Headings = this.extractSelectedChapter99Headings(
       input.additionalInputs,
@@ -762,6 +789,11 @@ export class CalculationService {
       return Number.isFinite(parsed) ? parsed : null;
     }
     return null;
+  }
+
+  private formatDateOnly(value: Date): string {
+    const normalized = this.toDateOnlyUtc(value) || value;
+    return normalized.toISOString().slice(0, 10);
   }
 
   private resolveCalculationDate(input: CalculationInput): Date {
