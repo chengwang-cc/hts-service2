@@ -111,10 +111,11 @@ export class ApiKeyGuard implements CanActivate {
       request.organizationId = validatedKey.organizationId;
 
       // Track usage (async, don't await)
-      const startTime = Date.now();
+      // Capture timestamp NOW (before processing) for accurate usage tracking
+      const requestTimestamp = Date.now();
       response.on('finish', () => {
-        const responseTimeMs = Date.now() - startTime;
-        this.trackRequest(request, response, validatedKey, responseTimeMs);
+        const responseTimeMs = Date.now() - requestTimestamp;
+        this.trackRequest(request, response, validatedKey, responseTimeMs, requestTimestamp);
       });
 
       return true;
@@ -187,6 +188,7 @@ export class ApiKeyGuard implements CanActivate {
     response: any,
     apiKey: ApiKeyEntity,
     responseTimeMs: number,
+    requestTimestamp: number,
   ): Promise<void> {
     try {
       await this.apiKeyService.trackUsage({
@@ -199,6 +201,7 @@ export class ApiKeyGuard implements CanActivate {
         clientIp: this.getClientIp(request),
         userAgent: request.headers['user-agent'],
         errorMessage: response.statusCode >= 400 ? response.statusMessage : undefined,
+        timestamp: new Date(requestTimestamp),
       });
     } catch (error) {
       // Log error but don't throw (tracking failure shouldn't block request)

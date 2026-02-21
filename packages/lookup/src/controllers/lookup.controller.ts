@@ -1,10 +1,8 @@
-import { Controller, Post, Get, Body, Query, SetMetadata } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query } from '@nestjs/common';
 import { SearchService, ClassificationService, UrlClassifierService } from '../services';
 import { SearchDto, ClassifyProductDto, ClassifyUrlRequestDto } from '../dto';
 import { RateLimit } from '../decorators';
-
-// Public decorator for routes that don't require authentication
-const Public = () => SetMetadata('isPublic', true);
+import { Public } from '../../../../src/modules/auth/decorators/public.decorator';
 
 @Controller('lookup')
 export class LookupController {
@@ -69,7 +67,6 @@ export class LookupController {
   }
 
   @Post('classify-url')
-  @RateLimit({ endpoint: 'classify-url' })
   async classifyUrl(@Body() dto: ClassifyUrlRequestDto) {
     return this.urlClassifierService.classifyUrl(dto.url);
   }

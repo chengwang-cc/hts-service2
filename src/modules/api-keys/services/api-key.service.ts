@@ -246,9 +246,10 @@ export class ApiKeyService implements OnModuleDestroy {
     clientIp?: string;
     userAgent?: string;
     errorMessage?: string;
+    timestamp?: Date;
   }): Promise<void> {
-    // Round timestamp to minute for aggregation
-    const timestamp = new Date();
+    // Use provided timestamp OR generate new one, then round to minute for aggregation
+    const timestamp = params.timestamp || new Date();
     timestamp.setSeconds(0, 0);
 
     const metric = this.usageMetricRepository.create({

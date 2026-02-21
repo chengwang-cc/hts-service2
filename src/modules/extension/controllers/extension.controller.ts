@@ -23,6 +23,7 @@ import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
 import {
   ApiPermissions,
   CurrentApiKey,
+  SkipJwtAuth,
 } from '../../api-keys/decorators';
 import { ApiKeyEntity } from '../../api-keys/entities/api-key.entity';
 import { DetectionService } from '../services/detection.service';
@@ -48,7 +49,10 @@ import * as crypto from 'crypto';
 /**
  * Extension API Controller
  * Endpoints for Chrome extension support
+ * Uses API Key authentication (@UseGuards(ApiKeyGuard)) instead of JWT
+ * Explicitly skips global JWT guard via @SkipJwtAuth() decorator
  */
+@SkipJwtAuth()
 @ApiTags('Extension')
 @ApiSecurity('api-key')
 @Controller('api/v1/extension')
