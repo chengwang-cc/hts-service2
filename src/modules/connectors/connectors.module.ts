@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import { ConnectorsModule as ConnectorsPackageModule } from '@hts/connectors';
-import { 
-  ConnectorEntity, 
+import {
+  ConnectorEntity,
   SyncLogEntity,
   ConnectorService,
   ShopifyConnector,
-  BrokerConnector
+  BrokerConnector,
 } from '@hts/connectors';
 import { ConnectorsController } from './controllers/connectors.controller';
 

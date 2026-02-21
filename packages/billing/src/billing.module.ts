@@ -1,7 +1,11 @@
 import { Module, DynamicModule, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import Stripe from 'stripe';
-import { SubscriptionEntity, InvoiceEntity, UsageRecordEntity } from './entities';
+import {
+  SubscriptionEntity,
+  InvoiceEntity,
+  UsageRecordEntity,
+} from './entities';
 import {
   EntitlementService,
   StripeService,
@@ -41,10 +45,7 @@ export class BillingPackageModule {
         },
         // Services removed - will be provided in wrapper module where repositories are available
       ],
-      exports: [
-        'STRIPE_CLIENT',
-        'STRIPE_WEBHOOK_SECRET',
-      ],
+      exports: ['STRIPE_CLIENT', 'STRIPE_WEBHOOK_SECRET'],
     };
   }
 }

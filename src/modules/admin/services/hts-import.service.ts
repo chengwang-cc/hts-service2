@@ -3,7 +3,13 @@
  * Business logic for HTS import management
  */
 
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -45,14 +51,18 @@ export class HtsImportService {
     private htsStageDiffRepo: Repository<HtsStageDiffEntity>,
     private usitcDownloader: UsitcDownloaderService,
     private queueService: QueueService,
-    @Optional() private readonly htsChapter99FormulaService?: HtsChapter99FormulaService,
+    @Optional()
+    private readonly htsChapter99FormulaService?: HtsChapter99FormulaService,
   ) {}
 
   /**
    * Create a new import record and trigger async job
    * Supports simplified API: version="latest" OR year+revision
    */
-  async createImport(dto: TriggerImportDto, userId: string): Promise<HtsImportHistoryEntity> {
+  async createImport(
+    dto: TriggerImportDto,
+    userId: string,
+  ): Promise<HtsImportHistoryEntity> {
     let sourceUrl: string;
     let sourceVersion: string;
 
@@ -79,7 +89,7 @@ export class HtsImportService {
       sourceVersion = dto.sourceVersion;
     } else {
       throw new BadRequestException(
-        'Must specify either: version="latest", year+revision, or sourceUrl+sourceVersion'
+        'Must specify either: version="latest", year+revision, or sourceUrl+sourceVersion',
       );
     }
 
@@ -105,7 +115,9 @@ export class HtsImportService {
     });
 
     const saved = await this.importHistoryRepo.save(importHistory);
-    this.logger.log(`Created import record: ${saved.id} for version ${saved.sourceVersion}`);
+    this.logger.log(
+      `Created import record: ${saved.id} for version ${saved.sourceVersion}`,
+    );
 
     // Trigger async job with singleton key for cluster safety
     const jobId = await this.queueService.sendJob(
@@ -118,7 +130,9 @@ export class HtsImportService {
       },
     );
 
-    this.logger.log(`Triggered HTS import job ${jobId} for version ${saved.sourceVersion}`);
+    this.logger.log(
+      `Triggered HTS import job ${jobId} for version ${saved.sourceVersion}`,
+    );
 
     saved.jobId = jobId;
     await this.importHistoryRepo.save(saved);
@@ -147,7 +161,9 @@ export class HtsImportService {
     }
 
     if (sourceVersion) {
-      query.andWhere('import.sourceVersion = :sourceVersion', { sourceVersion });
+      query.andWhere('import.sourceVersion = :sourceVersion', {
+        sourceVersion,
+      });
     }
 
     query.orderBy('import.createdAt', 'DESC');
@@ -170,7 +186,9 @@ export class HtsImportService {
    * Find one import by ID
    */
   async findOne(id: string): Promise<HtsImportHistoryEntity> {
-    const importHistory = await this.importHistoryRepo.findOne({ where: { id } });
+    const importHistory = await this.importHistoryRepo.findOne({
+      where: { id },
+    });
 
     if (!importHistory) {
       throw new NotFoundException(`Import record not found: ${id}`);
@@ -195,7 +213,9 @@ export class HtsImportService {
   /**
    * Get failed entries
    */
-  async getFailedEntries(id: string): Promise<Array<{ htsNumber: string; error: string }>> {
+  async getFailedEntries(
+    id: string,
+  ): Promise<Array<{ htsNumber: string; error: string }>> {
     const importHistory = await this.findOne(id);
 
     return importHistory.failedEntriesDetail || [];
@@ -213,7 +233,9 @@ export class HtsImportService {
       );
     }
 
-    this.logger.log(`Rolling back import ${id} for version ${importHistory.sourceVersion}`);
+    this.logger.log(
+      `Rolling back import ${id} for version ${importHistory.sourceVersion}`,
+    );
 
     // Delete all HTS entries with matching sourceVersion
     const result = await this.htsRepo.delete({
@@ -309,7 +331,11 @@ export class HtsImportService {
    * Add failed entry detail
    * Used by job handler to track failed entries
    */
-  async addFailedEntry(importId: string, htsNumber: string, error: string): Promise<void> {
+  async addFailedEntry(
+    importId: string,
+    htsNumber: string,
+    error: string,
+  ): Promise<void> {
     await this.importHistoryRepo
       .createQueryBuilder()
       .update(HtsImportHistoryEntity)
@@ -380,7 +406,7 @@ export class HtsImportService {
     validatedAt: string | null;
   }> {
     const importHistory = await this.findOne(importId);
-    const metadata = (importHistory.metadata || {}) as Record<string, any>;
+    const metadata = importHistory.metadata || {};
     const formulaValidationSummary = metadata.formulaValidationSummary || {};
     const validationSummary = metadata.validationSummary || {};
 
@@ -397,7 +423,8 @@ export class HtsImportService {
         : null;
 
     const gateFlag =
-      formulaValidationSummary.formulaGatePassed ?? validationSummary.formulaGatePassed;
+      formulaValidationSummary.formulaGatePassed ??
+      validationSummary.formulaGatePassed;
     const formulaGatePassed =
       typeof gateFlag === 'boolean'
         ? gateFlag
@@ -433,7 +460,9 @@ export class HtsImportService {
           ? formulaValidationSummary.noteUnresolvedCount
           : null,
       validatedAt:
-        formulaValidationSummary.validatedAt || validationSummary.validatedAt || null,
+        formulaValidationSummary.validatedAt ||
+        validationSummary.validatedAt ||
+        null,
     };
   }
 
@@ -443,13 +472,17 @@ export class HtsImportService {
   async getStageValidationIssues(
     importId: string,
     query: StageValidationQueryDto,
-  ): Promise<{ data: HtsStageValidationIssueEntity[]; meta: Record<string, any> }> {
+  ): Promise<{
+    data: HtsStageValidationIssueEntity[];
+    meta: Record<string, any>;
+  }> {
     await this.findOne(importId);
 
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 100;
 
-    const qb = this.htsStageIssueRepo.createQueryBuilder('issue')
+    const qb = this.htsStageIssueRepo
+      .createQueryBuilder('issue')
       .where('issue.importId = :importId', { importId });
 
     if (query.severity) {
@@ -484,7 +517,8 @@ export class HtsImportService {
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 100;
 
-    const qb = this.htsStageDiffRepo.createQueryBuilder('diff')
+    const qb = this.htsStageDiffRepo
+      .createQueryBuilder('diff')
       .where('diff.importId = :importId', { importId });
 
     if (query.diffType) {
@@ -492,7 +526,9 @@ export class HtsImportService {
     }
 
     if (query.htsNumber) {
-      qb.andWhere('diff.htsNumber = :htsNumber', { htsNumber: query.htsNumber });
+      qb.andWhere('diff.htsNumber = :htsNumber', {
+        htsNumber: query.htsNumber,
+      });
     }
 
     const [data, total] = await qb
@@ -544,7 +580,9 @@ export class HtsImportService {
     });
 
     const chapter99Lookup = new Map<string, Chapter99ReferenceInput>();
-    const nonChapter99 = stagedEntries.filter((entry) => entry.chapter !== '99');
+    const nonChapter99 = stagedEntries.filter(
+      (entry) => entry.chapter !== '99',
+    );
 
     for (const entry of stagedEntries) {
       if (entry.chapter !== '99') {
@@ -587,7 +625,8 @@ export class HtsImportService {
               description: reference.description,
               generalRate: reference.generalRate || reference.general,
               general: reference.general,
-              chapter99ApplicableCountries: reference.chapter99ApplicableCountries,
+              chapter99ApplicableCountries:
+                reference.chapter99ApplicableCountries,
             });
           }
         }
@@ -602,7 +641,10 @@ export class HtsImportService {
     const rows: Array<Record<string, any>> = [];
 
     for (const entry of nonChapter99) {
-      if (numberFilter && !entry.htsNumber.toUpperCase().includes(numberFilter)) {
+      if (
+        numberFilter &&
+        !entry.htsNumber.toUpperCase().includes(numberFilter)
+      ) {
         continue;
       }
 
@@ -683,7 +725,8 @@ export class HtsImportService {
               rateFormula: current.rateFormula,
               adjustedFormula: current.adjustedFormula,
               chapter99Links: current.chapter99Links,
-              chapter99ApplicableCountries: current.chapter99ApplicableCountries,
+              chapter99ApplicableCountries:
+                current.chapter99ApplicableCountries,
             }
           : null,
       };
@@ -709,7 +752,8 @@ export class HtsImportService {
   ): Promise<string> {
     await this.findOne(importId);
 
-    const qb = this.htsStageDiffRepo.createQueryBuilder('diff')
+    const qb = this.htsStageDiffRepo
+      .createQueryBuilder('diff')
       .where('diff.importId = :importId', { importId });
 
     if (query.diffType) {
@@ -717,7 +761,9 @@ export class HtsImportService {
     }
 
     if (query.htsNumber) {
-      qb.andWhere('diff.htsNumber = :htsNumber', { htsNumber: query.htsNumber });
+      qb.andWhere('diff.htsNumber = :htsNumber', {
+        htsNumber: query.htsNumber,
+      });
     }
 
     const diffs = await qb.orderBy('diff.htsNumber', 'ASC').getMany();
@@ -734,7 +780,9 @@ export class HtsImportService {
 
     const rows = diffs.map((diff) => {
       const summary = diff.diffSummary || {};
-      const changedFields = summary.changes ? Object.keys(summary.changes).join('|') : '';
+      const changedFields = summary.changes
+        ? Object.keys(summary.changes).join('|')
+        : '';
       const current = summary.current ?? null;
       const staged = summary.staged ?? null;
       const extraTaxes = summary.extraTaxes ?? null;
@@ -767,7 +815,9 @@ export class HtsImportService {
     return str;
   }
 
-  private resolveStageChapter99Links(stageEntry: HtsStageEntryEntity): string[] {
+  private resolveStageChapter99Links(
+    stageEntry: HtsStageEntryEntity,
+  ): string[] {
     const normalizedLinks = Array.isArray(stageEntry.normalized?.chapter99Links)
       ? (stageEntry.normalized?.chapter99Links as string[])
       : [];
@@ -777,9 +827,10 @@ export class HtsImportService {
     }
 
     const rawFootnotes = stageEntry.rawItem?.footnotes;
-    const extracted = this.htsChapter99FormulaService?.extractChapter99LinksFromFootnotePayload(
-      rawFootnotes,
-    );
+    const extracted =
+      this.htsChapter99FormulaService?.extractChapter99LinksFromFootnotePayload(
+        rawFootnotes,
+      );
     return this.normalizeChapter99Links(extracted || []);
   }
 
@@ -803,7 +854,7 @@ export class HtsImportService {
       const values = payload
         .map((item) => {
           if (typeof item === 'string') return item;
-          if (item && typeof (item as any).value === 'string') return (item as any).value;
+          if (item && typeof item.value === 'string') return item.value;
           return '';
         })
         .map((value) => value.trim())
@@ -862,7 +913,9 @@ export class HtsImportService {
         typeof formulaGate.minCoverage === 'number'
           ? `${(formulaGate.minCoverage * 100).toFixed(2)}%`
           : 'n/a';
-      blockedReasons.push(`formula gate failed (coverage=${coverageText}, min=${minCoverageText})`);
+      blockedReasons.push(
+        `formula gate failed (coverage=${coverageText}, min=${minCoverageText})`,
+      );
     }
 
     if (blockedReasons.length > 0 && !canOverrideValidation) {

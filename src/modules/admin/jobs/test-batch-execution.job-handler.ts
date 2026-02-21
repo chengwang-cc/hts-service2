@@ -18,7 +18,9 @@ export class TestBatchExecutionJobHandler {
   async execute(job: any): Promise<void> {
     const { testCaseIds, runId } = job.data;
 
-    this.logger.log(`Starting batch test execution for ${testCaseIds.length} tests. Run ID: ${runId}`);
+    this.logger.log(
+      `Starting batch test execution for ${testCaseIds.length} tests. Run ID: ${runId}`,
+    );
 
     let passed = 0;
     let failed = 0;
@@ -34,10 +36,14 @@ export class TestBatchExecutionJobHandler {
         }
 
         if ((passed + failed) % 10 === 0) {
-          this.logger.log(`Progress: ${passed + failed}/${testCaseIds.length} tests executed`);
+          this.logger.log(
+            `Progress: ${passed + failed}/${testCaseIds.length} tests executed`,
+          );
         }
       } catch (error) {
-        this.logger.error(`Test case ${testCaseId} execution failed: ${error.message}`);
+        this.logger.error(
+          `Test case ${testCaseId} execution failed: ${error.message}`,
+        );
         failed++;
       }
     }

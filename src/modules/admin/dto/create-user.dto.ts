@@ -2,7 +2,15 @@
  * Create User DTO
  */
 
-import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength, IsArray } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+  IsArray,
+} from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail()

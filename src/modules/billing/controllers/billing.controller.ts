@@ -56,7 +56,12 @@ export class BillingController {
   @Post('subscription')
   async createSubscription(
     @CurrentUser() user: any,
-    @Body() body: { planId: string; interval: 'month' | 'year'; paymentMethodId?: string },
+    @Body()
+    body: {
+      planId: string;
+      interval: 'month' | 'year';
+      paymentMethodId?: string;
+    },
   ) {
     // Check if subscription already exists
     const existing = await this.subscriptionService.getActiveSubscription(
@@ -91,7 +96,10 @@ export class BillingController {
     );
 
     if (!subscription) {
-      throw new HttpException('No active subscription found', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        'No active subscription found',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     if (body.planId) {
@@ -191,7 +199,12 @@ export class BillingController {
   @Post('usage/track')
   async trackUsage(
     @CurrentUser() user: any,
-    @Body() body: { feature: string; quantity?: number; metadata?: Record<string, any> },
+    @Body()
+    body: {
+      feature: string;
+      quantity?: number;
+      metadata?: Record<string, any>;
+    },
   ) {
     await this.usageService.trackUsage(
       user.organizationId,

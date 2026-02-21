@@ -33,7 +33,12 @@ type ReciprocalPolicyCandidate = {
   priority: number;
   sourceUrl: string;
   sourceTitle: string;
-  sourceType: 'CBP_FAQ' | 'CBP_STATEMENT' | 'WHITE_HOUSE' | 'FEDERAL_REGISTER' | 'AI_WEB_SEARCH';
+  sourceType:
+    | 'CBP_FAQ'
+    | 'CBP_STATEMENT'
+    | 'WHITE_HOUSE'
+    | 'FEDERAL_REGISTER'
+    | 'AI_WEB_SEARCH';
 };
 
 type ReciprocalMethodReference = {
@@ -101,7 +106,10 @@ export class ReciprocalTariffAdminService {
     private readonly extraTaxRepo: Repository<HtsExtraTaxEntity>,
   ) {}
 
-  async refreshFromOfficialSources(dto: RefreshReciprocalTariffDto, userId?: string): Promise<{
+  async refreshFromOfficialSources(
+    dto: RefreshReciprocalTariffDto,
+    userId?: string,
+  ): Promise<{
     dryRun: boolean;
     deactivatedCount: number;
     created: number;
@@ -128,15 +136,26 @@ export class ReciprocalTariffAdminService {
     const candidates: ReciprocalPolicyCandidate[] = [];
     const methodModel = this.getMethodModelFromOfficialSources();
 
-    const cbpFaqHtml = await this.fetchPage(this.officialUrls.cbpFaq, sourcesChecked);
+    const cbpFaqHtml = await this.fetchPage(
+      this.officialUrls.cbpFaq,
+      sourcesChecked,
+    );
     if (cbpFaqHtml) {
-      candidates.push(...this.extractFromCbpFaq(cbpFaqHtml, this.officialUrls.cbpFaq));
+      candidates.push(
+        ...this.extractFromCbpFaq(cbpFaqHtml, this.officialUrls.cbpFaq),
+      );
     }
 
-    const cbpStatementHtml = await this.fetchPage(this.officialUrls.cbpStatement, sourcesChecked);
+    const cbpStatementHtml = await this.fetchPage(
+      this.officialUrls.cbpStatement,
+      sourcesChecked,
+    );
     if (cbpStatementHtml) {
       candidates.push(
-        ...this.extractFromCbpStatement(cbpStatementHtml, this.officialUrls.cbpStatement),
+        ...this.extractFromCbpStatement(
+          cbpStatementHtml,
+          this.officialUrls.cbpStatement,
+        ),
       );
     }
 
@@ -145,7 +164,9 @@ export class ReciprocalTariffAdminService {
       if (!federalRegisterHtml) {
         continue;
       }
-      candidates.push(...this.extractFromFederalRegister(federalRegisterHtml, frUrl));
+      candidates.push(
+        ...this.extractFromFederalRegister(federalRegisterHtml, frUrl),
+      );
     }
 
     for (const url of this.whiteHousePolicyPages) {
@@ -163,7 +184,9 @@ export class ReciprocalTariffAdminService {
 
     const dedupedCandidates = this.dedupeCandidates(candidates);
     if (dedupedCandidates.length === 0) {
-      throw new Error('No reciprocal tariff policies were extracted from official sources.');
+      throw new Error(
+        'No reciprocal tariff policies were extracted from official sources.',
+      );
     }
 
     let deactivatedCount = 0;
@@ -204,16 +227,22 @@ export class ReciprocalTariffAdminService {
       const existingQuery = this.extraTaxRepo
         .createQueryBuilder('tax')
         .where('tax.taxCode = :taxCode', { taxCode: policy.taxCode })
-        .andWhere('tax.countryCode = :countryCode', { countryCode: policy.countryCode })
+        .andWhere('tax.countryCode = :countryCode', {
+          countryCode: policy.countryCode,
+        })
         .andWhere('tax.isActive = :isActive', { isActive: true });
 
       if (policy.htsNumber == null) {
         existingQuery.andWhere('tax.htsNumber IS NULL');
       } else {
-        existingQuery.andWhere('tax.htsNumber = :htsNumber', { htsNumber: policy.htsNumber });
+        existingQuery.andWhere('tax.htsNumber = :htsNumber', {
+          htsNumber: policy.htsNumber,
+        });
       }
 
-      const existing = await existingQuery.orderBy('tax.updatedAt', 'DESC').getOne();
+      const existing = await existingQuery
+        .orderBy('tax.updatedAt', 'DESC')
+        .getOne();
 
       const payload: Partial<HtsExtraTaxEntity> = {
         taxCode: policy.taxCode,
@@ -243,7 +272,8 @@ export class ReciprocalTariffAdminService {
           supplementalReferences: {
             trackerUrl: null,
             methodPdfPath: null,
-            officialFederalRegisterDocs: this.officialUrls.federalRegisterDocuments,
+            officialFederalRegisterDocs:
+              this.officialUrls.federalRegisterDocuments,
             reciprocalMethodModel: methodModel,
           },
           refreshedBy: userId || null,
@@ -292,10 +322,14 @@ export class ReciprocalTariffAdminService {
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       });
-      const body = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+      const body =
+        typeof response.data === 'string'
+          ? response.data
+          : JSON.stringify(response.data);
       ledger.push({
         url,
         ok: true,
@@ -312,12 +346,17 @@ export class ReciprocalTariffAdminService {
         fetchedAt: new Date().toISOString(),
         error: error?.message || 'unknown error',
       });
-      this.logger.warn(`Failed to fetch official reciprocal source ${url}: ${error?.message || 'unknown error'}`);
+      this.logger.warn(
+        `Failed to fetch official reciprocal source ${url}: ${error?.message || 'unknown error'}`,
+      );
       return null;
     }
   }
 
-  private extractFromCbpStatement(html: string, url: string): ReciprocalPolicyCandidate[] {
+  private extractFromCbpStatement(
+    html: string,
+    url: string,
+  ): ReciprocalPolicyCandidate[] {
     const text = this.stripHtml(html);
     const output: ReciprocalPolicyCandidate[] = [];
     const hasBaselineSignal =
@@ -340,16 +379,21 @@ export class ReciprocalTariffAdminService {
         htsChapter: '99',
         effectiveDate: '2025-04-05',
         expirationDate: null,
-        legalReference: 'IEEPA reciprocal tariff framework; CBP official statement',
+        legalReference:
+          'IEEPA reciprocal tariff framework; CBP official statement',
         notes:
           'Applies as baseline reciprocal tariff layer; exclusions/exceptions and country-specific updates must be evaluated separately.',
         conditions: {
           htsHeading: '9903.01.25',
-          exclusions: ['USMCA-eligible imports from CA/MX', 'article-level Annex exclusions'],
+          exclusions: [
+            'USMCA-eligible imports from CA/MX',
+            'article-level Annex exclusions',
+          ],
         },
         priority: 15,
         sourceUrl: url,
-        sourceTitle: 'Official CBP Statement on Liberation Day reciprocal tariff implementation',
+        sourceTitle:
+          'Official CBP Statement on Liberation Day reciprocal tariff implementation',
         sourceType: 'CBP_STATEMENT',
       });
     }
@@ -357,15 +401,23 @@ export class ReciprocalTariffAdminService {
     return output;
   }
 
-  private extractFromCbpFaq(html: string, url: string): ReciprocalPolicyCandidate[] {
+  private extractFromCbpFaq(
+    html: string,
+    url: string,
+  ): ReciprocalPolicyCandidate[] {
     const text = this.stripHtml(html);
     const output: ReciprocalPolicyCandidate[] = [];
 
-    if (/April 9,\s*2025/i.test(text) && /9903\.01\.63/i.test(text) && /84%/i.test(text)) {
+    if (
+      /April 9,\s*2025/i.test(text) &&
+      /9903\.01\.63/i.test(text) &&
+      /84%/i.test(text)
+    ) {
       output.push({
         taxCode: 'RECIP_CN_9903_01_63_84',
         taxName: 'Reciprocal Tariff China (84%)',
-        description: 'China reciprocal tariff surcharge under heading 9903.01.63 at 84%.',
+        description:
+          'China reciprocal tariff surcharge under heading 9903.01.63 at 84%.',
         countryCode: 'CN',
         extraRateType: 'ADD_ON',
         ratePercent: 84,
@@ -414,7 +466,11 @@ export class ReciprocalTariffAdminService {
       });
     }
 
-    if (/May 14,\s*2025/i.test(text) && /9903\.01\.25/i.test(text) && /10%/i.test(text)) {
+    if (
+      /May 14,\s*2025/i.test(text) &&
+      /9903\.01\.25/i.test(text) &&
+      /10%/i.test(text)
+    ) {
       output.push({
         taxCode: 'RECIP_CN_9903_01_25_10',
         taxName: 'Reciprocal Tariff China (10% current baseline)',
@@ -455,8 +511,12 @@ export class ReciprocalTariffAdminService {
         effectiveDate: '2025-04-05',
         expirationDate: null,
         legalReference: 'CBP IEEPA FAQ (USMCA exception references)',
-        notes: 'Stored for policy traceability; not directly charged as additional tariff.',
-        conditions: { exceptionHeading: '9903.01.26', excludesReciprocalBaseline: true },
+        notes:
+          'Stored for policy traceability; not directly charged as additional tariff.',
+        conditions: {
+          exceptionHeading: '9903.01.26',
+          excludesReciprocalBaseline: true,
+        },
         priority: 5,
         sourceUrl: url,
         sourceTitle: 'CBP IEEPA FAQ',
@@ -480,8 +540,12 @@ export class ReciprocalTariffAdminService {
         effectiveDate: '2025-04-05',
         expirationDate: null,
         legalReference: 'CBP IEEPA FAQ (USMCA exception references)',
-        notes: 'Stored for policy traceability; not directly charged as additional tariff.',
-        conditions: { exceptionHeading: '9903.01.27', excludesReciprocalBaseline: true },
+        notes:
+          'Stored for policy traceability; not directly charged as additional tariff.',
+        conditions: {
+          exceptionHeading: '9903.01.27',
+          excludesReciprocalBaseline: true,
+        },
         priority: 5,
         sourceUrl: url,
         sourceTitle: 'CBP IEEPA FAQ',
@@ -492,9 +556,15 @@ export class ReciprocalTariffAdminService {
     return output;
   }
 
-  private extractFromFederalRegister(html: string, url: string): ReciprocalPolicyCandidate[] {
+  private extractFromFederalRegister(
+    html: string,
+    url: string,
+  ): ReciprocalPolicyCandidate[] {
     const text = this.stripHtml(html);
-    if (!/reciprocal tariff/i.test(text) && !/Executive Order 14\d{3}/i.test(text)) {
+    if (
+      !/reciprocal tariff/i.test(text) &&
+      !/Executive Order 14\d{3}/i.test(text)
+    ) {
       return [];
     }
 
@@ -503,7 +573,8 @@ export class ReciprocalTariffAdminService {
       return [];
     }
     const publicationDate = this.extractFederalRegisterPublicationDate(url);
-    const title = this.extractTitle(html) || `Federal Register Document ${documentNumber}`;
+    const title =
+      this.extractTitle(html) || `Federal Register Document ${documentNumber}`;
 
     return [
       {
@@ -520,8 +591,7 @@ export class ReciprocalTariffAdminService {
         htsChapter: '99',
         effectiveDate: publicationDate,
         expirationDate: null,
-        legalReference:
-          `Federal Register Doc. ${documentNumber} (reciprocal tariff policy update)`,
+        legalReference: `Federal Register Doc. ${documentNumber} (reciprocal tariff policy update)`,
         notes: `Policy marker for audit/traceability from Federal Register document ${documentNumber}.`,
         conditions: {
           documentId: documentNumber,
@@ -535,10 +605,14 @@ export class ReciprocalTariffAdminService {
     ];
   }
 
-  private extractFromWhiteHousePolicy(html: string, url: string): ReciprocalPolicyCandidate[] {
+  private extractFromWhiteHousePolicy(
+    html: string,
+    url: string,
+  ): ReciprocalPolicyCandidate[] {
     const text = this.stripHtml(html);
     const lowerUrl = url.toLowerCase();
-    const title = this.extractTitle(html) || 'White House reciprocal tariff policy update';
+    const title =
+      this.extractTitle(html) || 'White House reciprocal tariff policy update';
 
     const countryCode = this.inferCountryCodeFromUrlAndText(lowerUrl, text);
     if (!countryCode) {
@@ -565,7 +639,8 @@ export class ReciprocalTariffAdminService {
         htsChapter: '99',
         effectiveDate: null,
         expirationDate: null,
-        legalReference: 'White House presidential action / fact sheet on reciprocal tariff framework',
+        legalReference:
+          'White House presidential action / fact sheet on reciprocal tariff framework',
         notes:
           'Framework rate captured for admin policy monitoring. Validate Annex-specific exclusions before direct calculation use.',
         conditions: {
@@ -580,7 +655,9 @@ export class ReciprocalTariffAdminService {
     ];
   }
 
-  private async extractPoliciesWithAiWebSearch(): Promise<ReciprocalPolicyCandidate[]> {
+  private async extractPoliciesWithAiWebSearch(): Promise<
+    ReciprocalPolicyCandidate[]
+  > {
     if (!process.env.OPENAI_API_KEY) {
       return [];
     }
@@ -613,7 +690,12 @@ export class ReciprocalTariffAdminService {
                   items: {
                     type: 'object',
                     additionalProperties: false,
-                    required: ['countryCode', 'ratePercent', 'sourceUrl', 'summary'],
+                    required: [
+                      'countryCode',
+                      'ratePercent',
+                      'sourceUrl',
+                      'summary',
+                    ],
                     properties: {
                       countryCode: { type: 'string' },
                       ratePercent: { type: 'number' },
@@ -638,7 +720,9 @@ export class ReciprocalTariffAdminService {
 
       const output: ReciprocalPolicyCandidate[] = [];
       for (const policy of parsed.policies) {
-        const countryCode = String(policy.countryCode || '').trim().toUpperCase();
+        const countryCode = String(policy.countryCode || '')
+          .trim()
+          .toUpperCase();
         const ratePercent = Number(policy.ratePercent);
         const sourceUrl = String(policy.sourceUrl || '').trim();
         const summary = String(policy.summary || '').trim();
@@ -646,7 +730,10 @@ export class ReciprocalTariffAdminService {
         if (!countryCode || !Number.isFinite(ratePercent) || !sourceUrl) {
           continue;
         }
-        if (!/\.gov\//i.test(sourceUrl) && !/whitehouse\.gov/i.test(sourceUrl)) {
+        if (
+          !/\.gov\//i.test(sourceUrl) &&
+          !/whitehouse\.gov/i.test(sourceUrl)
+        ) {
           continue;
         }
 
@@ -662,9 +749,12 @@ export class ReciprocalTariffAdminService {
           rateFormula: `value * ${(ratePercent / 100).toFixed(4)}`,
           htsNumber: '*',
           htsChapter: '99',
-          effectiveDate: policy.effectiveDate ? String(policy.effectiveDate) : null,
+          effectiveDate: policy.effectiveDate
+            ? String(policy.effectiveDate)
+            : null,
           expirationDate: null,
-          legalReference: 'AI deep search over official U.S. government sources',
+          legalReference:
+            'AI deep search over official U.S. government sources',
           notes: summary,
           conditions: {
             aiAssisted: true,
@@ -679,12 +769,16 @@ export class ReciprocalTariffAdminService {
 
       return output;
     } catch (error: any) {
-      this.logger.warn(`AI deep-search reciprocal extraction failed: ${error?.message || 'unknown error'}`);
+      this.logger.warn(
+        `AI deep-search reciprocal extraction failed: ${error?.message || 'unknown error'}`,
+      );
       return [];
     }
   }
 
-  private dedupeCandidates(candidates: ReciprocalPolicyCandidate[]): ReciprocalPolicyCandidate[] {
+  private dedupeCandidates(
+    candidates: ReciprocalPolicyCandidate[],
+  ): ReciprocalPolicyCandidate[] {
     const map = new Map<string, ReciprocalPolicyCandidate>();
     for (const candidate of candidates) {
       const key = [
@@ -719,10 +813,16 @@ export class ReciprocalTariffAdminService {
     return this.stripHtml(match[1]);
   }
 
-  private inferCountryCodeFromUrlAndText(url: string, text: string): string | null {
+  private inferCountryCodeFromUrlAndText(
+    url: string,
+    text: string,
+  ): string | null {
     const hints = Object.keys(this.countryNameToCode);
     for (const hint of hints) {
-      if (url.includes(hint.replace(/\s+/g, '-')) || text.toLowerCase().includes(hint)) {
+      if (
+        url.includes(hint.replace(/\s+/g, '-')) ||
+        text.toLowerCase().includes(hint)
+      ) {
         return this.countryNameToCode[hint];
       }
     }
@@ -753,12 +853,15 @@ export class ReciprocalTariffAdminService {
       derivedFrom: [
         this.officialUrls.cbpFaq,
         this.officialUrls.federalRegisterDocuments[0],
-        this.officialUrls.federalRegisterDocuments[this.officialUrls.federalRegisterDocuments.length - 1],
+        this.officialUrls.federalRegisterDocuments[
+          this.officialUrls.federalRegisterDocuments.length - 1
+        ],
       ],
       narrative:
         'Reciprocal tariffs are modeled as the tariff change needed to offset bilateral deficit via import reduction, accounting for elasticity and tariff passthrough.',
       // Inference from reference text because the equation line is not rendered in exported text.
-      formulaInferred: 'deltaTau_i = max(0, (m_i - x_i) / (|epsilon| * phi * m_i))',
+      formulaInferred:
+        'deltaTau_i = max(0, (m_i - x_i) / (|epsilon| * phi * m_i))',
       parameters: {
         epsilonAbsolute: 4,
         passthroughPhi: 0.25,

@@ -18,7 +18,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
  * Provides API endpoints for Chrome extension support
  * Includes image recognition and web scraping capabilities
  * With rate limiting, monitoring, and caching
- * 
+ *
  * Note: VisionService and OpenAiService are provided globally by CoreModule
  */
 @Module({

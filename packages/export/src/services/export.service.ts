@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ExportJobEntity } from '../entities';
-import { ExportRequestDto, ExportResponseDto, ExportJobStatusDto } from '../dto';
+import {
+  ExportRequestDto,
+  ExportResponseDto,
+  ExportJobStatusDto,
+} from '../dto';
 import { CsvExportService } from './csv-export.service';
 import { ExcelExportService } from './excel-export.service';
 
@@ -47,7 +51,8 @@ export class ExportService {
     return {
       jobId: savedJob.id,
       status: 'pending',
-      message: 'Export job created successfully. Processing will begin shortly.',
+      message:
+        'Export job created successfully. Processing will begin shortly.',
       estimatedCompletionTime: this.estimateCompletionTime(request),
     };
   }
@@ -71,9 +76,10 @@ export class ExportService {
         total: job.recordCount,
         processed: job.processedRecords,
         failed: job.failedRecords,
-        percentage: job.recordCount > 0
-          ? Math.round((job.processedRecords / job.recordCount) * 100)
-          : 0,
+        percentage:
+          job.recordCount > 0
+            ? Math.round((job.processedRecords / job.recordCount) * 100)
+            : 0,
       },
       fileUrl: job.fileUrl || undefined,
       fileSize: job.fileSize ? Number(job.fileSize) : undefined,
@@ -193,7 +199,10 @@ export class ExportService {
   /**
    * Generate Excel export by template
    */
-  private async generateExcelExport(template: string, data: any[]): Promise<Buffer> {
+  private async generateExcelExport(
+    template: string,
+    data: any[],
+  ): Promise<Buffer> {
     switch (template) {
       case 'audit-pack':
         return this.excelExportService.generateAuditPackExcel({

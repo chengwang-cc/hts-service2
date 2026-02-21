@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { EntitlementService } from '../services/entitlement.service';
 
@@ -10,7 +15,10 @@ export class EntitlementGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredFeature = this.reflector.get<string>('requiredFeature', context.getHandler());
+    const requiredFeature = this.reflector.get<string>(
+      'requiredFeature',
+      context.getHandler(),
+    );
 
     if (!requiredFeature) {
       return true; // No feature requirement, allow access
@@ -35,7 +43,8 @@ export class EntitlementGuard implements CanActivate {
 
     if (!result.allowed) {
       throw new ForbiddenException(
-        result.message || `Feature "${requiredFeature}" not available in your plan. Please upgrade.`,
+        result.message ||
+          `Feature "${requiredFeature}" not available in your plan. Please upgrade.`,
       );
     }
 
@@ -43,7 +52,10 @@ export class EntitlementGuard implements CanActivate {
     const response = context.switchToHttp().getResponse();
     if (result.quota !== undefined && result.quota !== -1) {
       response.setHeader('X-Usage-Limit', result.quota.toString());
-      response.setHeader('X-Usage-Remaining', result.remaining?.toString() || '0');
+      response.setHeader(
+        'X-Usage-Remaining',
+        result.remaining?.toString() || '0',
+      );
       response.setHeader('X-Usage-Current', result.usage?.toString() || '0');
     }
 

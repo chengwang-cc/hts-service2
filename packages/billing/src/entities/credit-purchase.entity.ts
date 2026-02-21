@@ -25,7 +25,11 @@ export class CreditPurchaseEntity {
   @Column('varchar', { name: 'stripe_session_id', length: 255 })
   stripeSessionId: string;
 
-  @Column('varchar', { name: 'stripe_payment_intent_id', length: 255, nullable: true })
+  @Column('varchar', {
+    name: 'stripe_payment_intent_id',
+    length: 255,
+    nullable: true,
+  })
   stripePaymentIntentId: string | null;
 
   // Credit details

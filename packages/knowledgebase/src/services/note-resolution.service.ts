@@ -38,7 +38,10 @@ export class NoteResolutionService {
     year?: number,
     options?: { exactOnly?: boolean },
   ): Promise<any> {
-    const parsedReference = this.parseNoteReference(referenceText || '', htsNumber);
+    const parsedReference = this.parseNoteReference(
+      referenceText || '',
+      htsNumber,
+    );
     if (!parsedReference) {
       return null;
     }
@@ -46,7 +49,12 @@ export class NoteResolutionService {
     // Try exact match first
     const exactMatch = await this.exactMatch(parsedReference, year);
     if (exactMatch) {
-      const result = await this.buildResult(exactMatch, 'exact', 1.0, htsNumber);
+      const result = await this.buildResult(
+        exactMatch,
+        'exact',
+        1.0,
+        htsNumber,
+      );
 
       // Persist resolution attempt
       await this.saveResolutionReference(
@@ -97,7 +105,10 @@ export class NoteResolutionService {
     return null;
   }
 
-  private parseNoteReference(referenceText: string, htsNumber: string): ParsedNoteReference | null {
+  private parseNoteReference(
+    referenceText: string,
+    htsNumber: string,
+  ): ParsedNoteReference | null {
     const noteNumber = this.extractNoteNumber(referenceText);
 
     if (!noteNumber) {
@@ -131,7 +142,10 @@ export class NoteResolutionService {
     return null;
   }
 
-  private extractTargetChapter(referenceText: string, htsNumber: string): string | null {
+  private extractTargetChapter(
+    referenceText: string,
+    htsNumber: string,
+  ): string | null {
     const chapterFromText = referenceText.match(/\bchapter\s+(\d{1,2})\b/i);
     if (chapterFromText?.[1]) {
       return chapterFromText[1].padStart(2, '0');
@@ -150,7 +164,10 @@ export class NoteResolutionService {
     return null;
   }
 
-  private async exactMatch(parsed: ParsedNoteReference, year?: number): Promise<HtsNoteEntity | null> {
+  private async exactMatch(
+    parsed: ParsedNoteReference,
+    year?: number,
+  ): Promise<HtsNoteEntity | null> {
     const typedMatch = parsed.noteType
       ? await this.queryBestNote(
           parsed.noteNumber,
@@ -206,7 +223,8 @@ export class NoteResolutionService {
     chapter: string | null,
     year?: number,
   ): Promise<{ note: HtsNoteEntity; confidence: number } | null> {
-    const embedding = await this.embeddingService.generateEmbedding(referenceText);
+    const embedding =
+      await this.embeddingService.generateEmbedding(referenceText);
 
     const results = await this.embeddingRepository
       .createQueryBuilder('embedding')

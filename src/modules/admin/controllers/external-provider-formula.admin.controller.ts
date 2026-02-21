@@ -9,7 +9,12 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { AdminPermissionsGuard } from '../guards/admin-permissions.guard';
@@ -36,13 +41,18 @@ export class ExternalProviderFormulaAdminController {
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create or upsert external provider formula snapshot' })
+  @ApiOperation({
+    summary: 'Create or upsert external provider formula snapshot',
+  })
   @ApiResponse({ status: 201, description: 'Snapshot stored successfully' })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:write', 'formula:override')
   async upsert(@Body() dto: UpsertExternalProviderFormulaDto, @Request() req) {
     const userId = req.user?.email || null;
-    const result = await this.externalProviderFormulaService.upsertSnapshot(dto, userId);
+    const result = await this.externalProviderFormulaService.upsertSnapshot(
+      dto,
+      userId,
+    );
 
     return {
       success: true,
@@ -56,13 +66,25 @@ export class ExternalProviderFormulaAdminController {
   }
 
   @Post('validate')
-  @ApiOperation({ summary: 'Validate formula against external provider and persist snapshot' })
-  @ApiResponse({ status: 201, description: 'Validation completed successfully' })
+  @ApiOperation({
+    summary: 'Validate formula against external provider and persist snapshot',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Validation completed successfully',
+  })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:write', 'formula:override')
-  async validate(@Body() dto: ValidateExternalProviderFormulaDto, @Request() req) {
+  async validate(
+    @Body() dto: ValidateExternalProviderFormulaDto,
+    @Request() req,
+  ) {
     const userId = req.user?.email || null;
-    const result = await this.externalProviderFormulaService.validateAgainstProvider(dto, userId);
+    const result =
+      await this.externalProviderFormulaService.validateAgainstProvider(
+        dto,
+        userId,
+      );
 
     return {
       success: true,
@@ -75,12 +97,22 @@ export class ExternalProviderFormulaAdminController {
     summary:
       'Create manual provider snapshot from admin-copied formula, compare against live HTS, and optionally analyze discrepancy',
   })
-  @ApiResponse({ status: 201, description: 'Manual review context created successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'Manual review context created successfully',
+  })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:write', 'formula:override')
-  async manualReview(@Body() dto: ManualReviewExternalProviderFormulaDto, @Request() req) {
+  async manualReview(
+    @Body() dto: ManualReviewExternalProviderFormulaDto,
+    @Request() req,
+  ) {
     const userId = req.user?.email || null;
-    const result = await this.externalProviderFormulaService.manualReviewSnapshot(dto, userId);
+    const result =
+      await this.externalProviderFormulaService.manualReviewSnapshot(
+        dto,
+        userId,
+      );
     return {
       success: true,
       data: result,
@@ -90,7 +122,10 @@ export class ExternalProviderFormulaAdminController {
   @Post(':id/review')
   @HttpCode(200)
   @ApiOperation({ summary: 'Approve or reject a provider snapshot review' })
-  @ApiResponse({ status: 200, description: 'Review status updated successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Review status updated successfully',
+  })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:write', 'formula:override')
   async reviewSnapshot(
@@ -99,7 +134,11 @@ export class ExternalProviderFormulaAdminController {
     @Request() req,
   ) {
     const userId = req.user?.email || null;
-    const result = await this.externalProviderFormulaService.reviewSnapshot(id, dto, userId);
+    const result = await this.externalProviderFormulaService.reviewSnapshot(
+      id,
+      dto,
+      userId,
+    );
     return {
       success: true,
       data: result,
@@ -121,11 +160,12 @@ export class ExternalProviderFormulaAdminController {
     @Request() req,
   ) {
     const userId = req.user?.email || null;
-    const result = await this.externalProviderFormulaService.publishFormulaOverrideFromSnapshot(
-      id,
-      dto,
-      userId,
-    );
+    const result =
+      await this.externalProviderFormulaService.publishFormulaOverrideFromSnapshot(
+        id,
+        dto,
+        userId,
+      );
     return {
       success: true,
       data: result,
@@ -152,12 +192,18 @@ export class ExternalProviderFormulaAdminController {
   }
 
   @Get('compare/live')
-  @ApiOperation({ summary: 'Compare latest provider snapshot with live HTS formula' })
-  @ApiResponse({ status: 200, description: 'Comparison completed successfully' })
+  @ApiOperation({
+    summary: 'Compare latest provider snapshot with live HTS formula',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Comparison completed successfully',
+  })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:view', 'formula:view')
   async compareLive(@Query() query: CompareExternalProviderFormulaDto) {
-    const result = await this.externalProviderFormulaService.compareWithLiveFormula(query);
+    const result =
+      await this.externalProviderFormulaService.compareWithLiveFormula(query);
 
     return {
       success: true,
@@ -167,12 +213,18 @@ export class ExternalProviderFormulaAdminController {
 
   @Post('compare/analyze')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Analyze discrepancy between provider and live formulas' })
-  @ApiResponse({ status: 200, description: 'Discrepancy analysis completed successfully' })
+  @ApiOperation({
+    summary: 'Analyze discrepancy between provider and live formulas',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Discrepancy analysis completed successfully',
+  })
   @UseGuards(AdminPermissionsGuard)
   @AdminPermissions('formula:external:view', 'formula:view')
   async analyzeComparison(@Body() dto: AnalyzeExternalProviderDiscrepancyDto) {
-    const result = await this.externalProviderFormulaService.analyzeDiscrepancy(dto);
+    const result =
+      await this.externalProviderFormulaService.analyzeDiscrepancy(dto);
 
     return {
       success: true,

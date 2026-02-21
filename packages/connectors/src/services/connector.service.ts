@@ -69,7 +69,10 @@ export class ConnectorService {
   /**
    * Delete connector
    */
-  async deleteConnector(connectorId: string, organizationId: string): Promise<void> {
+  async deleteConnector(
+    connectorId: string,
+    organizationId: string,
+  ): Promise<void> {
     const result = await this.connectorRepo.delete({
       id: connectorId,
       organizationId,
@@ -147,7 +150,10 @@ export class ConnectorService {
     const connector = await this.getConnector(connectorId, organizationId);
 
     if (!connector.isActive) {
-      throw new HttpException('Connector is not active', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'Connector is not active',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     // Create sync log
@@ -174,7 +180,8 @@ export class ConnectorService {
       // Update sync log
       syncLog.status = 'completed';
       syncLog.completedAt = new Date();
-      syncLog.durationMs = syncLog.completedAt.getTime() - syncLog.startedAt.getTime();
+      syncLog.durationMs =
+        syncLog.completedAt.getTime() - syncLog.startedAt.getTime();
 
       // Update connector
       connector.lastSyncAt = new Date();
@@ -183,7 +190,8 @@ export class ConnectorService {
     } catch (error: any) {
       syncLog.status = 'failed';
       syncLog.completedAt = new Date();
-      syncLog.durationMs = syncLog.completedAt.getTime() - syncLog.startedAt.getTime();
+      syncLog.durationMs =
+        syncLog.completedAt.getTime() - syncLog.startedAt.getTime();
       syncLog.errors = [{ error: error.message }];
 
       connector.lastError = error.message;
@@ -273,7 +281,10 @@ export class ConnectorService {
           completedLogs.reduce((sum, l) => sum + (l.durationMs || 0), 0) /
           completedLogs.length;
       }
-      stats.totalItemsProcessed = logs.reduce((sum, l) => sum + l.itemsProcessed, 0);
+      stats.totalItemsProcessed = logs.reduce(
+        (sum, l) => sum + l.itemsProcessed,
+        0,
+      );
     }
 
     return stats;

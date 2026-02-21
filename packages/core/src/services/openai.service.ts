@@ -123,7 +123,8 @@ export class OpenAiService {
 
       // Add optional instructions (replaces system message)
       if (instructions) requestParams.instructions = instructions;
-      if (max_output_tokens) requestParams.max_output_tokens = max_output_tokens;
+      if (max_output_tokens)
+        requestParams.max_output_tokens = max_output_tokens;
       if (top_p) requestParams.top_p = top_p;
       if (previous_response_id) {
         requestParams.previous_response_id = previous_response_id;
@@ -163,10 +164,7 @@ export class OpenAiService {
 
       return response;
     } catch (error) {
-      this.logger.error(
-        `Response API failed: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Response API failed: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -277,7 +275,8 @@ export class OpenAiService {
         stream: true,
       };
 
-      if (max_output_tokens) requestParams.max_output_tokens = max_output_tokens;
+      if (max_output_tokens)
+        requestParams.max_output_tokens = max_output_tokens;
       if (top_p) requestParams.top_p = top_p;
       if (previous_response_id) {
         requestParams.previous_response_id = previous_response_id;
@@ -292,7 +291,10 @@ export class OpenAiService {
 
       this.logger.log(`Response stream completed, model=${model}`);
     } catch (error) {
-      this.logger.error(`Response stream failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Response stream failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -304,12 +306,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): Promise<ChatCompletion> {
-    const {
-      model = 'gpt-4o',
-      temperature = 0.7,
-      max_tokens,
-      top_p,
-    } = options;
+    const { model = 'gpt-4o', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const startTime = Date.now();
@@ -344,7 +341,10 @@ export class OpenAiService {
 
       return response as ChatCompletion;
     } catch (error) {
-      this.logger.error(`Chat completion failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Chat completion failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -356,12 +356,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): AsyncIterable<ChatCompletionChunk> {
-    const {
-      model = 'gpt-4o',
-      temperature = 0.7,
-      max_tokens,
-      top_p,
-    } = options;
+    const { model = 'gpt-4o', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const stream = await this.client.chat.completions.create({
@@ -374,7 +369,7 @@ export class OpenAiService {
       });
 
       for await (const chunk of stream) {
-        yield chunk as ChatCompletionChunk;
+        yield chunk;
       }
 
       this.logger.log(`Chat stream completed, model=${model}`);
@@ -416,7 +411,10 @@ export class OpenAiService {
 
       return embedding;
     } catch (error) {
-      this.logger.error(`Embedding generation failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Embedding generation failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -453,7 +451,10 @@ export class OpenAiService {
 
       return embeddings;
     } catch (error) {
-      this.logger.error(`Batch embedding generation failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Batch embedding generation failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

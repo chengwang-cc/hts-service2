@@ -64,7 +64,12 @@ export class RateLimitService {
     const limit = this.getLimit(organizationId, plan, rateLimitConfig);
 
     // Get current usage
-    const usage = await this.getCurrentUsage(endpoint, organizationId, ipAddress, today);
+    const usage = await this.getCurrentUsage(
+      endpoint,
+      organizationId,
+      ipAddress,
+      today,
+    );
 
     // Check if unlimited
     if (limit === -1) {
@@ -84,8 +89,8 @@ export class RateLimitService {
     if (!allowed) {
       this.logger.warn(
         `Rate limit exceeded for endpoint=${endpoint} ` +
-        `organizationId=${organizationId} ipAddress=${ipAddress} ` +
-        `usage=${usage} limit=${limit}`,
+          `organizationId=${organizationId} ipAddress=${ipAddress} ` +
+          `usage=${usage} limit=${limit}`,
       );
     }
 
@@ -136,8 +141,8 @@ export class RateLimitService {
 
     this.logger.log(
       `Tracked API call: endpoint=${endpoint} ` +
-      `organizationId=${organizationId} ipAddress=${ipAddress} ` +
-      `count=${usageRecord.count}`,
+        `organizationId=${organizationId} ipAddress=${ipAddress} ` +
+        `count=${usageRecord.count}`,
     );
   }
 
@@ -151,7 +156,13 @@ export class RateLimitService {
     plan?: string,
     config?: RateLimitConfig,
   ): Promise<void> {
-    const result = await this.checkRateLimit(endpoint, organizationId, ipAddress, plan, config);
+    const result = await this.checkRateLimit(
+      endpoint,
+      organizationId,
+      ipAddress,
+      plan,
+      config,
+    );
 
     if (!result.allowed) {
       // Determine what action the user should take
@@ -203,11 +214,11 @@ export class RateLimitService {
       currentPlan: plan,
       upgradePlans,
       creditOptions: [
-        { credits: 10, price: 5.00 },
-        { credits: 20, price: 9.00 },
-        { credits: 50, price: 20.00 },
-        { credits: 100, price: 35.00 },
-        { credits: 200, price: 60.00 },
+        { credits: 10, price: 5.0 },
+        { credits: 20, price: 9.0 },
+        { credits: 50, price: 20.0 },
+        { credits: 100, price: 35.0 },
+        { credits: 200, price: 60.0 },
       ],
       autoTopUpAvailable: true,
     };
@@ -216,8 +227,13 @@ export class RateLimitService {
   /**
    * Get available upgrade plans for current plan
    */
-  private getUpgradePlans(currentPlan: string): Array<{ plan: string; limit: number }> {
-    const planHierarchy: Record<string, Array<{ plan: string; limit: number }>> = {
+  private getUpgradePlans(
+    currentPlan: string,
+  ): Array<{ plan: string; limit: number }> {
+    const planHierarchy: Record<
+      string,
+      Array<{ plan: string; limit: number }>
+    > = {
       FREE: [
         { plan: 'STARTER', limit: 40 },
         { plan: 'PROFESSIONAL', limit: 100 },
@@ -227,9 +243,7 @@ export class RateLimitService {
         { plan: 'PROFESSIONAL', limit: 100 },
         { plan: 'ENTERPRISE', limit: -1 },
       ],
-      PROFESSIONAL: [
-        { plan: 'ENTERPRISE', limit: -1 },
-      ],
+      PROFESSIONAL: [{ plan: 'ENTERPRISE', limit: -1 }],
       ENTERPRISE: [],
     };
 
@@ -280,7 +294,11 @@ export class RateLimitService {
     const baseLimit = config.authenticated;
 
     // Apply plan multiplier if available
-    if (plan && config.planMultipliers && config.planMultipliers[plan] !== undefined) {
+    if (
+      plan &&
+      config.planMultipliers &&
+      config.planMultipliers[plan] !== undefined
+    ) {
       const multiplier = config.planMultipliers[plan];
 
       // -1 means unlimited

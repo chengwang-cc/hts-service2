@@ -96,9 +96,7 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
     for (let revision = 10; revision >= 1; revision--) {
       const url = this.getDownloadUrl(currentYear, revision);
       if (await this.checkUrlExists(url)) {
-        this.logger.log(
-          `Found latest: ${currentYear} revision ${revision}`,
-        );
+        this.logger.log(`Found latest: ${currentYear} revision ${revision}`);
         return {
           year: currentYear,
           revision,
@@ -113,9 +111,7 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
     for (let revision = 10; revision >= 1; revision--) {
       const url = this.getDownloadUrl(previousYear, revision);
       if (await this.checkUrlExists(url)) {
-        this.logger.log(
-          `Found latest: ${previousYear} revision ${revision}`,
-        );
+        this.logger.log(`Found latest: ${previousYear} revision ${revision}`);
         return {
           year: previousYear,
           revision,

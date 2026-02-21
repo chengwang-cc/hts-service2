@@ -29,7 +29,9 @@ export class DetectProductDto {
 
   @IsString()
   @IsOptional()
-  @MaxLength(2000, { message: 'Truncated content must not exceed 2000 characters' })
+  @MaxLength(2000, {
+    message: 'Truncated content must not exceed 2000 characters',
+  })
   truncatedContent?: string;
 
   @IsObject()
@@ -42,7 +44,9 @@ export class DetectProductDto {
  */
 export class BulkClassifyDto {
   @IsArray()
-  @ArrayMinSize(1, { message: 'At least one product is required for classification' })
+  @ArrayMinSize(1, {
+    message: 'At least one product is required for classification',
+  })
   @ArrayMaxSize(20, { message: 'Maximum 20 products per request' })
   @ValidateNested({ each: true })
   @Type(() => ProductForClassification)
@@ -61,7 +65,9 @@ export class ProductForClassification {
 
   @IsString()
   @IsOptional()
-  @MaxLength(2000, { message: 'Product description must not exceed 2000 characters' })
+  @MaxLength(2000, {
+    message: 'Product description must not exceed 2000 characters',
+  })
   description?: string;
 
   @IsString()

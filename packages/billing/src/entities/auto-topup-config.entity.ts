@@ -28,10 +28,20 @@ export class AutoTopUpConfigEntity {
   rechargeAmount: number; // Number of credits to purchase (10, 20, 50, 100, 200)
 
   // Safety limits
-  @Column('decimal', { name: 'monthly_spending_cap', precision: 10, scale: 2, nullable: true })
+  @Column('decimal', {
+    name: 'monthly_spending_cap',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   monthlySpendingCap: number | null; // Max spending per month (optional)
 
-  @Column('decimal', { name: 'current_month_spent', precision: 10, scale: 2, default: 0 })
+  @Column('decimal', {
+    name: 'current_month_spent',
+    precision: 10,
+    scale: 2,
+    default: 0,
+  })
   currentMonthSpent: number; // Amount spent this month
 
   @Column('int', { name: 'current_month', default: 1 })
@@ -41,10 +51,18 @@ export class AutoTopUpConfigEntity {
   currentYear: number; // Year for tracking
 
   // Stripe payment method
-  @Column('varchar', { name: 'stripe_payment_method_id', length: 255, nullable: true })
+  @Column('varchar', {
+    name: 'stripe_payment_method_id',
+    length: 255,
+    nullable: true,
+  })
   stripePaymentMethodId: string | null;
 
-  @Column('varchar', { name: 'stripe_customer_id', length: 255, nullable: true })
+  @Column('varchar', {
+    name: 'stripe_customer_id',
+    length: 255,
+    nullable: true,
+  })
   stripeCustomerId: string | null;
 
   // Status

@@ -53,11 +53,20 @@ export class UsageTrackingService {
     return summary;
   }
 
-  async getCurrentUsage(organizationId: string): Promise<Record<string, number>> {
+  async getCurrentUsage(
+    organizationId: string,
+  ): Promise<Record<string, number>> {
     // Get usage for current month
     const now = new Date();
     const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const periodEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
 
     return this.getUsageSummary(organizationId, periodStart, periodEnd);
   }

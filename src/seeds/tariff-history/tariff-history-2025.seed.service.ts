@@ -6,10 +6,7 @@ import { resolve } from 'path';
 import { createInterface } from 'readline';
 import { Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import {
-  HtsSettingEntity,
-  HtsTariffHistory2025Entity,
-} from '@hts/core';
+import { HtsSettingEntity, HtsTariffHistory2025Entity } from '@hts/core';
 
 type TariffCsvRow = Record<string, string | null>;
 
@@ -81,7 +78,9 @@ export class TariffHistory2025SeedService {
       }
 
       if (!headers) {
-        headers = this.parseCsvLine(line).map((value) => value.trim().toLowerCase());
+        headers = this.parseCsvLine(line).map((value) =>
+          value.trim().toLowerCase(),
+        );
         this.validateHeader(headers);
         continue;
       }
@@ -122,7 +121,9 @@ export class TariffHistory2025SeedService {
     }
 
     if (skipped > 0) {
-      this.logger.warn(`Skipped ${skipped} rows due to parsing/validation issues`);
+      this.logger.warn(
+        `Skipped ${skipped} rows due to parsing/validation issues`,
+      );
     }
 
     return processed;
@@ -132,7 +133,12 @@ export class TariffHistory2025SeedService {
     batch: QueryDeepPartialEntity<HtsTariffHistory2025Entity>[],
   ): Promise<void> {
     await this.tariffHistoryRepo.upsert(batch, {
-      conflictPaths: ['sourceYear', 'hts8', 'beginEffectDate', 'endEffectiveDate'],
+      conflictPaths: [
+        'sourceYear',
+        'hts8',
+        'beginEffectDate',
+        'endEffectiveDate',
+      ],
       skipUpdateIfNoValuesChanged: true,
     });
   }
@@ -507,7 +513,9 @@ export class TariffHistory2025SeedService {
     ];
     const missing = required.filter((field) => !headers.includes(field));
     if (missing.length > 0) {
-      throw new Error(`Invalid tariff file header. Missing fields: ${missing.join(', ')}`);
+      throw new Error(
+        `Invalid tariff file header. Missing fields: ${missing.join(', ')}`,
+      );
     }
     if (headers.length !== 122) {
       this.logger.warn(
@@ -576,7 +584,11 @@ export class TariffHistory2025SeedService {
     const month = Number(parts[0]);
     const day = Number(parts[1]);
     const year = Number(parts[2]);
-    if (!Number.isInteger(month) || !Number.isInteger(day) || !Number.isInteger(year)) {
+    if (
+      !Number.isInteger(month) ||
+      !Number.isInteger(day) ||
+      !Number.isInteger(year)
+    ) {
       return null;
     }
     const date = new Date(Date.UTC(year, month - 1, day));
@@ -610,7 +622,10 @@ export class TariffHistory2025SeedService {
     }
   }
 
-  private async markAsLoaded(rowCount: number, filePath: string | null): Promise<void> {
+  private async markAsLoaded(
+    rowCount: number,
+    filePath: string | null,
+  ): Promise<void> {
     const payload = {
       loaded: true,
       rowCount,

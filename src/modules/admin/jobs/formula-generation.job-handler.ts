@@ -28,7 +28,9 @@ export class FormulaGenerationJobHandler {
   async execute(job: any): Promise<void> {
     const { htsNumbers, batchSize } = job.data;
 
-    this.logger.log(`Starting formula generation job. Batch size: ${batchSize}`);
+    this.logger.log(
+      `Starting formula generation job. Batch size: ${batchSize}`,
+    );
 
     try {
       // Query HTS entries without formulas
@@ -39,7 +41,9 @@ export class FormulaGenerationJobHandler {
         .andWhere('hts.generalRate != :free', { free: 'Free' });
 
       if (htsNumbers && htsNumbers.length > 0) {
-        query.andWhere('hts.htsNumber IN (:...numbers)', { numbers: htsNumbers });
+        query.andWhere('hts.htsNumber IN (:...numbers)', {
+          numbers: htsNumbers,
+        });
       }
 
       const entries = await query.take(batchSize).getMany();
@@ -53,7 +57,9 @@ export class FormulaGenerationJobHandler {
         try {
           // Skip entries without a general rate
           if (!entry.generalRate) {
-            this.logger.warn(`Skipping HTS ${entry.htsNumber} - no general rate found`);
+            this.logger.warn(
+              `Skipping HTS ${entry.htsNumber} - no general rate found`,
+            );
             continue;
           }
 
@@ -96,7 +102,9 @@ export class FormulaGenerationJobHandler {
           generated++;
 
           if (generated % 100 === 0) {
-            this.logger.log(`Progress: ${generated}/${entries.length} formulas generated`);
+            this.logger.log(
+              `Progress: ${generated}/${entries.length} formulas generated`,
+            );
           }
         } catch (error) {
           this.logger.error(
@@ -110,7 +118,10 @@ export class FormulaGenerationJobHandler {
         `Formula generation job completed. Generated: ${generated}, Failed: ${failed}`,
       );
     } catch (error) {
-      this.logger.error(`Formula generation job failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Formula generation job failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

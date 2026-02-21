@@ -65,7 +65,10 @@ export class AgentOrchestrationService implements OnModuleInit {
       this.isInitialized = true;
       this.logger.log('Agent Orchestration Service initialized');
     } catch (error) {
-      this.logger.error('Failed to initialize Agent Orchestration Service', error.stack);
+      this.logger.error(
+        'Failed to initialize Agent Orchestration Service',
+        error.stack,
+      );
       throw error;
     }
   }
@@ -126,7 +129,10 @@ export class AgentOrchestrationService implements OnModuleInit {
         const choice = response.choices[0];
 
         // Check if agent wants to call tools
-        if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+        if (
+          choice.finish_reason === 'tool_calls' &&
+          choice.message.tool_calls
+        ) {
           // Add assistant message to conversation
           messages.push(choice.message);
 
@@ -139,7 +145,10 @@ export class AgentOrchestrationService implements OnModuleInit {
             toolsUsed.push(toolName);
 
             // Execute tool via MCP server
-            const toolResult = await this.mcpServer.executeTool(toolName, toolArgs);
+            const toolResult = await this.mcpServer.executeTool(
+              toolName,
+              toolArgs,
+            );
 
             // Track method used
             if (toolName === 'scrape_with_puppeteer') {
@@ -158,7 +167,10 @@ export class AgentOrchestrationService implements OnModuleInit {
               toolResult.success
             ) {
               this.logger.log('Analyzing screenshot with vision service');
-              const screenshotBuffer = Buffer.from(toolResult.screenshot, 'base64');
+              const screenshotBuffer = Buffer.from(
+                toolResult.screenshot,
+                'base64',
+              );
               visionAnalysis = await this.visionService.analyzeProductImage(
                 screenshotBuffer,
                 { url, title: scrapedContent?.title },
@@ -261,7 +273,9 @@ Return products as JSON: { "products": [ { "name": "...", "description": "...", 
     }
 
     if (options.scrapingOptions?.waitForSelector) {
-      parts.push(`- Wait for selector: ${options.scrapingOptions.waitForSelector}`);
+      parts.push(
+        `- Wait for selector: ${options.scrapingOptions.waitForSelector}`,
+      );
     }
 
     parts.push('');

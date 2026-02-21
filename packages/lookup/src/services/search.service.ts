@@ -25,11 +25,13 @@ export class SearchService {
 
     let semanticResults: Array<{ htsNumber: string; similarity: number }> = [];
     const shouldRunSemantic =
-      normalizedQuery.length >= 4 && !this.isLikelyHtsCodeQuery(normalizedQuery);
+      normalizedQuery.length >= 4 &&
+      !this.isLikelyHtsCodeQuery(normalizedQuery);
 
     if (shouldRunSemantic) {
       try {
-        const embedding = await this.embeddingService.generateEmbedding(normalizedQuery);
+        const embedding =
+          await this.embeddingService.generateEmbedding(normalizedQuery);
         const semanticRaw = await this.embeddingRepository
           .createQueryBuilder('emb')
           .innerJoin(
@@ -57,8 +59,15 @@ export class SearchService {
       }
     }
 
-    const keywordResults = await this.searchByKeyword(normalizedQuery, safeLimit);
-    const combined = this.combineResults(semanticResults, keywordResults, safeLimit);
+    const keywordResults = await this.searchByKeyword(
+      normalizedQuery,
+      safeLimit,
+    );
+    const combined = this.combineResults(
+      semanticResults,
+      keywordResults,
+      safeLimit,
+    );
     if (combined.length === 0) {
       return [];
     }
@@ -71,7 +80,9 @@ export class SearchService {
       },
       select: ['htsNumber', 'description', 'chapter', 'indent'],
     });
-    const entryByHts = new Map(entries.map((entry) => [entry.htsNumber, entry]));
+    const entryByHts = new Map(
+      entries.map((entry) => [entry.htsNumber, entry]),
+    );
 
     return combined
       .map((result) => {
@@ -96,10 +107,28 @@ export class SearchService {
       return [];
     }
 
-    const normalizedCode = normalizedQuery.replace(/[^\d]/g, '');
-    const containsQuery = `%${normalizedQuery}%`;
-    const prefixQuery = `${normalizedQuery}%`;
-    const descriptionPrefix = `${normalizedQuery}%`;
+    // Check if query is likely an HTS code (numbers and dots)
+    const isHtsCodeQuery = this.isLikelyHtsCodeQuery(normalizedQuery);
+
+    if (isHtsCodeQuery) {
+      // Use pattern matching for HTS code queries
+      return this.autocompleteByCode(normalizedQuery, safeLimit);
+    }
+
+    // Use full-text search for description queries
+    return this.autocompleteByFullText(normalizedQuery, safeLimit);
+  }
+
+  /**
+   * Autocomplete by HTS code pattern matching
+   */
+  private async autocompleteByCode(
+    query: string,
+    limit: number,
+  ): Promise<any[]> {
+    const normalizedCode = query.replace(/[^\d]/g, '');
+    const containsQuery = `%${query}%`;
+    const prefixQuery = `${query}%`;
     const normalizedPrefix = `${normalizedCode}%`;
     const normalizedContains = `%${normalizedCode}%`;
 
@@ -114,8 +143,6 @@ export class SearchService {
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') = :normalizedCode THEN 1.0
           WHEN hts.htsNumber ILIKE :prefixQuery THEN 0.96
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') LIKE :normalizedPrefix THEN 0.94
-          WHEN hts.description ILIKE :descriptionPrefix THEN 0.75
-          WHEN hts.description ILIKE :containsQuery THEN 0.55
           WHEN hts.htsNumber ILIKE :containsQuery THEN 0.5
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains THEN 0.45
           ELSE 0
@@ -123,16 +150,18 @@ export class SearchService {
         'score',
       )
       .where('hts.isActive = :active', { active: true })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+
       .andWhere(
         new Brackets((qb) => {
-          qb.where('hts.htsNumber ILIKE :containsQuery', { containsQuery }).orWhere(
-            'hts.description ILIKE :containsQuery',
-            { containsQuery },
-          );
+          qb.where('hts.htsNumber ILIKE :containsQuery', { containsQuery });
           if (normalizedCode) {
-            qb.orWhere("REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains", {
-              normalizedContains,
-            });
+            qb.orWhere(
+              "REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains",
+              {
+                normalizedContains,
+              },
+            );
           }
         }),
       )
@@ -140,13 +169,52 @@ export class SearchService {
         normalizedCode,
         prefixQuery,
         normalizedPrefix,
-        descriptionPrefix,
         containsQuery,
         normalizedContains,
       })
       .orderBy('score', 'DESC')
       .addOrderBy('hts.htsNumber', 'ASC')
-      .limit(safeLimit)
+      .limit(limit)
+      .getRawMany();
+
+    return rows.map((row) => ({
+      htsNumber: row.htsNumber,
+      description: row.description,
+      chapter: row.chapter,
+      indent: Number(row.indent) || 0,
+      score: Number(row.score) || 0,
+    }));
+  }
+
+  /**
+   * Autocomplete by full-text search
+   */
+  private async autocompleteByFullText(
+    query: string,
+    limit: number,
+  ): Promise<any[]> {
+    // Prepare tsquery - use prefix matching for autocomplete
+    const words = query.split(/\s+/).filter((w) => w.length > 0);
+    const tsquery = words.map((w) => `${w}:*`).join(' | '); // OR logic for better autocomplete
+
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.htsNumber', 'htsNumber')
+      .addSelect('hts.description', 'description')
+      .addSelect('hts.chapter', 'chapter')
+      .addSelect('hts.indent', 'indent')
+      .addSelect(
+        `ts_rank(hts.searchVector, to_tsquery('english', :tsquery))`,
+        'score',
+      )
+      .where('hts.isActive = :active', { active: true })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+
+      .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
+      .setParameters({ tsquery })
+      .orderBy('score', 'DESC')
+      .addOrderBy('hts.htsNumber', 'ASC')
+      .limit(limit)
       .getRawMany();
 
     return rows.map((row) => ({
@@ -162,10 +230,26 @@ export class SearchService {
     query: string,
     limit: number,
   ): Promise<Array<{ htsNumber: string; score: number }>> {
+    // Check if query is HTS code or description search
+    const isHtsCodeQuery = this.isLikelyHtsCodeQuery(query);
+
+    if (isHtsCodeQuery) {
+      return this.searchByCode(query, limit);
+    }
+
+    return this.searchByFullText(query, limit);
+  }
+
+  /**
+   * Search by HTS code pattern matching
+   */
+  private async searchByCode(
+    query: string,
+    limit: number,
+  ): Promise<Array<{ htsNumber: string; score: number }>> {
     const normalizedCode = query.replace(/[^\d]/g, '');
     const containsQuery = `%${query}%`;
     const prefixQuery = `${query}%`;
-    const descriptionPrefix = `${query}%`;
     const normalizedPrefix = `${normalizedCode}%`;
     const normalizedContains = `%${normalizedCode}%`;
 
@@ -177,8 +261,6 @@ export class SearchService {
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') = :normalizedCode THEN 1.0
           WHEN hts.htsNumber ILIKE :prefixQuery THEN 0.95
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') LIKE :normalizedPrefix THEN 0.93
-          WHEN hts.description ILIKE :descriptionPrefix THEN 0.7
-          WHEN hts.description ILIKE :containsQuery THEN 0.55
           WHEN hts.htsNumber ILIKE :containsQuery THEN 0.5
           WHEN :normalizedCode <> '' AND REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains THEN 0.45
           ELSE 0
@@ -186,16 +268,18 @@ export class SearchService {
         'score',
       )
       .where('hts.isActive = :active', { active: true })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+
       .andWhere(
         new Brackets((qb) => {
-          qb.where('hts.htsNumber ILIKE :containsQuery', { containsQuery }).orWhere(
-            'hts.description ILIKE :containsQuery',
-            { containsQuery },
-          );
+          qb.where('hts.htsNumber ILIKE :containsQuery', { containsQuery });
           if (normalizedCode) {
-            qb.orWhere("REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains", {
-              normalizedContains,
-            });
+            qb.orWhere(
+              "REPLACE(hts.htsNumber, '.', '') LIKE :normalizedContains",
+              {
+                normalizedContains,
+              },
+            );
           }
         }),
       )
@@ -203,10 +287,43 @@ export class SearchService {
         normalizedCode,
         prefixQuery,
         normalizedPrefix,
-        descriptionPrefix,
         containsQuery,
         normalizedContains,
       })
+      .orderBy('score', 'DESC')
+      .addOrderBy('hts.htsNumber', 'ASC')
+      .limit(limit)
+      .getRawMany();
+
+    return rows.map((row) => ({
+      htsNumber: row.htsNumber,
+      score: Number(row.score) || 0,
+    }));
+  }
+
+  /**
+   * Search by full-text search with ranking
+   */
+  private async searchByFullText(
+    query: string,
+    limit: number,
+  ): Promise<Array<{ htsNumber: string; score: number }>> {
+    // Prepare tsquery - convert query to tsquery format
+    const words = query.split(/\s+/).filter((w) => w.length > 0);
+    const tsquery = words.map((w) => `${w}:*`).join(' | '); // OR logic for better autocomplete
+
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.htsNumber', 'htsNumber')
+      .addSelect(
+        `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
+        'score',
+      )
+      .where('hts.isActive = :active', { active: true })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+
+      .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
+      .setParameters({ tsquery })
       .orderBy('score', 'DESC')
       .addOrderBy('hts.htsNumber', 'ASC')
       .limit(limit)
@@ -247,7 +364,9 @@ export class SearchService {
     semantic.forEach((result, index) => {
       combined.set(result.htsNumber, {
         htsNumber: result.htsNumber,
-        score: result.similarity * 0.7 + (1 - index / Math.max(semantic.length, 1)) * 0.3,
+        score:
+          result.similarity * 0.7 +
+          (1 - index / Math.max(semantic.length, 1)) * 0.3,
       });
     });
 

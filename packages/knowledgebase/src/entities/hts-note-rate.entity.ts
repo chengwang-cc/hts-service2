@@ -29,14 +29,12 @@ export class HtsNoteRateEntity {
   rateType: string;
 
   @Column('jsonb', { nullable: true })
-  variables:
-    | Array<{
-        name: string;
-        type: string;
-        unit?: string;
-        description?: string;
-      }>
-    | null;
+  variables: Array<{
+    name: string;
+    type: string;
+    unit?: string;
+    description?: string;
+  }> | null;
 
   @Column('decimal', { precision: 5, scale: 2, nullable: true })
   confidence: number | null;

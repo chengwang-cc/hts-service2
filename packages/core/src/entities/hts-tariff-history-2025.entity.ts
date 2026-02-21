@@ -103,13 +103,13 @@ export class HtsTariffHistory2025Entity {
   /**
    * Country/program indicators and duty component values for non-MFN programs.
    */
-  @Column('jsonb', { default: () => "'{}'::jsonb" })
+  @Column('jsonb', { default: {} })
   preferencePrograms: Record<string, unknown>;
 
   /**
    * Computation-ready representation (ad valorem/specific/other components).
    */
-  @Column('jsonb', { default: () => "'{}'::jsonb" })
+  @Column('jsonb', { default: {} })
   mathComponents: Record<string, unknown>;
 
   /**
@@ -129,4 +129,5 @@ export class HtsTariffHistory2025Entity {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
 }

@@ -39,7 +39,10 @@ export class ApiKeyService implements OnModuleDestroy {
     private readonly usageSummaryRepository: Repository<ApiUsageSummaryEntity>,
   ) {
     // Clean cache every 10 minutes
-    this.cacheCleanupTimer = setInterval(() => this.cleanCache(), 10 * 60 * 1000);
+    this.cacheCleanupTimer = setInterval(
+      () => this.cleanCache(),
+      10 * 60 * 1000,
+    );
     this.cacheCleanupTimer.unref?.();
   }
 

@@ -1,4 +1,10 @@
-import { IsString, IsEnum, IsOptional, IsObject, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsObject,
+  IsBoolean,
+} from 'class-validator';
 
 export class StartOnboardingDto {
   @IsEnum(['merchant', 'broker', 'developer'])
@@ -31,8 +37,17 @@ export class ValidateCsvDto {
 }
 
 export class GenerateTemplateDto {
-  @IsEnum(['product-catalog', 'sku-mapping', 'broker-format', 'customs-declaration'])
-  templateType: 'product-catalog' | 'sku-mapping' | 'broker-format' | 'customs-declaration';
+  @IsEnum([
+    'product-catalog',
+    'sku-mapping',
+    'broker-format',
+    'customs-declaration',
+  ])
+  templateType:
+    | 'product-catalog'
+    | 'sku-mapping'
+    | 'broker-format'
+    | 'customs-declaration';
 
   @IsOptional()
   @IsBoolean()

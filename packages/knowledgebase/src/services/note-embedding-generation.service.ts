@@ -111,9 +111,8 @@ export class NoteEmbeddingGenerationService {
         }
 
         // Generate embedding
-        const embeddingVector = await this.embeddingService.generateEmbedding(
-          searchText,
-        );
+        const embeddingVector =
+          await this.embeddingService.generateEmbedding(searchText);
 
         const existing = await this.embeddingRepository.findOne({
           where: { noteId: note.id },
@@ -172,9 +171,8 @@ export class NoteEmbeddingGenerationService {
     }
 
     // Generate embedding
-    const embeddingVector = await this.embeddingService.generateEmbedding(
-      searchText,
-    );
+    const embeddingVector =
+      await this.embeddingService.generateEmbedding(searchText);
 
     const existing = await this.embeddingRepository.findOne({
       where: { noteId: note.id },

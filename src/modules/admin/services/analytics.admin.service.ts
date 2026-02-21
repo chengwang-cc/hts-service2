@@ -51,7 +51,9 @@ export class AnalyticsAdminService {
    */
   async getUserStats() {
     const total = await this.userRepository.count();
-    const active = await this.userRepository.count({ where: { isActive: true } });
+    const active = await this.userRepository.count({
+      where: { isActive: true },
+    });
 
     const byRole = await this.userRepository
       .createQueryBuilder('user')
@@ -74,7 +76,9 @@ export class AnalyticsAdminService {
    */
   async getOrganizationStats() {
     const total = await this.organizationRepository.count();
-    const active = await this.organizationRepository.count({ where: { isActive: true } });
+    const active = await this.organizationRepository.count({
+      where: { isActive: true },
+    });
 
     const byPlan = await this.organizationRepository
       .createQueryBuilder('org')

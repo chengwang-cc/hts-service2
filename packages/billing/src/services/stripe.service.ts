@@ -3,9 +3,7 @@ import Stripe from 'stripe';
 
 @Injectable()
 export class StripeService {
-  constructor(
-    @Inject('STRIPE_CLIENT') private readonly stripe: Stripe,
-  ) {}
+  constructor(@Inject('STRIPE_CLIENT') private readonly stripe: Stripe) {}
 
   /**
    * Create Stripe customer
@@ -50,7 +48,8 @@ export class StripeService {
       quantity?: number;
     },
   ): Promise<Stripe.Subscription> {
-    const subscription = await this.stripe.subscriptions.retrieve(subscriptionId);
+    const subscription =
+      await this.stripe.subscriptions.retrieve(subscriptionId);
 
     return this.stripe.subscriptions.update(subscriptionId, {
       items: [
@@ -158,7 +157,9 @@ export class StripeService {
    * Get customer
    */
   async getCustomer(customerId: string): Promise<Stripe.Customer> {
-    return this.stripe.customers.retrieve(customerId) as Promise<Stripe.Customer>;
+    return this.stripe.customers.retrieve(
+      customerId,
+    ) as Promise<Stripe.Customer>;
   }
 
   /**
@@ -173,7 +174,10 @@ export class StripeService {
   /**
    * List invoices for customer
    */
-  async listInvoices(customerId: string, limit: number = 10): Promise<Stripe.Invoice[]> {
+  async listInvoices(
+    customerId: string,
+    limit: number = 10,
+  ): Promise<Stripe.Invoice[]> {
     const result = await this.stripe.invoices.list({
       customer: customerId,
       limit,

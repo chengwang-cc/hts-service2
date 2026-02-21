@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 import * as crypto from 'crypto';
@@ -36,16 +41,19 @@ export class S3StorageService {
     // Initialize S3 client
     this.s3Client = new S3Client({
       region: process.env.AWS_REGION || 'us-east-1',
-      credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-        ? {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-          }
-        : undefined, // Use default credentials chain if not provided
+      credentials:
+        process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+          ? {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            }
+          : undefined, // Use default credentials chain if not provided
     });
 
     this.defaultBucket = process.env.S3_BUCKET_NAME || 'hts-data';
-    this.logger.log(`S3 Storage initialized (bucket: ${this.defaultBucket}, region: ${process.env.AWS_REGION || 'us-east-1'})`);
+    this.logger.log(
+      `S3 Storage initialized (bucket: ${this.defaultBucket}, region: ${process.env.AWS_REGION || 'us-east-1'})`,
+    );
   }
 
   /**
@@ -102,7 +110,9 @@ export class S3StorageService {
           const percent = Math.round((progress.loaded / progress.total) * 100);
           if (percent % 10 === 0) {
             // Log every 10%
-            this.logger.debug(`Upload progress: ${percent}% (${progress.loaded}/${progress.total} bytes)`);
+            this.logger.debug(
+              `Upload progress: ${percent}% (${progress.loaded}/${progress.total} bytes)`,
+            );
           }
         }
       });
@@ -111,7 +121,7 @@ export class S3StorageService {
       const sha256 = hash.digest('hex');
 
       this.logger.log(
-        `Upload completed: s3://${bucket}/${key} (${totalSize} bytes, SHA-256: ${sha256.substring(0, 12)}...)`
+        `Upload completed: s3://${bucket}/${key} (${totalSize} bytes, SHA-256: ${sha256.substring(0, 12)}...)`,
       );
 
       return {
@@ -123,7 +133,10 @@ export class S3StorageService {
         sha256,
       };
     } catch (error) {
-      this.logger.error(`S3 upload failed for ${key}: ${error.message}`, error.stack);
+      this.logger.error(
+        `S3 upload failed for ${key}: ${error.message}`,
+        error.stack,
+      );
       throw new Error(`Failed to upload to S3: ${error.message}`);
     }
   }
@@ -139,7 +152,7 @@ export class S3StorageService {
         new GetObjectCommand({
           Bucket: bucket,
           Key: key,
-        })
+        }),
       );
 
       return response.Body as Readable;
@@ -158,7 +171,7 @@ export class S3StorageService {
         new HeadObjectCommand({
           Bucket: bucket,
           Key: key,
-        })
+        }),
       );
       return true;
     } catch (error) {
@@ -172,7 +185,10 @@ export class S3StorageService {
   /**
    * Get object metadata
    */
-  async getMetadata(bucket: string, key: string): Promise<{
+  async getMetadata(
+    bucket: string,
+    key: string,
+  ): Promise<{
     size: number;
     etag: string;
     lastModified: Date;
@@ -183,7 +199,7 @@ export class S3StorageService {
       new HeadObjectCommand({
         Bucket: bucket,
         Key: key,
-      })
+      }),
     );
 
     return {

@@ -22,10 +22,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
 
     // Skip JWT auth for @SkipJwtAuth() decorated routes (uses API key auth instead)
-    const skipJwtAuth = this.reflector.getAllAndOverride<boolean>(SKIP_JWT_AUTH_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const skipJwtAuth = this.reflector.getAllAndOverride<boolean>(
+      SKIP_JWT_AUTH_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     if (skipJwtAuth) {
       return true;

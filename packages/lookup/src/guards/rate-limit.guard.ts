@@ -7,7 +7,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { RateLimitService } from '../services/rate-limit.service';
-import { RATE_LIMIT_KEY, RateLimitOptions } from '../decorators/rate-limit.decorator';
+import {
+  RATE_LIMIT_KEY,
+  RateLimitOptions,
+} from '../decorators/rate-limit.decorator';
 
 /**
  * Rate Limit Guard
@@ -46,7 +49,7 @@ export class RateLimitGuard implements CanActivate {
 
     this.logger.log(
       `Rate limit check: endpoint=${rateLimitOptions.endpoint} ` +
-      `organizationId=${organizationId} ipAddress=${ipAddress} plan=${plan}`,
+        `organizationId=${organizationId} ipAddress=${ipAddress} plan=${plan}`,
     );
 
     // Enforce rate limit (throws exception if exceeded)

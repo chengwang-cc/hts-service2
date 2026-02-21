@@ -33,9 +33,7 @@ export class HtsFormulaGenerationService {
     unresolvedAdjusted: number;
   }> {
     const resolvedOptions: FormulaGenerationOptions =
-      typeof options === 'number'
-        ? { batchSize: options }
-        : options;
+      typeof options === 'number' ? { batchSize: options } : options;
 
     const batchSize = Math.max(1, resolvedOptions.batchSize ?? 250);
     const includeAdjusted = resolvedOptions.includeAdjusted ?? true;
@@ -75,7 +73,9 @@ export class HtsFormulaGenerationService {
       `Generating deterministic formulas (version=${resolvedOptions.sourceVersion || 'ALL'}, activeOnly=${resolvedOptions.activeOnly ? 'yes' : 'no'})`,
     );
 
-    this.logger.log(`Generating formulas for ${generalEntries.length} general rates`);
+    this.logger.log(
+      `Generating formulas for ${generalEntries.length} general rates`,
+    );
     for (let i = 0; i < generalEntries.length; i += batchSize) {
       const batch = generalEntries.slice(i, i + batchSize);
       try {
@@ -99,7 +99,9 @@ export class HtsFormulaGenerationService {
       }
     }
 
-    this.logger.log(`Generating formulas for ${otherEntries.length} other rates`);
+    this.logger.log(
+      `Generating formulas for ${otherEntries.length} other rates`,
+    );
     for (let i = 0; i < otherEntries.length; i += batchSize) {
       const batch = otherEntries.slice(i, i + batchSize);
       try {
@@ -124,7 +126,9 @@ export class HtsFormulaGenerationService {
     }
 
     if (includeAdjusted) {
-      this.logger.log(`Generating formulas for ${adjustedEntries.length} adjusted rates`);
+      this.logger.log(
+        `Generating formulas for ${adjustedEntries.length} adjusted rates`,
+      );
       for (let i = 0; i < adjustedEntries.length; i += batchSize) {
         const batch = adjustedEntries.slice(i, i + batchSize);
         try {
@@ -187,8 +191,14 @@ export class HtsFormulaGenerationService {
     entries: HtsEntity[],
     rateField: 'generalRate' | 'otherRate' | 'chapter99',
     formulaField: 'rateFormula' | 'otherRateFormula' | 'adjustedFormula',
-    variablesField: 'rateVariables' | 'otherRateVariables' | 'adjustedFormulaVariables',
-    generatedFlagField: 'isFormulaGenerated' | 'isOtherFormulaGenerated' | 'isAdjustedFormulaGenerated',
+    variablesField:
+      | 'rateVariables'
+      | 'otherRateVariables'
+      | 'adjustedFormulaVariables',
+    generatedFlagField:
+      | 'isFormulaGenerated'
+      | 'isOtherFormulaGenerated'
+      | 'isAdjustedFormulaGenerated',
     metadataPrefix: 'formula' | 'otherFormula' | 'adjustedFormula',
   ): { updates: HtsEntity[]; unresolved: number } {
     const updates: HtsEntity[] = [];

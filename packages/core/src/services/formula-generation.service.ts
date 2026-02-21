@@ -29,7 +29,12 @@ export class FormulaGenerationService {
     method: 'pattern' | 'ai';
   }> {
     if (!rateText || rateText.trim() === '') {
-      return { formula: '0', variables: [], confidence: 1.0, method: 'pattern' };
+      return {
+        formula: '0',
+        variables: [],
+        confidence: 1.0,
+        method: 'pattern',
+      };
     }
 
     const normalized = this.normalizeRateText(rateText);
@@ -58,7 +63,10 @@ export class FormulaGenerationService {
       return { formula: '0', variables: [], confidence: 1.0 };
     }
 
-    return this.tryPatternMatching(this.normalizeRateText(rateText), unitOfQuantity);
+    return this.tryPatternMatching(
+      this.normalizeRateText(rateText),
+      unitOfQuantity,
+    );
   }
 
   /**
@@ -106,7 +114,10 @@ export class FormulaGenerationService {
 
     // Specific duty:
     // "$2.50/kg", "25¢/kg", "0.9 cents each", "2.8 cents/doz.", "3.7 cents/kg on drained weight"
-    const specificComponent = this.parseSpecificComponent(rateText, unitOfQuantity);
+    const specificComponent = this.parseSpecificComponent(
+      rateText,
+      unitOfQuantity,
+    );
     if (specificComponent) {
       return {
         formula: `${specificComponent.variable} * ${specificComponent.amount}`,
@@ -135,7 +146,10 @@ export class FormulaGenerationService {
     rateText: string,
     unitOfQuantity?: string,
   ): { formula: string; variables: string[]; confidence: number } | null {
-    const parts = rateText.split(/\s*\+\s*/).map((part) => part.trim()).filter(Boolean);
+    const parts = rateText
+      .split(/\s*\+\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (parts.length < 2 || parts.length > 3) {
       return null;
     }
@@ -148,7 +162,10 @@ export class FormulaGenerationService {
         index,
         rate: this.parsePercentComponent(part),
       }))
-      .filter((entry) => entry.rate !== null) as Array<{ index: number; rate: number }>;
+      .filter((entry) => entry.rate !== null) as Array<{
+      index: number;
+      rate: number;
+    }>;
     if (percentComponents.length !== 1) {
       return null;
     }
@@ -157,7 +174,9 @@ export class FormulaGenerationService {
       .map((part, index) => ({ part, index }))
       .filter((entry) => entry.index !== percentComponents[0].index)
       .map((entry) => this.parseSpecificComponent(entry.part, unitOfQuantity))
-      .filter((entry): entry is { variable: string; amount: number } => !!entry);
+      .filter(
+        (entry): entry is { variable: string; amount: number } => !!entry,
+      );
 
     if (specificComponents.length !== parts.length - 1) {
       return null;
@@ -167,7 +186,10 @@ export class FormulaGenerationService {
       (component) => `${component.variable} * ${component.amount}`,
     );
     const variables = Array.from(
-      new Set(['value', ...specificComponents.map((component) => component.variable)]),
+      new Set([
+        'value',
+        ...specificComponents.map((component) => component.variable),
+      ]),
     );
 
     return {
@@ -201,7 +223,8 @@ export class FormulaGenerationService {
         eachStyleMatch[2],
         eachStyleMatch[3] || null,
       );
-      const variable = this.mapUnitToVariable(eachStyleMatch[4], unitOfQuantity) || 'quantity';
+      const variable =
+        this.mapUnitToVariable(eachStyleMatch[4], unitOfQuantity) || 'quantity';
       return { variable, amount };
     }
 
@@ -227,10 +250,13 @@ export class FormulaGenerationService {
         amount = amount / denominator;
       }
 
-      const inferredUnit = (unitOfQuantity || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const inferredVariable = inferredUnit.length > 0
-        ? this.mapUnitToVariable(inferredUnit, unitOfQuantity)
-        : null;
+      const inferredUnit = (unitOfQuantity || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+      const inferredVariable =
+        inferredUnit.length > 0
+          ? this.mapUnitToVariable(inferredUnit, unitOfQuantity)
+          : null;
       const variable = inferredVariable || 'quantity';
       return { variable, amount };
     }
@@ -355,7 +381,8 @@ Examples:
       const result = JSON.parse(outputText);
 
       // Validate response
-      const hasValidFormula = typeof result.formula === 'string' && result.formula.trim().length > 0;
+      const hasValidFormula =
+        typeof result.formula === 'string' && result.formula.trim().length > 0;
       const hasValidVariables = Array.isArray(result.variables);
       const hasValidConfidence =
         typeof result.confidence === 'number' &&
@@ -382,27 +409,33 @@ Examples:
   /**
    * Map unit to variable name
    */
-  private mapUnitToVariable(unit: string, unitOfQuantity?: string): string | null {
+  private mapUnitToVariable(
+    unit: string,
+    unitOfQuantity?: string,
+  ): string | null {
     const normalized = unit.toLowerCase().trim();
     const normalizedWithoutQualifiers = normalized
       .replace(/\b(clean|net|gross|drained|proof|pf\.?)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     const compact = normalized.replace(/[^a-z0-9]/g, '');
-    const compactWithoutQualifiers = normalizedWithoutQualifiers.replace(/[^a-z0-9]/g, '');
+    const compactWithoutQualifiers = normalizedWithoutQualifiers.replace(
+      /[^a-z0-9]/g,
+      '',
+    );
 
     // Weight-based units
     if (
       /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
         normalized,
-      )
-      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      ) ||
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
         compact,
-      )
-      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      ) ||
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
         normalizedWithoutQualifiers,
-      )
-      || /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      ) ||
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
         compactWithoutQualifiers,
       )
     ) {
@@ -413,14 +446,14 @@ Examples:
     if (
       /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
         normalized,
-      )
-      || /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+      ) ||
+      /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
         compact,
-      )
-      || /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+      ) ||
+      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
         normalizedWithoutQualifiers,
-      )
-      || /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
+      ) ||
+      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
         compactWithoutQualifiers,
       )
     ) {
@@ -431,14 +464,14 @@ Examples:
     if (
       /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts)$/.test(
         normalized,
-      )
-      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
+      ) ||
+      /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
         compact,
-      )
-      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts)$/.test(
+      ) ||
+      /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts)$/.test(
         normalizedWithoutQualifiers,
-      )
-      || /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
+      ) ||
+      /^(l|liter|liters|litre|litres|ml|milliliter|milliliters|gal|gallon|gallons|qt|quart|quarts|proofliter|proofliters|pfliter|pfliters)$/.test(
         compactWithoutQualifiers,
       )
     ) {
@@ -466,15 +499,19 @@ Examples:
     // Default to quantity if unitOfQuantity matches
     if (
       unitOfQuantity &&
-      (
-        compact.includes(unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''))
-        || compactWithoutQualifiers.includes(unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''))
-      )
+      (compact.includes(
+        unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''),
+      ) ||
+        compactWithoutQualifiers.includes(
+          unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''),
+        ))
     ) {
       return 'quantity';
     }
 
-    this.logger.warn(`Unknown unit: ${unit}, unable to map to formula variable`);
+    this.logger.warn(
+      `Unknown unit: ${unit}, unable to map to formula variable`,
+    );
     return null;
   }
 
@@ -517,7 +554,10 @@ Examples:
       }
 
       const normalized = this.normalizeRateText(rate.rateText);
-      const patternResult = this.tryPatternMatching(normalized, rate.unitOfQuantity);
+      const patternResult = this.tryPatternMatching(
+        normalized,
+        rate.unitOfQuantity,
+      );
       if (patternResult) {
         results[index] = { ...patternResult, method: 'pattern' };
       } else {

@@ -163,5 +163,4 @@ export class HtsExtraTaxEntity {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
 }

@@ -19,7 +19,7 @@ export class AuthService {
       relations: ['roles', 'organization'],
     });
 
-    if (user && await bcrypt.compare(password, user.password)) {
+    if (user && (await bcrypt.compare(password, user.password))) {
       const { password, ...result } = user;
       return result;
     }
@@ -32,7 +32,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       organizationId: user.organizationId,
-      roles: user.roles?.map(r => r.name) || [],
+      roles: user.roles?.map((r) => r.name) || [],
     };
 
     return {
@@ -65,7 +65,7 @@ export class AuthService {
         sub: user.id,
         email: user.email,
         organizationId: user.organizationId,
-        roles: user.roles?.map(r => r.name) || [],
+        roles: user.roles?.map((r) => r.name) || [],
       };
 
       return {
@@ -81,7 +81,13 @@ export class AuthService {
     }
   }
 
-  async register(email: string, password: string, firstName: string, lastName: string, organizationId: string | null) {
+  async register(
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    organizationId: string | null,
+  ) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = this.userRepository.create({
       email,

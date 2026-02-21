@@ -24,9 +24,6 @@ import { OnboardingController } from './controllers/onboarding.controller';
     TemplateService,
   ],
   controllers: [OnboardingController],
-  exports: [
-    OnboardingService,
-    TemplateService,
-  ],
+  exports: [OnboardingService, TemplateService],
 })
 export class OnboardingModule {}

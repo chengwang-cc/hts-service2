@@ -21,9 +21,9 @@ import { ClassificationPublicController } from './v1/controllers/classification-
 @Module({
   imports: [
     ApiKeysModule,
-    LookupModule,  // Import wrapper module that exports services
-    CalculatorModule,  // Import wrapper module that exports services
-    KnowledgebaseModule,  // Import wrapper module that exports services
+    LookupModule, // Import wrapper module that exports services
+    CalculatorModule, // Import wrapper module that exports services
+    KnowledgebaseModule, // Import wrapper module that exports services
     TypeOrmModule.forFeature([HtsEntity, CalculationHistoryEntity]),
   ],
   controllers: [

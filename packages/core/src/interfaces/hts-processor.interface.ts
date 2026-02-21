@@ -34,10 +34,7 @@ export interface IHtsProcessorService {
   /**
    * Process entire USITC dataset
    */
-  processUsitcData(
-    data: any,
-    version: string,
-  ): Promise<ProcessingResult>;
+  processUsitcData(data: any, version: string): Promise<ProcessingResult>;
 
   /**
    * Process single HTS item from USITC JSON

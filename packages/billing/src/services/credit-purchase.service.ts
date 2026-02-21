@@ -26,11 +26,11 @@ export class CreditPurchaseService {
 
   // Credit pricing tiers
   private readonly CREDIT_PRICES: Record<number, number> = {
-    10: 5.00,
-    20: 9.00,
-    50: 20.00,
-    100: 35.00,
-    200: 60.00,
+    10: 5.0,
+    20: 9.0,
+    50: 20.0,
+    100: 35.0,
+    200: 60.0,
   };
 
   constructor(
@@ -51,12 +51,12 @@ export class CreditPurchaseService {
     const price = this.CREDIT_PRICES[dto.credits];
     if (!price) {
       throw new BadRequestException(
-        `Invalid credit amount. Must be one of: ${Object.keys(this.CREDIT_PRICES).join(', ')}`
+        `Invalid credit amount. Must be one of: ${Object.keys(this.CREDIT_PRICES).join(', ')}`,
       );
     }
 
     this.logger.log(
-      `Creating checkout session for ${dto.credits} credits ($${price}) for org ${dto.organizationId}`
+      `Creating checkout session for ${dto.credits} credits ($${price}) for org ${dto.organizationId}`,
     );
 
     // Create pending credit purchase record
@@ -105,7 +105,9 @@ export class CreditPurchaseService {
     purchase.stripeSessionId = session.id;
     await this.creditPurchaseRepo.save(purchase);
 
-    this.logger.log(`Created Stripe session ${session.id} for purchase ${purchase.id}`);
+    this.logger.log(
+      `Created Stripe session ${session.id} for purchase ${purchase.id}`,
+    );
 
     return {
       sessionId: session.id,
@@ -158,7 +160,7 @@ export class CreditPurchaseService {
       await this.addCredits(purchase.organizationId, purchase.credits);
 
       this.logger.log(
-        `Purchase ${purchase.id} completed: ${purchase.credits} credits added to org ${purchase.organizationId}`
+        `Purchase ${purchase.id} completed: ${purchase.credits} credits added to org ${purchase.organizationId}`,
       );
 
       return {
@@ -200,7 +202,10 @@ export class CreditPurchaseService {
 
     // Update status to failed
     purchase.status = 'failed';
-    purchase.metadata = { ...purchase.metadata, cancelledAt: new Date().toISOString() };
+    purchase.metadata = {
+      ...purchase.metadata,
+      cancelledAt: new Date().toISOString(),
+    };
     await this.creditPurchaseRepo.save(purchase);
 
     return {
@@ -212,7 +217,10 @@ export class CreditPurchaseService {
   /**
    * Add credits to organization balance
    */
-  private async addCredits(organizationId: string, credits: number): Promise<void> {
+  private async addCredits(
+    organizationId: string,
+    credits: number,
+  ): Promise<void> {
     // Find or create credit balance
     let balance = await this.creditBalanceRepo.findOne({
       where: { organizationId },
@@ -235,7 +243,7 @@ export class CreditPurchaseService {
     await this.creditBalanceRepo.save(balance);
 
     this.logger.log(
-      `Added ${credits} credits to org ${organizationId}. New balance: ${balance.balance}`
+      `Added ${credits} credits to org ${organizationId}. New balance: ${balance.balance}`,
     );
   }
 
@@ -253,7 +261,10 @@ export class CreditPurchaseService {
   /**
    * Deduct credits from balance (used when API is called with credit mode)
    */
-  async deductCredits(organizationId: string, amount: number = 1): Promise<boolean> {
+  async deductCredits(
+    organizationId: string,
+    amount: number = 1,
+  ): Promise<boolean> {
     const balance = await this.creditBalanceRepo.findOne({
       where: { organizationId },
     });

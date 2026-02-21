@@ -40,10 +40,6 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
     FormulaEvaluationService,
     CalculationService,
   ],
-  exports: [
-    RateRetrievalService,
-    FormulaEvaluationService,
-    CalculationService,
-  ],
+  exports: [RateRetrievalService, FormulaEvaluationService, CalculationService],
 })
 export class CalculatorModule {}

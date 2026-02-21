@@ -79,7 +79,10 @@ export class HtsProcessorService implements IHtsProcessorService {
 
             // Update indent stack
             indentStack.set(processed.indent || 0, processed.htsNumber!);
-            descriptionStack.set(processed.indent || 0, processed.description || '');
+            descriptionStack.set(
+              processed.indent || 0,
+              processed.description || '',
+            );
 
             allEntries.push(processed);
             result.processed++;
@@ -214,8 +217,8 @@ export class HtsProcessorService implements IHtsProcessorService {
       const values = raw
         .map((item) => {
           if (typeof item === 'string') return item.trim();
-          if (item && typeof (item as any).value === 'string') {
-            return (item as any).value.trim();
+          if (item && typeof item.value === 'string') {
+            return item.value.trim();
           }
           return '';
         })

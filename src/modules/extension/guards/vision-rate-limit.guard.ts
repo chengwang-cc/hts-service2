@@ -82,8 +82,14 @@ export class VisionRateLimitGuard implements CanActivate {
 
       // Set rate limit headers
       response.setHeader('X-RateLimit-Limit', this.VISION_LIMIT_PER_HOUR);
-      response.setHeader('X-RateLimit-Remaining', Math.max(0, this.VISION_LIMIT_PER_HOUR - count));
-      response.setHeader('X-RateLimit-Reset', new Date(Date.now() + 60 * 60 * 1000).toISOString());
+      response.setHeader(
+        'X-RateLimit-Remaining',
+        Math.max(0, this.VISION_LIMIT_PER_HOUR - count),
+      );
+      response.setHeader(
+        'X-RateLimit-Reset',
+        new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      );
 
       if (count >= this.VISION_LIMIT_PER_HOUR) {
         this.logger.warn(
@@ -131,8 +137,14 @@ export class VisionRateLimitGuard implements CanActivate {
 
       // Set rate limit headers
       response.setHeader('X-RateLimit-Limit', this.SCRAPING_LIMIT_PER_HOUR);
-      response.setHeader('X-RateLimit-Remaining', Math.max(0, this.SCRAPING_LIMIT_PER_HOUR - count));
-      response.setHeader('X-RateLimit-Reset', new Date(Date.now() + 60 * 60 * 1000).toISOString());
+      response.setHeader(
+        'X-RateLimit-Remaining',
+        Math.max(0, this.SCRAPING_LIMIT_PER_HOUR - count),
+      );
+      response.setHeader(
+        'X-RateLimit-Reset',
+        new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      );
 
       if (count >= this.SCRAPING_LIMIT_PER_HOUR) {
         this.logger.warn(

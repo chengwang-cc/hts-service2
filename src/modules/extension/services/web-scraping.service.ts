@@ -68,7 +68,9 @@ export class WebScrapingService implements OnModuleDestroy {
    */
   private async initializeBrowserPool(): Promise<void> {
     try {
-      this.logger.log(`Initializing browser pool (${this.POOL_SIZE} instances)`);
+      this.logger.log(
+        `Initializing browser pool (${this.POOL_SIZE} instances)`,
+      );
 
       for (let i = 0; i < this.POOL_SIZE; i++) {
         const browser = await puppeteer.launch({
@@ -113,7 +115,9 @@ export class WebScrapingService implements OnModuleDestroy {
     }
 
     // Round-robin selection (simple strategy)
-    return this.browserPool[Math.floor(Math.random() * this.browserPool.length)];
+    return this.browserPool[
+      Math.floor(Math.random() * this.browserPool.length)
+    ];
   }
 
   /**
@@ -151,7 +155,10 @@ export class WebScrapingService implements OnModuleDestroy {
   /**
    * Scrape page using Puppeteer (handles JS-heavy sites)
    */
-  async scrapePage(url: string, options?: ScrapeOptions): Promise<ScrapedContent> {
+  async scrapePage(
+    url: string,
+    options?: ScrapeOptions,
+  ): Promise<ScrapedContent> {
     this.logger.log(`Scraping page via Puppeteer: ${url}`);
 
     if (!this.browserEnabled) {
@@ -182,9 +189,13 @@ export class WebScrapingService implements OnModuleDestroy {
 
       // Wait for specific selector if provided
       if (options?.waitForSelector) {
-        await page.waitForSelector(options.waitForSelector, { timeout: 5000 }).catch(() => {
-          this.logger.warn(`Selector ${options.waitForSelector} not found, continuing anyway`);
-        });
+        await page
+          .waitForSelector(options.waitForSelector, { timeout: 5000 })
+          .catch(() => {
+            this.logger.warn(
+              `Selector ${options.waitForSelector} not found, continuing anyway`,
+            );
+          });
       }
 
       // Extract content
@@ -223,14 +234,13 @@ export class WebScrapingService implements OnModuleDestroy {
   /**
    * Capture screenshot of page
    */
-  async captureScreenshot(
-    url: string,
-    viewport?: Viewport,
-  ): Promise<Buffer> {
+  async captureScreenshot(url: string, viewport?: Viewport): Promise<Buffer> {
     this.logger.log(`Capturing screenshot: ${url}`);
 
     if (!this.browserEnabled) {
-      throw new Error('Screenshot capture is unavailable because Puppeteer is disabled');
+      throw new Error(
+        'Screenshot capture is unavailable because Puppeteer is disabled',
+      );
     }
 
     let page: Page | null = null;

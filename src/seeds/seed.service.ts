@@ -30,16 +30,22 @@ export class SeedService {
     { entityName: 'Organizations', group: 'auth' },
     { entityName: 'Roles', group: 'auth' },
     { entityName: 'Users', group: 'auth' },
-    { entityName: 'Auth', group: 'auth', description: 'Seeds all auth entities (orgs, roles, users)' },
+    {
+      entityName: 'Auth',
+      group: 'auth',
+      description: 'Seeds all auth entities (orgs, roles, users)',
+    },
     {
       entityName: 'TariffHistory2025',
       group: 'tariff',
-      description: 'One-time load of tariff_database_2025.txt for 2026 math reference',
+      description:
+        'One-time load of tariff_database_2025.txt for 2026 math reference',
     },
     {
       entityName: 'ReciprocalTariffs2026',
       group: 'tariff',
-      description: 'One-time load of reciprocal baseline/exception + country framework rows into hts_extra_taxes',
+      description:
+        'One-time load of reciprocal baseline/exception + country framework rows into hts_extra_taxes',
     },
   ];
 
@@ -138,7 +144,8 @@ export class SeedService {
   private async seedTariffHistory2025(): Promise<void> {
     this.logger.log('Seeding 2025 tariff history data...');
 
-    const result = await this.tariffHistory2025SeedService.upsertTariffHistory2025();
+    const result =
+      await this.tariffHistory2025SeedService.upsertTariffHistory2025();
 
     if (result.skipped) {
       this.logger.log(`✅ Tariff history seed skipped: ${result.reason}\n`);
@@ -153,14 +160,17 @@ export class SeedService {
   private async seedReciprocalTariffs2026(): Promise<void> {
     this.logger.log('Seeding reciprocal tariff policy data (2026)...');
 
-    const result = await this.reciprocalTariffs2026SeedService.upsertReciprocalTariffs2026();
+    const result =
+      await this.reciprocalTariffs2026SeedService.upsertReciprocalTariffs2026();
 
     if (result.skipped) {
       this.logger.log(`✅ Reciprocal tariff seed skipped: ${result.reason}\n`);
       return;
     }
 
-    this.logger.log(`✅ Reciprocal tariff seed complete: ${result.processed} rows upserted\n`);
+    this.logger.log(
+      `✅ Reciprocal tariff seed complete: ${result.processed} rows upserted\n`,
+    );
   }
 
   /**
@@ -230,17 +240,29 @@ export class SeedService {
     console.log('\nSeed specific entities:');
     console.log('  npm run db:seed -- Organizations   (seeds organizations)');
     console.log('  npm run db:seed -- Roles           (seeds roles)');
-    console.log('  npm run db:seed -- Users           (seeds users with role assignments)');
-    console.log('  npm run db:seed -- Auth            (seeds all auth entities)');
-    console.log('  npm run db:seed -- TariffHistory2025 (one-time 2025 tariff history load)');
-    console.log('  npm run db:seed -- ReciprocalTariffs2026 (one-time reciprocal tariff baseline seed)');
+    console.log(
+      '  npm run db:seed -- Users           (seeds users with role assignments)',
+    );
+    console.log(
+      '  npm run db:seed -- Auth            (seeds all auth entities)',
+    );
+    console.log(
+      '  npm run db:seed -- TariffHistory2025 (one-time 2025 tariff history load)',
+    );
+    console.log(
+      '  npm run db:seed -- ReciprocalTariffs2026 (one-time reciprocal tariff baseline seed)',
+    );
     console.log('\nSeed everything:');
     console.log('  npm run db:seed -- All             (seeds all entities)');
     console.log('\nNotes:');
     console.log('  - Entity names are case-insensitive');
-    console.log('  - All operations are idempotent (safe to run multiple times)');
+    console.log(
+      '  - All operations are idempotent (safe to run multiple times)',
+    );
     console.log('  - Existing records are updated, new records are created');
-    console.log('  - For TariffHistory2025, set TARIFF_DATABASE_2025_FILE if file is not in default paths');
+    console.log(
+      '  - For TariffHistory2025, set TARIFF_DATABASE_2025_FILE if file is not in default paths',
+    );
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     console.log('Available entities:');

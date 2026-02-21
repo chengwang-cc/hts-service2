@@ -11,7 +11,8 @@ import { NoteExtractionService } from './note-extraction.service';
 export class DocumentService {
   private readonly logger = new Logger(DocumentService.name);
   private readonly reststopFileUrl = 'https://hts.usitc.gov/reststop/file';
-  private readonly legacyChapterBaseUrl = 'https://www.usitc.gov/publications/docs/tata/hts/baci';
+  private readonly legacyChapterBaseUrl =
+    'https://www.usitc.gov/publications/docs/tata/hts/baci';
 
   constructor(
     @InjectRepository(HtsDocumentEntity)
@@ -20,7 +21,10 @@ export class DocumentService {
     private readonly noteExtractionService: NoteExtractionService,
   ) {}
 
-  async downloadDocument(year: number, chapter: string): Promise<HtsDocumentEntity> {
+  async downloadDocument(
+    year: number,
+    chapter: string,
+  ): Promise<HtsDocumentEntity> {
     const normalizedChapter = chapter.padStart(2, '0');
     const candidateUrls = this.buildCandidateUrls(year, normalizedChapter);
     this.logger.log(
@@ -34,11 +38,16 @@ export class DocumentService {
     for (const url of candidateUrls) {
       try {
         this.logger.log(`Attempting download: ${url}`);
-        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+        const response = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+        });
         const buffer = Buffer.from(response.data);
 
         if (!this.isLikelyPdf(buffer, response.headers?.['content-type'])) {
-          this.logger.warn(`Source ${url} did not return a valid PDF payload; trying fallback`);
+          this.logger.warn(
+            `Source ${url} did not return a valid PDF payload; trying fallback`,
+          );
           continue;
         }
 
@@ -47,12 +56,15 @@ export class DocumentService {
         break;
       } catch (error) {
         lastError = error as Error;
-        this.logger.warn(`Download attempt failed for ${url}: ${lastError.message}`);
+        this.logger.warn(
+          `Download attempt failed for ${url}: ${lastError.message}`,
+        );
       }
     }
 
     if (!selectedUrl || !pdfData) {
-      const reason = lastError?.message || 'no candidate URL returned a valid PDF';
+      const reason =
+        lastError?.message || 'no candidate URL returned a valid PDF';
       throw new Error(
         `Failed to download HTS chapter ${normalizedChapter} for ${year}: ${reason}`,
       );
@@ -61,7 +73,10 @@ export class DocumentService {
     this.logger.log(`Download source selected: ${selectedUrl}`);
 
     try {
-      const fileHash = crypto.createHash('sha256').update(pdfData).digest('hex');
+      const fileHash = crypto
+        .createHash('sha256')
+        .update(pdfData)
+        .digest('hex');
 
       const document = this.documentRepository.create({
         year,
@@ -79,7 +94,9 @@ export class DocumentService {
 
       return this.documentRepository.save(document);
     } catch (error) {
-      this.logger.error(`Failed to persist downloaded chapter ${normalizedChapter}: ${error.message}`);
+      this.logger.error(
+        `Failed to persist downloaded chapter ${normalizedChapter}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -117,12 +134,15 @@ export class DocumentService {
 
   async downloadAllDocuments(year: number): Promise<void> {
     this.logger.log(`Downloading all documents for year ${year}`);
-    const chapters = ['00', ...Array.from({ length: 99 }, (_, i) => (i + 1).toString())];
+    const chapters = [
+      '00',
+      ...Array.from({ length: 99 }, (_, i) => (i + 1).toString()),
+    ];
 
     for (const chapter of chapters) {
       try {
         await this.downloadDocument(year, chapter);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limit
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // Rate limit
       } catch (error) {
         this.logger.error(`Failed to download chapter ${chapter}`);
       }

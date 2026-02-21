@@ -14,7 +14,10 @@ export class ClassificationService {
     private readonly openAiService: OpenAiService,
   ) {}
 
-  async classifyProduct(description: string, organizationId: string): Promise<any> {
+  async classifyProduct(
+    description: string,
+    organizationId: string,
+  ): Promise<any> {
     const input = `Classify this product into HTS code: "${description}".
 
 Return JSON with: { htsCode, confidence, reasoning }.`;

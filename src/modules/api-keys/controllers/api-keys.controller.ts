@@ -39,7 +39,9 @@ export class ApiKeysController {
       permissions: createApiKeyDto.permissions,
       rateLimitPerMinute: createApiKeyDto.rateLimitPerMinute,
       rateLimitPerDay: createApiKeyDto.rateLimitPerDay,
-      expiresAt: createApiKeyDto.expiresAt ? new Date(createApiKeyDto.expiresAt) : undefined,
+      expiresAt: createApiKeyDto.expiresAt
+        ? new Date(createApiKeyDto.expiresAt)
+        : undefined,
       ipWhitelist: createApiKeyDto.ipWhitelist,
       allowedOrigins: createApiKeyDto.allowedOrigins,
       createdBy: user.id,
@@ -122,7 +124,9 @@ export class ApiKeysController {
       return { error: 'API key not found' };
     }
 
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
 
     const stats = await this.apiKeyService.getUsageStats(id, start, end);

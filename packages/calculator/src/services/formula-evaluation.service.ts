@@ -7,7 +7,9 @@ export class FormulaEvaluationService {
   private readonly logger = new Logger(FormulaEvaluationService.name);
   private readonly math: MathJsInstance;
 
-  constructor(private readonly formulaGenerationService: FormulaGenerationService) {
+  constructor(
+    private readonly formulaGenerationService: FormulaGenerationService,
+  ) {
     this.math = create(all);
   }
 

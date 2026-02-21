@@ -16,7 +16,13 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { KnowledgeAdminService } from '../services/knowledge.admin.service';
@@ -150,7 +156,10 @@ export class KnowledgeAdminController {
    */
   @Get('stats')
   @ApiOperation({ summary: 'Get knowledge statistics' })
-  @ApiResponse({ status: 200, description: 'Statistics retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+  })
   async getStats() {
     const stats = await this.knowledgeService.getStats();
 
@@ -166,7 +175,10 @@ export class KnowledgeAdminController {
    */
   @Post('notes/backfill/preview')
   @ApiOperation({ summary: 'Preview HTS note backfill plan' })
-  @ApiResponse({ status: 200, description: 'Backfill preview generated successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Backfill preview generated successfully',
+  })
   async previewNoteBackfill(@Body() dto: NoteBackfillOptionsDto): Promise<any> {
     const result = await this.knowledgeService.previewNoteBackfill(dto);
 

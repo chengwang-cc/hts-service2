@@ -342,7 +342,10 @@ export class TemplateService {
         const value = record[field.name];
 
         // Check required fields
-        if (field.required && (value === undefined || value === null || value === '')) {
+        if (
+          field.required &&
+          (value === undefined || value === null || value === '')
+        ) {
           errors.push({
             row: rowNumber,
             field: field.name,
@@ -425,12 +428,14 @@ export class TemplateService {
     };
   }
 
-  async getTemplate(templateType: string): Promise<OnboardingTemplateEntity | null> {
+  async getTemplate(
+    templateType: string,
+  ): Promise<OnboardingTemplateEntity | null> {
     return this.templateRepo.findOne({
       where: {
         templateType: templateType as any,
-        isActive: true
-      }
+        isActive: true,
+      },
     });
   }
 

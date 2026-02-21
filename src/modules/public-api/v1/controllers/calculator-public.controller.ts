@@ -22,10 +22,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import {
-  ApiPermissions,
-  CurrentApiKey,
-} from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { CalculationService } from '@hts/calculator';
 import { InjectRepository } from '@nestjs/typeorm';

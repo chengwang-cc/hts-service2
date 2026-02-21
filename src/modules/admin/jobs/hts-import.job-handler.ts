@@ -21,12 +21,12 @@ import {
   HtsStageValidationIssueEntity,
   HtsStageDiffEntity,
   HtsExtraTaxEntity,
-    HtsFormulaUpdateEntity,
-    HtsFormulaGenerationService,
-    FormulaGenerationService,
-    HtsChapter99FormulaService,
-    HtsEmbeddingGenerationService,
-  } from '@hts/core';
+  HtsFormulaUpdateEntity,
+  HtsFormulaGenerationService,
+  FormulaGenerationService,
+  HtsChapter99FormulaService,
+  HtsEmbeddingGenerationService,
+} from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
 import axios from 'axios';
@@ -85,7 +85,8 @@ export class HtsImportJobHandler {
     private htsFormulaGenerationService: HtsFormulaGenerationService,
     private htsChapter99FormulaService: HtsChapter99FormulaService,
     private formulaGenerationService: FormulaGenerationService,
-    @Optional() private htsEmbeddingGenerationService?: HtsEmbeddingGenerationService,
+    @Optional()
+    private htsEmbeddingGenerationService?: HtsEmbeddingGenerationService,
     @Optional() private noteResolutionService?: NoteResolutionService,
   ) {
     this.S3_BUCKET = this.s3Storage.getDefaultBucket();
@@ -105,13 +106,16 @@ export class HtsImportJobHandler {
       const importHistory = await this.htsImportService.findOne(importId);
 
       // Load checkpoint (if exists from previous crash)
-      const checkpoint: ImportCheckpoint = (importHistory.checkpoint as ImportCheckpoint) || {
-        stage: 'DOWNLOADING',
-      };
+      const checkpoint: ImportCheckpoint =
+        (importHistory.checkpoint as ImportCheckpoint) || {
+          stage: 'DOWNLOADING',
+        };
 
       this.logger.log(
         `Import ${importId}: Resuming from stage: ${checkpoint.stage}` +
-        (checkpoint.processedBatches ? ` (${checkpoint.processedBatches} batches completed)` : '')
+          (checkpoint.processedBatches
+            ? ` (${checkpoint.processedBatches} batches completed)`
+            : ''),
       );
 
       // ====== STAGE 1: DOWNLOAD TO S3 ======
@@ -121,7 +125,10 @@ export class HtsImportJobHandler {
         // Save checkpoint after successful download
         checkpoint.stage = 'DOWNLOADED';
         await this.saveCheckpoint(importId, checkpoint);
-        await this.htsImportService.appendLog(importId, '✓ Download stage completed');
+        await this.htsImportService.appendLog(
+          importId,
+          '✓ Download stage completed',
+        );
       }
 
       // ====== STAGE 2: PROCESS FROM S3 ======
@@ -130,7 +137,10 @@ export class HtsImportJobHandler {
         checkpoint.processedBatches = 0;
         checkpoint.processedRecords = 0;
         await this.saveCheckpoint(importId, checkpoint);
-        await this.htsImportService.appendLog(importId, 'Starting staging stage...');
+        await this.htsImportService.appendLog(
+          importId,
+          'Starting staging stage...',
+        );
       }
 
       if (checkpoint.stage === 'STAGING') {
@@ -153,20 +163,27 @@ export class HtsImportJobHandler {
         await this.diffStagedEntries(importHistory);
 
         // After diffing, check validation and stop for manual promotion
-        const validationSummary = await this.getValidationSummary(importHistory.id);
+        const validationSummary = await this.getValidationSummary(
+          importHistory.id,
+        );
         const formulaCoverageText =
           typeof validationSummary.formulaCoverage === 'number'
             ? `${(validationSummary.formulaCoverage * 100).toFixed(2)}%`
             : 'n/a';
 
-        if (validationSummary.errorCount > 0 || !validationSummary.formulaGatePassed) {
+        if (
+          validationSummary.errorCount > 0 ||
+          !validationSummary.formulaGatePassed
+        ) {
           // Has validation errors - requires admin review
           await this.importHistoryRepo.update(importHistory.id, {
             status: 'REQUIRES_REVIEW',
           });
           const reviewReasons: string[] = [];
           if (validationSummary.errorCount > 0) {
-            reviewReasons.push(`${validationSummary.errorCount} validation errors`);
+            reviewReasons.push(
+              `${validationSummary.errorCount} validation errors`,
+            );
           }
           if (!validationSummary.formulaGatePassed) {
             reviewReasons.push(
@@ -201,7 +218,9 @@ export class HtsImportJobHandler {
 
       // PROCESSING stage - only reached when admin explicitly calls /promote
       if (checkpoint.stage === 'PROCESSING') {
-        const validationSummary = await this.getValidationSummary(importHistory.id);
+        const validationSummary = await this.getValidationSummary(
+          importHistory.id,
+        );
         const refreshedImport = await this.importHistoryRepo.findOne({
           where: { id: importHistory.id },
         });
@@ -210,7 +229,8 @@ export class HtsImportJobHandler {
           (refreshedImport?.metadata as any)?.validationOverride === true;
 
         if (
-          (validationSummary.errorCount > 0 || !validationSummary.formulaGatePassed) &&
+          (validationSummary.errorCount > 0 ||
+            !validationSummary.formulaGatePassed) &&
           !validationOverride
         ) {
           await this.importHistoryRepo.update(importHistory.id, {
@@ -218,7 +238,9 @@ export class HtsImportJobHandler {
           });
           const blockedReasons: string[] = [];
           if (validationSummary.errorCount > 0) {
-            blockedReasons.push(`${validationSummary.errorCount} validation errors`);
+            blockedReasons.push(
+              `${validationSummary.errorCount} validation errors`,
+            );
           }
           if (!validationSummary.formulaGatePassed) {
             const formulaCoverageText =
@@ -250,11 +272,12 @@ export class HtsImportJobHandler {
         await this.saveCheckpoint(importId, checkpoint);
       }
 
-      const finalizeResult = await this.htsImportService.finalizeSuccessfulImport(importHistory);
+      const finalizeResult =
+        await this.htsImportService.finalizeSuccessfulImport(importHistory);
       await this.htsImportService.appendLog(
         importId,
         `✓ Activated version ${importHistory.sourceVersion}; ` +
-        `deactivated ${finalizeResult.deactivatedCount} old entries`,
+          `deactivated ${finalizeResult.deactivatedCount} old entries`,
       );
 
       try {
@@ -273,12 +296,15 @@ export class HtsImportJobHandler {
       await this.htsImportService.updateStatus(importId, 'COMPLETED');
       await this.htsImportService.appendLog(
         importId,
-        `✓ Import completed successfully (${checkpoint.processedRecords || 0} records processed)`
+        `✓ Import completed successfully (${checkpoint.processedRecords || 0} records processed)`,
       );
 
       this.logger.log(`Import job ${importId} completed successfully`);
     } catch (error) {
-      this.logger.error(`Import job ${importId} failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `Import job ${importId} failed: ${error.message}`,
+        error.stack,
+      );
 
       // Mark as failed (pg-boss will retry automatically)
       await this.htsImportService.updateStatus(
@@ -287,7 +313,10 @@ export class HtsImportJobHandler {
         error.message,
         error.stack,
       );
-      await this.htsImportService.appendLog(importId, `✗ Import failed: ${error.message}`);
+      await this.htsImportService.appendLog(
+        importId,
+        `✗ Import failed: ${error.message}`,
+      );
 
       throw error; // Let pg-boss handle retry
     }
@@ -302,12 +331,13 @@ export class HtsImportJobHandler {
       'Running post-promotion formula generation...',
     );
 
-    const formulaResult = await this.htsFormulaGenerationService.generateMissingFormulas({
-      sourceVersion,
-      activeOnly: true,
-      includeAdjusted: true,
-      batchSize: 500,
-    });
+    const formulaResult =
+      await this.htsFormulaGenerationService.generateMissingFormulas({
+        sourceVersion,
+        activeOnly: true,
+        includeAdjusted: true,
+        batchSize: 500,
+      });
 
     await this.htsImportService.appendLog(
       importHistory.id,
@@ -346,11 +376,12 @@ export class HtsImportJobHandler {
       'Running deterministic Chapter 99 synthesis...',
     );
 
-    const chapter99Result = await this.htsChapter99FormulaService.synthesizeAdjustedFormulas({
-      sourceVersion,
-      activeOnly: true,
-      batchSize: 500,
-    });
+    const chapter99Result =
+      await this.htsChapter99FormulaService.synthesizeAdjustedFormulas({
+        sourceVersion,
+        activeOnly: true,
+        batchSize: 500,
+      });
 
     await this.htsImportService.appendLog(
       importHistory.id,
@@ -382,7 +413,11 @@ export class HtsImportJobHandler {
   private async applyCarryoverFormulaOverrides(
     importHistory: HtsImportHistoryEntity,
     sourceVersion: string,
-  ): Promise<{ entriesPatched: number; overridesApplied: number; skippedCountrySpecific: number }> {
+  ): Promise<{
+    entriesPatched: number;
+    overridesApplied: number;
+    skippedCountrySpecific: number;
+  }> {
     const activeEntries = await this.htsRepo.find({
       where: {
         sourceVersion,
@@ -391,21 +426,34 @@ export class HtsImportJobHandler {
     });
 
     if (activeEntries.length === 0) {
-      return { entriesPatched: 0, overridesApplied: 0, skippedCountrySpecific: 0 };
+      return {
+        entriesPatched: 0,
+        overridesApplied: 0,
+        skippedCountrySpecific: 0,
+      };
     }
 
     const overrides = await this.htsFormulaUpdateRepo
       .createQueryBuilder('hfu')
       .where('hfu.active = true')
-      .andWhere('(hfu.updateVersion = :sourceVersion OR hfu.carryover = true)', { sourceVersion })
+      .andWhere(
+        '(hfu.updateVersion = :sourceVersion OR hfu.carryover = true)',
+        { sourceVersion },
+      )
       .orderBy('hfu.updatedAt', 'DESC')
       .getMany();
 
     if (overrides.length === 0) {
-      return { entriesPatched: 0, overridesApplied: 0, skippedCountrySpecific: 0 };
+      return {
+        entriesPatched: 0,
+        overridesApplied: 0,
+        skippedCountrySpecific: 0,
+      };
     }
 
-    const entryMap = new Map(activeEntries.map((entry) => [entry.htsNumber, entry]));
+    const entryMap = new Map(
+      activeEntries.map((entry) => [entry.htsNumber, entry]),
+    );
     const appliedKeys = new Set<string>();
     const modifiedEntryIds = new Set<string>();
     let overridesApplied = 0;
@@ -460,14 +508,20 @@ export class HtsImportJobHandler {
           entry.adjustedFormulaVariables = update.formulaVariables ?? null;
         }
         if (isCountrySpecific) {
-          const countries = new Set((entry.chapter99ApplicableCountries || []).map((code) => code.toUpperCase()));
+          const countries = new Set(
+            (entry.chapter99ApplicableCountries || []).map((code) =>
+              code.toUpperCase(),
+            ),
+          );
           countries.add(countryCode);
           entry.chapter99ApplicableCountries = Array.from(countries);
         }
         updated = true;
       } else if (formulaType === 'OTHER_CHAPTER99') {
         const countries = new Set(
-          (entry.otherChapter99Detail?.countries || []).map((code) => code.toUpperCase()),
+          (entry.otherChapter99Detail?.countries || []).map((code) =>
+            code.toUpperCase(),
+          ),
         );
         if (isCountrySpecific) {
           countries.add(countryCode);
@@ -475,7 +529,10 @@ export class HtsImportJobHandler {
         entry.otherChapter99Detail = {
           ...(entry.otherChapter99Detail || {}),
           formula: update.formula,
-          variables: update.formulaVariables || entry.otherChapter99Detail?.variables || undefined,
+          variables:
+            update.formulaVariables ||
+            entry.otherChapter99Detail?.variables ||
+            undefined,
           countries: Array.from(countries),
         };
         updated = true;
@@ -496,7 +553,9 @@ export class HtsImportJobHandler {
       }
     }
 
-    const changedEntries = activeEntries.filter((entry) => modifiedEntryIds.has(entry.id));
+    const changedEntries = activeEntries.filter((entry) =>
+      modifiedEntryIds.has(entry.id),
+    );
     if (changedEntries.length > 0) {
       await this.htsRepo.save(changedEntries);
     }
@@ -555,13 +614,18 @@ export class HtsImportJobHandler {
         let updated = false;
         const metadata = { ...(entry.metadata || {}) };
 
-        if (!entry.rateFormula && entry.generalRate && /note/i.test(entry.generalRate)) {
-          const resolvedGeneral = await this.noteResolutionService!.resolveNoteReference(
-            entry.htsNumber,
-            entry.generalRate,
-            'general',
-            year,
-          );
+        if (
+          !entry.rateFormula &&
+          entry.generalRate &&
+          /note/i.test(entry.generalRate)
+        ) {
+          const resolvedGeneral =
+            await this.noteResolutionService!.resolveNoteReference(
+              entry.htsNumber,
+              entry.generalRate,
+              'general',
+              year,
+            );
 
           if (resolvedGeneral?.formula) {
             entry.rateFormula = resolvedGeneral.formula;
@@ -576,13 +640,18 @@ export class HtsImportJobHandler {
           }
         }
 
-        if (!entry.otherRateFormula && entry.otherRate && /note/i.test(entry.otherRate)) {
-          const resolvedOther = await this.noteResolutionService!.resolveNoteReference(
-            entry.htsNumber,
-            entry.otherRate,
-            'other',
-            year,
-          );
+        if (
+          !entry.otherRateFormula &&
+          entry.otherRate &&
+          /note/i.test(entry.otherRate)
+        ) {
+          const resolvedOther =
+            await this.noteResolutionService!.resolveNoteReference(
+              entry.htsNumber,
+              entry.otherRate,
+              'other',
+              year,
+            );
 
           if (resolvedOther?.formula) {
             entry.otherRateFormula = resolvedOther.formula;
@@ -657,7 +726,7 @@ export class HtsImportJobHandler {
 
       await this.htsImportService.appendLog(
         importHistory.id,
-        `Using existing S3 file: ${s3Key} (${(metadata.size / 1024 / 1024).toFixed(2)} MB)`
+        `Using existing S3 file: ${s3Key} (${(metadata.size / 1024 / 1024).toFixed(2)} MB)`,
       );
       return;
     }
@@ -666,10 +735,12 @@ export class HtsImportJobHandler {
     await this.htsImportService.updateStatus(importHistory.id, 'IN_PROGRESS');
     await this.htsImportService.appendLog(
       importHistory.id,
-      `Downloading from USITC: ${importHistory.sourceUrl}`
+      `Downloading from USITC: ${importHistory.sourceUrl}`,
     );
 
-    this.logger.log(`Downloading ${importHistory.sourceVersion} from ${importHistory.sourceUrl}`);
+    this.logger.log(
+      `Downloading ${importHistory.sourceVersion} from ${importHistory.sourceUrl}`,
+    );
 
     const response = await axios.get(importHistory.sourceUrl, {
       responseType: 'stream',
@@ -713,10 +784,12 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `Download completed: ${(uploadResult.size / 1024 / 1024).toFixed(2)} MB, ` +
-      `SHA-256: ${uploadResult.sha256?.substring(0, 12)}...`
+        `SHA-256: ${uploadResult.sha256?.substring(0, 12)}...`,
     );
 
-    this.logger.log(`Downloaded ${importHistory.sourceVersion} to S3: ${s3Key}`);
+    this.logger.log(
+      `Downloaded ${importHistory.sourceVersion} to S3: ${s3Key}`,
+    );
   }
 
   /**
@@ -754,30 +827,38 @@ export class HtsImportJobHandler {
 
     await this.htsImportService.appendLog(
       importHistory.id,
-      `Processing HTS entries from S3...`
+      `Processing HTS entries from S3...`,
     );
 
     const data = await this.loadSourceData(s3Bucket, s3Key);
 
     // Debug logging to inspect parsed data structure
-    this.logger.log(`🔍 Parsed data type: ${Array.isArray(data) ? 'Array' : typeof data}`);
+    this.logger.log(
+      `🔍 Parsed data type: ${Array.isArray(data) ? 'Array' : typeof data}`,
+    );
     if (Array.isArray(data)) {
       this.logger.log(`🔍 Array length: ${data.length}`);
       if (data.length > 0) {
-        this.logger.log(`🔍 First entry sample: ${JSON.stringify(data[0]).substring(0, 200)}...`);
+        this.logger.log(
+          `🔍 First entry sample: ${JSON.stringify(data[0]).substring(0, 200)}...`,
+        );
       }
     } else if (typeof data === 'object' && data !== null) {
       const keys = Object.keys(data);
-      this.logger.log(`🔍 Object keys (first 10): ${keys.slice(0, 10).join(', ')}`);
+      this.logger.log(
+        `🔍 Object keys (first 10): ${keys.slice(0, 10).join(', ')}`,
+      );
       this.logger.log(`🔍 Has 'chapters' key: ${keys.includes('chapters')}`);
     }
 
     // Count total entries
     const totalEntries = this.countEntries(data);
-    await this.htsImportService.updateCounters(importHistory.id, { totalEntries });
+    await this.htsImportService.updateCounters(importHistory.id, {
+      totalEntries,
+    });
     await this.htsImportService.appendLog(
       importHistory.id,
-      `Total entries to process: ${totalEntries.toLocaleString()}`
+      `Total entries to process: ${totalEntries.toLocaleString()}`,
     );
 
     // Initialize counters
@@ -790,30 +871,34 @@ export class HtsImportJobHandler {
 
     // Handle both flat array and chapter-based formats
     const chapters: Array<[string, any[]]> = Array.isArray(data)
-      ? [['all', data]]  // Flat array: treat as single chapter
-      : Object.entries(data.chapters || data);  // Chapter-based format
+      ? [['all', data]] // Flat array: treat as single chapter
+      : Object.entries(data.chapters || data); // Chapter-based format
 
     const totalBatches = Math.ceil(totalEntries / this.BATCH_SIZE);
 
     checkpoint.totalBatches = totalBatches;
 
     this.logger.log(
-      `Processing ${totalEntries} entries in ${totalBatches} batches of ${this.BATCH_SIZE}`
+      `Processing ${totalEntries} entries in ${totalBatches} batches of ${this.BATCH_SIZE}`,
     );
 
     // Process chapters
     for (const [chapterKey, items] of chapters) {
       // Skip if already processed (resume scenario)
-      if (checkpoint.lastProcessedChapter && chapterKey < checkpoint.lastProcessedChapter) {
+      if (
+        checkpoint.lastProcessedChapter &&
+        chapterKey < checkpoint.lastProcessedChapter
+      ) {
         this.logger.log(`Skipping already processed chapter: ${chapterKey}`);
         continue;
       }
 
       if (!Array.isArray(items)) continue;
 
-      const chapterStartIndex = checkpoint.lastProcessedChapter === chapterKey
-        ? (checkpoint.processedRecords || 0) % this.BATCH_SIZE
-        : 0;
+      const chapterStartIndex =
+        checkpoint.lastProcessedChapter === chapterKey
+          ? (checkpoint.processedRecords || 0) % this.BATCH_SIZE
+          : 0;
 
       // Process chapter items in batches
       for (let i = chapterStartIndex; i < items.length; i += this.BATCH_SIZE) {
@@ -840,13 +925,15 @@ export class HtsImportJobHandler {
                   else if (result === 'UPDATED') batchUpdated++;
                   else if (result === 'SKIPPED') batchSkipped++;
                 } catch (error) {
-                  this.logger.error(`Failed to process entry: ${error.message}`);
+                  this.logger.error(
+                    `Failed to process entry: ${error.message}`,
+                  );
                   throw error; // Rollback entire batch
                 }
               }
 
               return { batchImported, batchUpdated, batchSkipped };
-            }
+            },
           );
 
           importedCount += batchResult.batchImported;
@@ -856,7 +943,9 @@ export class HtsImportJobHandler {
           batchNumber++;
 
           const batchDuration = Date.now() - batchStartTime;
-          const percentComplete = Math.round((processedCount / totalEntries) * 100);
+          const percentComplete = Math.round(
+            (processedCount / totalEntries) * 100,
+          );
 
           // Update checkpoint after each successful batch
           checkpoint.processedBatches = batchNumber;
@@ -873,8 +962,8 @@ export class HtsImportJobHandler {
 
           this.logger.log(
             `Batch ${batchNumber}/${totalBatches} completed in ${batchDuration}ms: ` +
-            `${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} (${percentComplete}%) ` +
-            `[+${batchResult.batchImported} ~${batchResult.batchUpdated} =${batchResult.batchSkipped}]`
+              `${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} (${percentComplete}%) ` +
+              `[+${batchResult.batchImported} ~${batchResult.batchUpdated} =${batchResult.batchSkipped}]`,
           );
 
           // Log progress every 10 batches
@@ -882,18 +971,21 @@ export class HtsImportJobHandler {
             await this.htsImportService.appendLog(
               importHistory.id,
               `Progress: ${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} ` +
-              `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`
+                `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`,
             );
           }
         } catch (error) {
-          this.logger.error(`Batch ${batchNumber} failed: ${error.message}`, error.stack);
+          this.logger.error(
+            `Batch ${batchNumber} failed: ${error.message}`,
+            error.stack,
+          );
           failedCount += batch.length;
 
           // Log failed batch (but continue processing)
           await this.htsImportService.addFailedEntry(
             importHistory.id,
             `Batch ${batchNumber} (Chapter ${chapterKey})`,
-            error.message
+            error.message,
           );
 
           // Still update checkpoint to skip this failed batch on retry
@@ -920,13 +1012,13 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `✓ Processing completed: ${importedCount.toLocaleString()} imported, ` +
-      `${updatedCount.toLocaleString()} updated, ${skippedCount.toLocaleString()} skipped, ` +
-      `${failedCount.toLocaleString()} failed`
+        `${updatedCount.toLocaleString()} updated, ${skippedCount.toLocaleString()} skipped, ` +
+        `${failedCount.toLocaleString()} failed`,
     );
 
     this.logger.log(
       `Import ${importHistory.id} processing complete: ` +
-      `${importedCount} imported, ${updatedCount} updated, ${failedCount} failed`
+        `${importedCount} imported, ${updatedCount} updated, ${failedCount} failed`,
     );
   }
 
@@ -949,10 +1041,12 @@ export class HtsImportJobHandler {
 
     await this.htsImportService.appendLog(
       importHistory.id,
-      `Processing HTS entries from staging (${totalEntries.toLocaleString()} records)...`
+      `Processing HTS entries from staging (${totalEntries.toLocaleString()} records)...`,
     );
 
-    await this.htsImportService.updateCounters(importHistory.id, { totalEntries });
+    await this.htsImportService.updateCounters(importHistory.id, {
+      totalEntries,
+    });
 
     let processedCount = checkpoint.processedRecords || 0;
     let importedCount = 0;
@@ -964,7 +1058,11 @@ export class HtsImportJobHandler {
     const totalBatches = Math.ceil(totalEntries / this.BATCH_SIZE);
     checkpoint.totalBatches = totalBatches;
 
-    for (let offset = processedCount; offset < totalEntries; offset += this.BATCH_SIZE) {
+    for (
+      let offset = processedCount;
+      offset < totalEntries;
+      offset += this.BATCH_SIZE
+    ) {
       const batch = await this.htsStageRepo.find({
         where: { importId: importHistory.id },
         order: { htsNumber: 'ASC' },
@@ -995,13 +1093,15 @@ export class HtsImportJobHandler {
                 else if (result === 'UPDATED') batchUpdated++;
                 else if (result === 'SKIPPED') batchSkipped++;
               } catch (error) {
-                this.logger.error(`Failed to process staged entry: ${error.message}`);
+                this.logger.error(
+                  `Failed to process staged entry: ${error.message}`,
+                );
                 throw error;
               }
             }
 
             return { batchImported, batchUpdated, batchSkipped };
-          }
+          },
         );
 
         importedCount += batchResult.batchImported;
@@ -1011,7 +1111,9 @@ export class HtsImportJobHandler {
         batchNumber++;
 
         const batchDuration = Date.now() - batchStartTime;
-        const percentComplete = Math.round((processedCount / totalEntries) * 100);
+        const percentComplete = Math.round(
+          (processedCount / totalEntries) * 100,
+        );
 
         checkpoint.processedBatches = batchNumber;
         checkpoint.processedRecords = processedCount;
@@ -1025,15 +1127,15 @@ export class HtsImportJobHandler {
 
         this.logger.log(
           `Stage batch ${batchNumber}/${totalBatches} completed in ${batchDuration}ms: ` +
-          `${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} (${percentComplete}%) ` +
-          `[+${batchResult.batchImported} ~${batchResult.batchUpdated} =${batchResult.batchSkipped}]`
+            `${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} (${percentComplete}%) ` +
+            `[+${batchResult.batchImported} ~${batchResult.batchUpdated} =${batchResult.batchSkipped}]`,
         );
 
         if (batchNumber % 10 === 0) {
           await this.htsImportService.appendLog(
             importHistory.id,
             `Processing progress: ${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} ` +
-            `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`
+              `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`,
           );
         }
       } catch (error) {
@@ -1079,8 +1181,8 @@ export class HtsImportJobHandler {
 
         this.logger.warn(
           `Stage batch ${failedBatchNumber} recovered with row-level fallback: ` +
-          `+${fallbackResult.batchImported} ~${fallbackResult.batchUpdated} ` +
-          `=${fallbackResult.batchSkipped} !${fallbackResult.batchFailed}`,
+            `+${fallbackResult.batchImported} ~${fallbackResult.batchUpdated} ` +
+            `=${fallbackResult.batchSkipped} !${fallbackResult.batchFailed}`,
         );
       }
     }
@@ -1095,8 +1197,8 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `✓ Processing completed: ${importedCount.toLocaleString()} imported, ` +
-      `${updatedCount.toLocaleString()} updated, ${skippedCount.toLocaleString()} skipped, ` +
-      `${failedCount.toLocaleString()} failed`
+        `${updatedCount.toLocaleString()} updated, ${skippedCount.toLocaleString()} skipped, ` +
+        `${failedCount.toLocaleString()} failed`,
     );
   }
 
@@ -1164,7 +1266,10 @@ export class HtsImportJobHandler {
       throw new Error('S3 key and bucket not found in checkpoint');
     }
 
-    await this.htsImportService.appendLog(importHistory.id, 'Staging HTS entries...');
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Staging HTS entries...',
+    );
 
     // Clear any previous staged data for this import (safe for retry)
     await this.htsStageDiffRepo.delete({ importId: importHistory.id });
@@ -1183,7 +1288,7 @@ export class HtsImportJobHandler {
     const totalBatches = Math.ceil(totalEntries / this.BATCH_SIZE);
 
     this.logger.log(
-      `Staging ${totalEntries} entries in ${totalBatches} batches of ${this.BATCH_SIZE}`
+      `Staging ${totalEntries} entries in ${totalBatches} batches of ${this.BATCH_SIZE}`,
     );
 
     for (const [, items] of chapters) {
@@ -1193,21 +1298,26 @@ export class HtsImportJobHandler {
         const batch = items.slice(i, i + this.BATCH_SIZE);
         const stagedBatch = batch
           .map((item) => this.mapItemToStageEntry(item, importHistory))
-          .filter((entry) => entry !== null) as Array<Partial<HtsStageEntryEntity>>;
+          .filter((entry) => entry !== null);
 
         if (stagedBatch.length > 0) {
-          await this.htsStageRepo.upsert(stagedBatch, ['importId', 'htsNumber']);
+          await this.htsStageRepo.upsert(stagedBatch, [
+            'importId',
+            'htsNumber',
+          ]);
         }
 
         processedCount += batch.length;
         batchNumber++;
-        const percentComplete = Math.round((processedCount / totalEntries) * 100);
+        const percentComplete = Math.round(
+          (processedCount / totalEntries) * 100,
+        );
 
         if (batchNumber % 10 === 0) {
           await this.htsImportService.appendLog(
             importHistory.id,
             `Staging progress: ${processedCount.toLocaleString()}/${totalEntries.toLocaleString()} ` +
-            `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`
+              `(${percentComplete}%) - Batch ${batchNumber}/${totalBatches}`,
           );
         }
       }
@@ -1215,7 +1325,7 @@ export class HtsImportJobHandler {
 
     await this.htsImportService.appendLog(
       importHistory.id,
-      `✓ Staging completed: ${totalEntries.toLocaleString()} entries staged`
+      `✓ Staging completed: ${totalEntries.toLocaleString()} entries staged`,
     );
   }
 
@@ -1225,11 +1335,16 @@ export class HtsImportJobHandler {
   private async validateStagedEntries(
     importHistory: HtsImportHistoryEntity,
   ): Promise<{ errorCount: number; warningCount: number; infoCount: number }> {
-    await this.htsImportService.appendLog(importHistory.id, 'Validating staged entries...');
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Validating staged entries...',
+    );
 
     await this.htsStageIssueRepo.delete({ importId: importHistory.id });
 
-    const total = await this.htsStageRepo.count({ where: { importId: importHistory.id } });
+    const total = await this.htsStageRepo.count({
+      where: { importId: importHistory.id },
+    });
     const pageSize = this.BATCH_SIZE;
     let processed = 0;
     let errorCount = 0;
@@ -1333,7 +1448,11 @@ export class HtsImportJobHandler {
         }
 
         const digitOnly = htsNumber.replace(/\./g, '');
-        if (entry.heading && digitOnly.length >= 4 && entry.heading !== digitOnly.substring(0, 4)) {
+        if (
+          entry.heading &&
+          digitOnly.length >= 4 &&
+          entry.heading !== digitOnly.substring(0, 4)
+        ) {
           issues.push({
             importId: importHistory.id,
             stageEntryId: entry.id,
@@ -1345,7 +1464,11 @@ export class HtsImportJobHandler {
           warningCount++;
         }
 
-        if (entry.subheading && digitOnly.length >= 6 && entry.subheading !== digitOnly.substring(0, 6)) {
+        if (
+          entry.subheading &&
+          digitOnly.length >= 6 &&
+          entry.subheading !== digitOnly.substring(0, 6)
+        ) {
           issues.push({
             importId: importHistory.id,
             stageEntryId: entry.id,
@@ -1360,7 +1483,8 @@ export class HtsImportJobHandler {
         if (
           entry.statisticalSuffix &&
           digitOnly.length >= 8 &&
-          entry.statisticalSuffix !== digitOnly.substring(0, entry.statisticalSuffix.length)
+          entry.statisticalSuffix !==
+            digitOnly.substring(0, entry.statisticalSuffix.length)
         ) {
           issues.push({
             importId: importHistory.id,
@@ -1412,15 +1536,16 @@ export class HtsImportJobHandler {
         warningCount += generalTypeValidation.warningCount;
         infoCount += generalTypeValidation.infoCount;
 
-        const generalFormulaValidation = await this.validateRateFormulaReadiness(
-          importHistory.id,
-          entry,
-          'generalRate',
-          entry.generalRate,
-          entry.unit,
-          'general',
-          importYear,
-        );
+        const generalFormulaValidation =
+          await this.validateRateFormulaReadiness(
+            importHistory.id,
+            entry,
+            'generalRate',
+            entry.generalRate,
+            entry.unit,
+            'general',
+            importYear,
+          );
         if (generalFormulaValidation.issues.length > 0) {
           issues.push(...generalFormulaValidation.issues);
         }
@@ -1563,15 +1688,16 @@ export class HtsImportJobHandler {
         warningCount += chapter99TypeValidation.warningCount;
         infoCount += chapter99TypeValidation.infoCount;
 
-        const chapter99FormulaValidation = await this.validateRateFormulaReadiness(
-          importHistory.id,
-          entry,
-          'chapter99',
-          entry.chapter99,
-          entry.unit,
-          'general',
-          importYear,
-        );
+        const chapter99FormulaValidation =
+          await this.validateRateFormulaReadiness(
+            importHistory.id,
+            entry,
+            'chapter99',
+            entry.chapter99,
+            entry.unit,
+            'general',
+            importYear,
+          );
         if (chapter99FormulaValidation.issues.length > 0) {
           issues.push(...chapter99FormulaValidation.issues);
         }
@@ -1606,7 +1732,8 @@ export class HtsImportJobHandler {
         : 1;
     const formulaGatePassed =
       formulaCoverage >= this.MIN_STAGE_FORMULA_COVERAGE &&
-      (this.ALLOW_UNRESOLVED_NOTE_FORMULAS || formulaStats.noteUnresolvedCount === 0);
+      (this.ALLOW_UNRESOLVED_NOTE_FORMULAS ||
+        formulaStats.noteUnresolvedCount === 0);
 
     const metadata = {
       ...(importHistory.metadata || {}),
@@ -1638,7 +1765,7 @@ export class HtsImportJobHandler {
     await this.htsImportService.appendLog(
       importHistory.id,
       `✓ Validation completed: ${processed.toLocaleString()} entries checked ` +
-      `(errors: ${errorCount}, warnings: ${warningCount}, formula coverage: ${(formulaCoverage * 100).toFixed(2)}%)`
+        `(errors: ${errorCount}, warnings: ${warningCount}, formula coverage: ${(formulaCoverage * 100).toFixed(2)}%)`,
     );
 
     return { errorCount, warningCount, infoCount };
@@ -1753,7 +1880,9 @@ export class HtsImportJobHandler {
       stats.formulaUnresolvedCount++;
       stats.noteUnresolvedCount++;
 
-      const severity = this.ALLOW_UNRESOLVED_NOTE_FORMULAS ? 'WARNING' : 'ERROR';
+      const severity = this.ALLOW_UNRESOLVED_NOTE_FORMULAS
+        ? 'WARNING'
+        : 'ERROR';
       issues.push({
         importId,
         stageEntryId: entry.id,
@@ -1773,10 +1902,11 @@ export class HtsImportJobHandler {
       };
     }
 
-    const formulaCandidate = this.formulaGenerationService.generateFormulaByPattern(
-      rateText,
-      unit || undefined,
-    );
+    const formulaCandidate =
+      this.formulaGenerationService.generateFormulaByPattern(
+        rateText,
+        unit || undefined,
+      );
 
     if (!formulaCandidate) {
       stats.formulaUnresolvedCount++;
@@ -1793,7 +1923,9 @@ export class HtsImportJobHandler {
       return { issues, errorCount: 1, warningCount: 0, infoCount: 0, stats };
     }
 
-    const validation = this.formulaGenerationService.validateFormula(formulaCandidate.formula);
+    const validation = this.formulaGenerationService.validateFormula(
+      formulaCandidate.formula,
+    );
     if (!validation.valid) {
       stats.formulaUnresolvedCount++;
       stats.nonNoteUnresolvedCount++;
@@ -1804,7 +1936,11 @@ export class HtsImportJobHandler {
         issueCode: `${issueCodePrefix}_FORMULA_INVALID`,
         severity: 'ERROR',
         message: `${issuePrefix} generated an invalid formula candidate`,
-        details: { rateText, formula: formulaCandidate.formula, error: validation.error },
+        details: {
+          rateText,
+          formula: formulaCandidate.formula,
+          error: validation.error,
+        },
       });
       return { issues, errorCount: 1, warningCount: 0, infoCount: 0, stats };
     }
@@ -1875,27 +2011,44 @@ export class HtsImportJobHandler {
       const left = parseFloat(rangeMatch[1]);
       const right = parseFloat(rangeMatch[2]);
       if (left > right) {
-        pushIssue('ERROR', 'RANGE_REVERSED', `${issuePrefix} has reversed percentage range`, {
-          rateText,
-          min: left,
-          max: right,
-        });
+        pushIssue(
+          'ERROR',
+          'RANGE_REVERSED',
+          `${issuePrefix} has reversed percentage range`,
+          {
+            rateText,
+            min: left,
+            max: right,
+          },
+        );
       } else if (left === right) {
-        pushIssue('INFO', 'RANGE_FLAT', `${issuePrefix} has identical range endpoints`, {
-          rateText,
-          value: left,
-        });
+        pushIssue(
+          'INFO',
+          'RANGE_FLAT',
+          `${issuePrefix} has identical range endpoints`,
+          {
+            rateText,
+            value: left,
+          },
+        );
       }
     }
 
-    const percentMatches = normalized.matchAll(/(-?\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/g);
+    const percentMatches = normalized.matchAll(
+      /(-?\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/g,
+    );
     for (const match of percentMatches) {
       const value = parseFloat(match[1]);
       if (value < 0) {
-        pushIssue('ERROR', 'PERCENT_NEGATIVE', `${issuePrefix} has a negative percentage rate`, {
-          rateText,
-          value,
-        });
+        pushIssue(
+          'ERROR',
+          'PERCENT_NEGATIVE',
+          `${issuePrefix} has a negative percentage rate`,
+          {
+            rateText,
+            value,
+          },
+        );
       } else if (value > 100 && value <= 500) {
         pushIssue(
           'WARNING',
@@ -1904,10 +2057,15 @@ export class HtsImportJobHandler {
           { rateText, value },
         );
       } else if (value > 500) {
-        pushIssue('ERROR', 'PERCENT_EXTREME', `${issuePrefix} has extreme percentage rate`, {
-          rateText,
-          value,
-        });
+        pushIssue(
+          'ERROR',
+          'PERCENT_EXTREME',
+          `${issuePrefix} has extreme percentage rate`,
+          {
+            rateText,
+            value,
+          },
+        );
       }
     }
 
@@ -1924,27 +2082,45 @@ export class HtsImportJobHandler {
       }
 
       if (value < 0) {
-        pushIssue('ERROR', 'SPECIFIC_NEGATIVE', `${issuePrefix} has a negative specific duty`, {
-          rateText,
-          token,
-          value,
-        });
+        pushIssue(
+          'ERROR',
+          'SPECIFIC_NEGATIVE',
+          `${issuePrefix} has a negative specific duty`,
+          {
+            rateText,
+            token,
+            value,
+          },
+        );
       } else if (value === 0) {
-        pushIssue('WARNING', 'SPECIFIC_ZERO', `${issuePrefix} has a zero specific duty`, {
-          rateText,
-          token,
-          value,
-        });
+        pushIssue(
+          'WARNING',
+          'SPECIFIC_ZERO',
+          `${issuePrefix} has a zero specific duty`,
+          {
+            rateText,
+            token,
+            value,
+          },
+        );
       } else if (value > 1000) {
-        pushIssue('WARNING', 'SPECIFIC_HIGH', `${issuePrefix} has unusually high specific duty`, {
-          rateText,
-          token,
-          value,
-        });
+        pushIssue(
+          'WARNING',
+          'SPECIFIC_HIGH',
+          `${issuePrefix} has unusually high specific duty`,
+          {
+            rateText,
+            token,
+            value,
+          },
+        );
       }
     }
 
-    if (/\bnote\b/.test(normalized) && !/note[s]?\s+\d+[a-z]?(?:\([a-z0-9ivx]+\))*/i.test(rateText)) {
+    if (
+      /\bnote\b/.test(normalized) &&
+      !/note[s]?\s+\d+[a-z]?(?:\([a-z0-9ivx]+\))*/i.test(rateText)
+    ) {
       pushIssue(
         'WARNING',
         'NOTE_REFERENCE_AMBIGUOUS',
@@ -1959,12 +2135,19 @@ export class HtsImportJobHandler {
   /**
    * STAGE 2C: Diff staged entries vs current active HTS + extra taxes
    */
-  private async diffStagedEntries(importHistory: HtsImportHistoryEntity): Promise<void> {
-    await this.htsImportService.appendLog(importHistory.id, 'Diffing staged entries...');
+  private async diffStagedEntries(
+    importHistory: HtsImportHistoryEntity,
+  ): Promise<void> {
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Diffing staged entries...',
+    );
 
     await this.htsStageDiffRepo.delete({ importId: importHistory.id });
 
-    const total = await this.htsStageRepo.count({ where: { importId: importHistory.id } });
+    const total = await this.htsStageRepo.count({
+      where: { importId: importHistory.id },
+    });
     const pageSize = this.BATCH_SIZE;
 
     for (let offset = 0; offset < total; offset += pageSize) {
@@ -1984,7 +2167,9 @@ export class HtsImportJobHandler {
         where: { htsNumber: In(htsNumbers), isActive: true },
       });
 
-      const currentMap = new Map(currentBatch.map((entry) => [entry.htsNumber, entry]));
+      const currentMap = new Map(
+        currentBatch.map((entry) => [entry.htsNumber, entry]),
+      );
 
       const extraTaxes = await this.loadExtraTaxes(htsNumbers, chapters);
 
@@ -1992,7 +2177,11 @@ export class HtsImportJobHandler {
 
       for (const staged of stagedBatch) {
         const current = currentMap.get(staged.htsNumber) || null;
-        const applicableTaxes = this.matchExtraTaxes(extraTaxes, staged.htsNumber, staged.chapter);
+        const applicableTaxes = this.matchExtraTaxes(
+          extraTaxes,
+          staged.htsNumber,
+          staged.chapter,
+        );
 
         const diffResult = this.computeDiff(current, staged, applicableTaxes);
 
@@ -2013,10 +2202,15 @@ export class HtsImportJobHandler {
 
     await this.diffRemovedEntries(importHistory);
 
-    await this.htsImportService.appendLog(importHistory.id, '✓ Diffing completed');
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      '✓ Diffing completed',
+    );
   }
 
-  private async diffRemovedEntries(importHistory: HtsImportHistoryEntity): Promise<void> {
+  private async diffRemovedEntries(
+    importHistory: HtsImportHistoryEntity,
+  ): Promise<void> {
     const pageSize = this.BATCH_SIZE;
 
     for (let offset = 0; ; offset += pageSize) {
@@ -2050,7 +2244,11 @@ export class HtsImportJobHandler {
         diffType: 'REMOVED',
         diffSummary: {
           current: this.pickCurrentFields(entry),
-          extraTaxes: this.matchExtraTaxes(extraTaxes, entry.htsNumber, entry.chapter),
+          extraTaxes: this.matchExtraTaxes(
+            extraTaxes,
+            entry.htsNumber,
+            entry.chapter,
+          ),
         },
       }));
 
@@ -2058,9 +2256,7 @@ export class HtsImportJobHandler {
     }
   }
 
-  private async getValidationSummary(
-    importId: string,
-  ): Promise<{
+  private async getValidationSummary(importId: string): Promise<{
     errorCount: number;
     warningCount: number;
     infoCount: number;
@@ -2089,7 +2285,7 @@ export class HtsImportJobHandler {
     const importHistory = await this.importHistoryRepo.findOne({
       where: { id: importId },
     });
-    const metadata = (importHistory?.metadata || {}) as Record<string, any>;
+    const metadata = importHistory?.metadata || {};
     const metadataValidationSummary = metadata.validationSummary || {};
     const metadataFormulaSummary = metadata.formulaValidationSummary || {};
     const formulaCoverage =
@@ -2099,11 +2295,18 @@ export class HtsImportJobHandler {
           ? metadataValidationSummary.formulaCoverage
           : null;
     const formulaGateFlag =
-      metadataFormulaSummary.formulaGatePassed ?? metadataValidationSummary.formulaGatePassed;
+      metadataFormulaSummary.formulaGatePassed ??
+      metadataValidationSummary.formulaGatePassed;
     const formulaGatePassed =
       typeof formulaGateFlag === 'boolean' ? formulaGateFlag : errorCount === 0;
 
-    return { errorCount, warningCount, infoCount, formulaCoverage, formulaGatePassed };
+    return {
+      errorCount,
+      warningCount,
+      infoCount,
+      formulaCoverage,
+      formulaGatePassed,
+    };
   }
 
   private isValidHtsNumberFormat(htsNumber: string): boolean {
@@ -2151,20 +2354,36 @@ export class HtsImportJobHandler {
     return classification.matches.length > 0;
   }
 
-  private classifyRateType(value: string): { normalized: string; matches: string[] } {
+  private classifyRateType(value: string): {
+    normalized: string;
+    matches: string[];
+  } {
     const normalized = value.replace(/\s+/g, ' ').trim();
     const matches: string[] = [];
 
     const patterns: Array<{ type: string; regex: RegExp }> = [
       { type: 'ad_valorem', regex: /^\d+(\.\d+)?%(\s*(ad\s+valorem|adv))?$/i },
-      { type: 'specific_currency', regex: /^\$?\d+(\.\d+)?\s*(per|\/)\s*[a-zA-Z0-9.]+$/i },
-      { type: 'specific_unit', regex: /^\d+(\.\d+)?\s*(kg|lb|doz|pair|each|liter|l|m3|m2|no\.?|pcs?|sets?)$/i },
-      { type: 'cents_specific', regex: /^\d+(\.\d+)?\s*¢\s*(per|\/)?\s*[a-zA-Z0-9.]*$/i },
+      {
+        type: 'specific_currency',
+        regex: /^\$?\d+(\.\d+)?\s*(per|\/)\s*[a-zA-Z0-9.]+$/i,
+      },
+      {
+        type: 'specific_unit',
+        regex:
+          /^\d+(\.\d+)?\s*(kg|lb|doz|pair|each|liter|l|m3|m2|no\.?|pcs?|sets?)$/i,
+      },
+      {
+        type: 'cents_specific',
+        regex: /^\d+(\.\d+)?\s*¢\s*(per|\/)?\s*[a-zA-Z0-9.]*$/i,
+      },
       { type: 'compound', regex: /^.+\s*(\+|plus|and)\s*.+$/i },
       { type: 'range', regex: /^\d+(\.\d+)?%?\s*(to|-)\s*\d+(\.\d+)?%?$/i },
       { type: 'parenthetical', regex: /^.+\s*\([^)]*\)$/i },
       { type: 'preferential_free', regex: /^free\s*\([A-Z0-9,\s+\-*]+\)$/i },
-      { type: 'preferential_rate', regex: /^\d+(\.\d+)?%\s*\([A-Z0-9,\s+\-*]+\)$/i },
+      {
+        type: 'preferential_rate',
+        regex: /^\d+(\.\d+)?%\s*\([A-Z0-9,\s+\-*]+\)$/i,
+      },
       { type: 'rate_or_specific', regex: /^.+\s*(or|\/|per)\s*.+$/i },
       { type: 'footnote', regex: /^.+\s*(note|see)\s*\d+.*$/i },
       { type: 'numeric', regex: /^\d+(\.\d+)?$/i },
@@ -2218,7 +2437,7 @@ export class HtsImportJobHandler {
           {
             ...this.mapItemToEntity(item, sourceVersion),
             updatedAt: new Date(),
-          }
+          },
         );
         return 'UPDATED';
       } else {
@@ -2226,7 +2445,10 @@ export class HtsImportJobHandler {
       }
     } else {
       // Create new entry
-      const entity = entityManager.create(HtsEntity, this.mapItemToEntity(item, sourceVersion));
+      const entity = entityManager.create(
+        HtsEntity,
+        this.mapItemToEntity(item, sourceVersion),
+      );
       await entityManager.save(HtsEntity, entity);
       return 'CREATED';
     }
@@ -2260,7 +2482,7 @@ export class HtsImportJobHandler {
           {
             ...this.mapStageToEntity(staged, sourceVersion),
             updatedAt: new Date(),
-          }
+          },
         );
         return 'UPDATED';
       }
@@ -2268,7 +2490,10 @@ export class HtsImportJobHandler {
       return 'SKIPPED';
     }
 
-    const entity = entityManager.create(HtsEntity, this.mapStageToEntity(staged, sourceVersion));
+    const entity = entityManager.create(
+      HtsEntity,
+      this.mapStageToEntity(staged, sourceVersion),
+    );
     await entityManager.save(HtsEntity, entity);
     return 'CREATED';
   }
@@ -2276,7 +2501,11 @@ export class HtsImportJobHandler {
   /**
    * Check if entry has changes
    */
-  private hasChanges(existing: HtsEntity, item: any, sourceVersion: string): boolean {
+  private hasChanges(
+    existing: HtsEntity,
+    item: any,
+    sourceVersion: string,
+  ): boolean {
     const mapped = this.mapItemToEntity(item, sourceVersion);
 
     return (
@@ -2320,26 +2549,34 @@ export class HtsImportJobHandler {
   /**
    * Map raw item to HTS entity
    */
-  private mapItemToEntity(item: any, sourceVersion: string): Partial<HtsEntity> {
+  private mapItemToEntity(
+    item: any,
+    sourceVersion: string,
+  ): Partial<HtsEntity> {
     const htsNumber = item.htsNumber || item.hts_number || item.htsno;
     const sourceFootnotes = item.footnotes || null;
-    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
-      .filter((code) => code.startsWith('99'));
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(
+      sourceFootnotes,
+    ).filter((code) => code.startsWith('99'));
 
     return {
       htsNumber,
-      version: sourceVersion,  // Required NOT NULL field
+      version: sourceVersion, // Required NOT NULL field
       isActive: true,
       indent: item.indent || 0,
       description: item.description || '',
-      unit: Array.isArray(item.units) ? item.units.join(', ') : (item.unit || ''),
+      unit: Array.isArray(item.units) ? item.units.join(', ') : item.unit || '',
       generalRate: item.generalRate || item.general_rate || item.general || '',
-      specialRates: item.specialRates || item.special_rates || (item.special ? { default: item.special } : null),
+      specialRates:
+        item.specialRates ||
+        item.special_rates ||
+        (item.special ? { default: item.special } : null),
       footnotes: this.normalizeFootnotePayload(sourceFootnotes),
       chapter99Links: chapter99Links.length > 0 ? chapter99Links : null,
       sourceVersion: sourceVersion,
       chapter: item.chapter || htsNumber?.substring(0, 2),
-      parentHtsNumber: item.parentHtsNumber || item.parent_hts_number || item.superior || null,
+      parentHtsNumber:
+        item.parentHtsNumber || item.parent_hts_number || item.superior || null,
       metadata: sourceFootnotes
         ? {
             sourceFootnotes,
@@ -2353,8 +2590,9 @@ export class HtsImportJobHandler {
     sourceVersion: string,
   ): Partial<HtsEntity> {
     const sourceFootnotes = staged.rawItem?.footnotes || null;
-    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
-      .filter((code) => code.startsWith('99'));
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(
+      sourceFootnotes,
+    ).filter((code) => code.startsWith('99'));
 
     return {
       htsNumber: staged.htsNumber,
@@ -2395,20 +2633,30 @@ export class HtsImportJobHandler {
 
     const description = this.normalizeString(item.description || '');
     const unit = this.normalizeString(
-      Array.isArray(item.units) ? item.units.join(', ') : (item.unit || '')
+      Array.isArray(item.units) ? item.units.join(', ') : item.unit || '',
     );
-    const generalRate = this.normalizeString(item.generalRate || item.general_rate || item.general || '');
+    const generalRate = this.normalizeString(
+      item.generalRate || item.general_rate || item.general || '',
+    );
     const special = this.normalizeString(item.special || '');
     const other = this.normalizeString(item.other || '');
-    const chapter99 = this.normalizeString(item.chapter99 || item.chapter_99 || '');
+    const chapter99 = this.normalizeString(
+      item.chapter99 || item.chapter_99 || '',
+    );
     const sourceFootnotes = item.footnotes || null;
-    const chapter99Links = this.extractHtsCodesFromFootnotePayload(sourceFootnotes)
-      .filter((code) => code.startsWith('99'));
+    const chapter99Links = this.extractHtsCodesFromFootnotePayload(
+      sourceFootnotes,
+    ).filter((code) => code.startsWith('99'));
     const chapter = item.chapter || htsNumber?.substring(0, 2);
-    const heading = item.heading || (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 4) : null);
-    const subheading = item.subheading || (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 6) : null);
+    const heading =
+      item.heading ||
+      (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 4) : null);
+    const subheading =
+      item.subheading ||
+      (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 6) : null);
     const statisticalSuffix =
-      item.statisticalSuffix || item.statistical_suffix ||
+      item.statisticalSuffix ||
+      item.statistical_suffix ||
       (htsNumber ? htsNumber.replace(/\./g, '').substring(0, 10) : null);
 
     const normalized = {
@@ -2424,7 +2672,8 @@ export class HtsImportJobHandler {
       heading,
       subheading,
       statisticalSuffix,
-      parentHtsNumber: item.parentHtsNumber || item.parent_hts_number || item.superior || null,
+      parentHtsNumber:
+        item.parentHtsNumber || item.parent_hts_number || item.superior || null,
       indent: item.indent || 0,
     };
 
@@ -2443,7 +2692,8 @@ export class HtsImportJobHandler {
       heading: heading || null,
       subheading: subheading || null,
       statisticalSuffix: statisticalSuffix || null,
-      parentHtsNumber: item.parentHtsNumber || item.parent_hts_number || item.superior || null,
+      parentHtsNumber:
+        item.parentHtsNumber || item.parent_hts_number || item.superior || null,
       rowHash: this.computeRowHash(normalized),
       rawItem: item,
       normalized,
@@ -2484,7 +2734,9 @@ export class HtsImportJobHandler {
     const texts: string[] = [];
 
     const collectCodes = (text: string) => {
-      for (const match of text.matchAll(/\b(\d{4}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g)) {
+      for (const match of text.matchAll(
+        /\b(\d{4}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g,
+      )) {
         codes.add(match[1]);
       }
     };
@@ -2546,7 +2798,9 @@ export class HtsImportJobHandler {
       chapter99Links: Array.isArray(staged.normalized?.chapter99Links)
         ? staged.normalized.chapter99Links
         : [],
-      footnotes: this.normalizeFootnotePayload(staged.rawItem?.footnotes || null),
+      footnotes: this.normalizeFootnotePayload(
+        staged.rawItem?.footnotes || null,
+      ),
       chapter: staged.chapter,
       heading: staged.heading,
       subheading: staged.subheading,
@@ -2602,7 +2856,10 @@ export class HtsImportJobHandler {
   ): boolean {
     const normalizedCurrent = this.normalizeDiffValue(key, currentValue);
     const normalizedStaged = this.normalizeDiffValue(key, stagedValue);
-    return this.stableSerialize(normalizedCurrent) !== this.stableSerialize(normalizedStaged);
+    return (
+      this.stableSerialize(normalizedCurrent) !==
+      this.stableSerialize(normalizedStaged)
+    );
   }
 
   private normalizeDiffValue(key: string, value: unknown): unknown {
@@ -2626,7 +2883,10 @@ export class HtsImportJobHandler {
     if (value && typeof value === 'object') {
       const entries = Object.entries(value as Record<string, unknown>)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([entryKey, entryValue]) => `${JSON.stringify(entryKey)}:${this.stableSerialize(entryValue)}`);
+        .map(
+          ([entryKey, entryValue]) =>
+            `${JSON.stringify(entryKey)}:${this.stableSerialize(entryValue)}`,
+        );
       return `{${entries.join(',')}}`;
     }
 
@@ -2651,8 +2911,9 @@ export class HtsImportJobHandler {
       )
       .andWhere(
         new Brackets((qb) => {
-          qb.where('tax.htsChapter IN (:...chapters)', { chapters })
-            .orWhere('tax.htsChapter IS NULL');
+          qb.where('tax.htsChapter IN (:...chapters)', { chapters }).orWhere(
+            'tax.htsChapter IS NULL',
+          );
         }),
       )
       .getMany();
@@ -2674,7 +2935,10 @@ export class HtsImportJobHandler {
   /**
    * Save checkpoint to database
    */
-  private async saveCheckpoint(importId: string, checkpoint: ImportCheckpoint): Promise<void> {
+  private async saveCheckpoint(
+    importId: string,
+    checkpoint: ImportCheckpoint,
+  ): Promise<void> {
     await this.importHistoryRepo.update(importId, {
       checkpoint: checkpoint as any,
     });
@@ -2684,7 +2948,9 @@ export class HtsImportJobHandler {
    * Count total entries in dataset
    */
   private countEntries(data: any): number {
-    this.logger.log(`🔢 countEntries called with type: ${Array.isArray(data) ? 'Array' : typeof data}`);
+    this.logger.log(
+      `🔢 countEntries called with type: ${Array.isArray(data) ? 'Array' : typeof data}`,
+    );
 
     // Handle flat array format (USITC JSON)
     if (Array.isArray(data)) {

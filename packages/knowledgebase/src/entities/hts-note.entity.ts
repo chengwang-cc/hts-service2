@@ -30,7 +30,11 @@ export class HtsNoteEntity {
   @Column('varchar', { length: 3 })
   chapter: string;
 
-  @Column('varchar', { length: 50, name: 'type', default: 'ADDITIONAL_US_NOTE' })
+  @Column('varchar', {
+    length: 50,
+    name: 'type',
+    default: 'ADDITIONAL_US_NOTE',
+  })
   noteType: string;
 
   @Column('varchar', { length: 20 })

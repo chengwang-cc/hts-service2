@@ -11,7 +11,11 @@ import { HtsTestResultEntity } from '@hts/core';
 import { HtsEntity } from '@hts/core';
 import { FormulaEvaluationService } from '@hts/calculator';
 import { QueueService } from '../../queue/queue.service';
-import { CreateTestCaseDto, UpdateTestCaseDto, ListTestResultsDto } from '../dto/test-case.dto';
+import {
+  CreateTestCaseDto,
+  UpdateTestCaseDto,
+  ListTestResultsDto,
+} from '../dto/test-case.dto';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -32,7 +36,10 @@ export class TestCaseService {
   /**
    * Create test case
    */
-  async create(dto: CreateTestCaseDto, createdBy: string): Promise<HtsTestCaseEntity> {
+  async create(
+    dto: CreateTestCaseDto,
+    createdBy: string,
+  ): Promise<HtsTestCaseEntity> {
     const testCase = this.testCaseRepo.create({
       htsNumber: dto.htsNumber,
       testName: dto.testName,
@@ -88,13 +95,17 @@ export class TestCaseService {
    * Run single test case
    */
   async runSingle(testCaseId: string): Promise<HtsTestResultEntity> {
-    const testCase = await this.testCaseRepo.findOne({ where: { id: testCaseId } });
+    const testCase = await this.testCaseRepo.findOne({
+      where: { id: testCaseId },
+    });
 
     if (!testCase) {
       throw new NotFoundException(`Test case not found: ${testCaseId}`);
     }
 
-    const hts = await this.htsRepo.findOne({ where: { htsNumber: testCase.htsNumber } });
+    const hts = await this.htsRepo.findOne({
+      where: { htsNumber: testCase.htsNumber },
+    });
 
     if (!hts) {
       throw new NotFoundException(`HTS entry not found: ${testCase.htsNumber}`);
@@ -113,7 +124,7 @@ export class TestCaseService {
       // Evaluate formula
       const actualOutput = this.formulaEvalService.evaluate(
         formula,
-        testCase.inputValues
+        testCase.inputValues,
       );
 
       const difference = Math.abs(actualOutput - testCase.expectedOutput);
@@ -164,7 +175,9 @@ export class TestCaseService {
   /**
    * Run batch of tests
    */
-  async runBatch(testCaseIds: string[]): Promise<{ jobId: string; runId: string }> {
+  async runBatch(
+    testCaseIds: string[],
+  ): Promise<{ jobId: string; runId: string }> {
     const runId = uuidv4();
 
     const jobId = await this.queueService.sendJob('test-batch-execution', {
@@ -172,7 +185,9 @@ export class TestCaseService {
       runId,
     });
 
-    this.logger.log(`Batch test job triggered: ${jobId} for ${testCaseIds.length} tests`);
+    this.logger.log(
+      `Batch test job triggered: ${jobId} for ${testCaseIds.length} tests`,
+    );
 
     return { jobId: jobId || '', runId };
   }
@@ -188,7 +203,9 @@ export class TestCaseService {
 
     const testCaseIds = testCases.map((tc) => tc.id);
 
-    this.logger.log(`Running regression suite with ${testCaseIds.length} tests`);
+    this.logger.log(
+      `Running regression suite with ${testCaseIds.length} tests`,
+    );
 
     return this.runBatch(testCaseIds);
   }

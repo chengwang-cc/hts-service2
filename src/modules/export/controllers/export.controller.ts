@@ -76,10 +76,7 @@ export class ExportController {
    * Download export file
    */
   @Get(':jobId/download')
-  async downloadExport(
-    @Param('jobId') jobId: string,
-    @Res() res: Response,
-  ) {
+  async downloadExport(@Param('jobId') jobId: string, @Res() res: Response) {
     const job = await this.exportService.getJobStatus(jobId);
 
     if (job.status !== 'completed' || !job.fileUrl) {

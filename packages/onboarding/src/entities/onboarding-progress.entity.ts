@@ -27,10 +27,13 @@ export class OnboardingProgressEntity {
   currentStep: string;
 
   @Column('jsonb', { default: {} })
-  completedSteps: Record<string, {
-    completedAt: string;
-    metadata?: Record<string, any>;
-  }>;
+  completedSteps: Record<
+    string,
+    {
+      completedAt: string;
+      metadata?: Record<string, any>;
+    }
+  >;
 
   @Column('jsonb', { nullable: true })
   wizardData: Record<string, any> | null;

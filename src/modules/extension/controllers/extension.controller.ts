@@ -39,7 +39,10 @@ import { ExtensionFeedbackEntity } from '../entities/extension-feedback.entity';
 import { VisionAnalysisEntity } from '../entities/vision-analysis.entity';
 import { ScrapingMetadataEntity } from '../entities/scraping-metadata.entity';
 import { sanitizeFeedbackText, sanitizeUrl } from '../utils/sanitize.util';
-import { validateImageFile, validateImageUrl } from '../utils/image-validation.util';
+import {
+  validateImageFile,
+  validateImageUrl,
+} from '../utils/image-validation.util';
 import { VisionService } from '@hts/core';
 import { AgentOrchestrationService } from '../services/agent-orchestration.service';
 import { VisionRateLimitGuard } from '../guards/vision-rate-limit.guard';
@@ -93,9 +96,8 @@ export class ExtensionController {
     @CurrentApiKey() apiKey: ApiKeyEntity,
   ) {
     try {
-      const products = await this.detectionService.detectProductWithLLM(
-        detectDto,
-      );
+      const products =
+        await this.detectionService.detectProductWithLLM(detectDto);
 
       return {
         success: true,
@@ -329,7 +331,10 @@ export class ExtensionController {
       validateImageUrl(sanitizedUrl);
 
       // Calculate URL hash for caching
-      const urlHash = crypto.createHash('sha256').update(sanitizedUrl).digest('hex');
+      const urlHash = crypto
+        .createHash('sha256')
+        .update(sanitizedUrl)
+        .digest('hex');
 
       // Check for recent scraping result (optional caching)
       const CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -431,7 +436,9 @@ export class ExtensionController {
         processingTimeMs: Date.now() - startTime,
         errorMessage: error.message,
       });
-      await this.scrapingMetadataRepository.save(failedMetadata).catch(() => {});
+      await this.scrapingMetadataRepository
+        .save(failedMetadata)
+        .catch(() => {});
 
       throw new HttpException(
         {
@@ -452,7 +459,7 @@ export class ExtensionController {
   @ApiOperation({
     summary: 'Validate input and determine type',
     description:
-      'Analyzes user input to determine if it\'s text, URL, or image data. Returns validation result with suggestions.',
+      "Analyzes user input to determine if it's text, URL, or image data. Returns validation result with suggestions.",
   })
   @ApiResponse({ status: 200, description: 'Input validated successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
@@ -621,8 +628,7 @@ export class ExtensionController {
   @Post('feedback')
   @ApiOperation({
     summary: 'Submit user feedback',
-    description:
-      'Collect user corrections and feedback for ML improvement.',
+    description: 'Collect user corrections and feedback for ML improvement.',
   })
   @ApiResponse({ status: 201, description: 'Feedback saved successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
@@ -643,8 +649,12 @@ export class ExtensionController {
         field: sanitizeFeedbackText(feedbackDto.field, 100),
         originalValue: feedbackDto.originalValue, // JSON value, validated by DTO
         correctedValue: feedbackDto.correctedValue, // JSON value, validated by DTO
-        userComment: feedbackDto.userComment ? sanitizeFeedbackText(feedbackDto.userComment, 5000) : null,
-        userAgent: feedbackDto.userAgent ? sanitizeFeedbackText(feedbackDto.userAgent, 500) : null,
+        userComment: feedbackDto.userComment
+          ? sanitizeFeedbackText(feedbackDto.userComment, 5000)
+          : null,
+        userAgent: feedbackDto.userAgent
+          ? sanitizeFeedbackText(feedbackDto.userAgent, 500)
+          : null,
         pageUrl: feedbackDto.pageUrl ? sanitizeUrl(feedbackDto.pageUrl) : null,
       });
 

@@ -3,7 +3,12 @@
  * Business logic for knowledge document management
  */
 
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import {
@@ -14,7 +19,11 @@ import {
 } from '@hts/knowledgebase';
 import { UsitcDownloaderService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
-import { UploadDocumentDto, ListDocumentsDto, NoteBackfillOptionsDto } from '../dto/knowledge.dto';
+import {
+  UploadDocumentDto,
+  ListDocumentsDto,
+  NoteBackfillOptionsDto,
+} from '../dto/knowledge.dto';
 import * as crypto from 'crypto';
 
 type BackfillTargetAction = 'IMPORT' | 'SKIP_ALREADY_PRESENT';
@@ -95,7 +104,10 @@ export class KnowledgeAdminService {
       // Specific year + revision
       year = dto.year;
       chapter = dto.chapter || '00';
-      sourceUrl = this.usitcDownloader.getPdfDownloadUrl(dto.year, dto.revision);
+      sourceUrl = this.usitcDownloader.getPdfDownloadUrl(
+        dto.year,
+        dto.revision,
+      );
     } else if (dto.documentType) {
       // Legacy support: explicit document type
       year = dto.year || new Date().getFullYear();
@@ -105,30 +117,39 @@ export class KnowledgeAdminService {
       if (documentType === 'PDF') {
         if (file) {
           pdfData = file.buffer;
-          fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+          fileHash = crypto
+            .createHash('sha256')
+            .update(file.buffer)
+            .digest('hex');
           sourceUrl = dto.sourceUrl || `uploaded:${file.originalname}`;
         } else if (dto.sourceUrl) {
           sourceUrl = dto.sourceUrl;
         } else {
-          throw new BadRequestException('PDF type requires either file upload or URL');
+          throw new BadRequestException(
+            'PDF type requires either file upload or URL',
+          );
         }
       } else if (documentType === 'URL') {
         sourceUrl = dto.sourceUrl || '';
         if (!sourceUrl) {
-          throw new BadRequestException('URL type requires sourceUrl parameter');
+          throw new BadRequestException(
+            'URL type requires sourceUrl parameter',
+          );
         }
       } else if (documentType === 'TEXT') {
         sourceUrl = 'TEXT_CONTENT';
         textContent = dto.textContent || '';
         if (!textContent) {
-          throw new BadRequestException('TEXT type requires textContent parameter');
+          throw new BadRequestException(
+            'TEXT type requires textContent parameter',
+          );
         }
       } else {
         sourceUrl = '';
       }
     } else {
       throw new BadRequestException(
-        'Must specify either: version="latest", year+revision, or legacy documentType fields'
+        'Must specify either: version="latest", year+revision, or legacy documentType fields',
       );
     }
 
@@ -166,7 +187,9 @@ export class KnowledgeAdminService {
       },
     );
 
-    this.logger.log(`Triggered document processing job ${jobId} for document ${saved.id}`);
+    this.logger.log(
+      `Triggered document processing job ${jobId} for document ${saved.id}`,
+    );
 
     saved.jobId = jobId;
     await this.documentRepo.save(saved);
@@ -240,7 +263,10 @@ export class KnowledgeAdminService {
     await this.chunkRepo.delete({ documentId: id });
 
     // Update document status
-    await this.documentRepo.update(id, { status: 'PENDING', processedAt: null });
+    await this.documentRepo.update(id, {
+      status: 'PENDING',
+      processedAt: null,
+    });
 
     // Trigger processing job with singleton key for cluster safety
     const jobId = await this.queueService.sendJob(
@@ -253,7 +279,9 @@ export class KnowledgeAdminService {
       },
     );
 
-    this.logger.log(`Triggered document reprocessing job ${jobId} for document ${id}`);
+    this.logger.log(
+      `Triggered document reprocessing job ${jobId} for document ${id}`,
+    );
 
     // Store job ID
     await this.documentRepo.update(id, { jobId });
@@ -271,7 +299,10 @@ export class KnowledgeAdminService {
     await this.chunkRepo.delete({});
 
     // Reset all document statuses
-    await this.documentRepo.update({}, { status: 'PENDING', processedAt: null });
+    await this.documentRepo.update(
+      {},
+      { status: 'PENDING', processedAt: null },
+    );
 
     // Trigger batch reindex job with singleton key (only one batch reindex at a time)
     const jobId = await this.queueService.sendJob(
@@ -286,7 +317,9 @@ export class KnowledgeAdminService {
       },
     );
 
-    this.logger.log(`Triggered batch reindex job ${jobId} for ${documents.length} documents`);
+    this.logger.log(
+      `Triggered batch reindex job ${jobId} for ${documents.length} documents`,
+    );
 
     return { jobId: jobId || '', count: documents.length };
   }
@@ -316,13 +349,14 @@ export class KnowledgeAdminService {
     totalChunks: number;
     totalEmbeddings: number;
   }> {
-    const [totalDocuments, indexed, processing, totalChunks, totalEmbeddings] = await Promise.all([
-      this.documentRepo.count(),
-      this.documentRepo.count({ where: { status: 'COMPLETED' } }),
-      this.documentRepo.count({ where: { status: 'PROCESSING' } }),
-      this.chunkRepo.count(),
-      this.chunkRepo.count({ where: { embeddingStatus: 'GENERATED' } }),
-    ]);
+    const [totalDocuments, indexed, processing, totalChunks, totalEmbeddings] =
+      await Promise.all([
+        this.documentRepo.count(),
+        this.documentRepo.count({ where: { status: 'COMPLETED' } }),
+        this.documentRepo.count({ where: { status: 'PROCESSING' } }),
+        this.chunkRepo.count(),
+        this.chunkRepo.count({ where: { embeddingStatus: 'GENERATED' } }),
+      ]);
 
     return {
       totalDocuments,
@@ -409,8 +443,13 @@ export class KnowledgeAdminService {
           target.year,
           target.chapter,
         );
-        const result = await this.knowledgeDocumentService.parseAndExtractNotes(document.id);
-        const notesInDb = await this.countNotesForTarget(target.year, target.chapter);
+        const result = await this.knowledgeDocumentService.parseAndExtractNotes(
+          document.id,
+        );
+        const notesInDb = await this.countNotesForTarget(
+          target.year,
+          target.chapter,
+        );
 
         runResults.push({
           ...target,
@@ -441,9 +480,12 @@ export class KnowledgeAdminService {
       options,
       totals: plan.totals,
       execution: {
-        importedTargets: runResults.filter((item) => item.status === 'IMPORTED').length,
-        skippedTargets: runResults.filter((item) => item.status === 'SKIPPED').length,
-        failedTargets: runResults.filter((item) => item.status === 'FAILED').length,
+        importedTargets: runResults.filter((item) => item.status === 'IMPORTED')
+          .length,
+        skippedTargets: runResults.filter((item) => item.status === 'SKIPPED')
+          .length,
+        failedTargets: runResults.filter((item) => item.status === 'FAILED')
+          .length,
         dedupeDeletedRows,
       },
       referenceResolution,
@@ -465,7 +507,11 @@ export class KnowledgeAdminService {
     }
 
     const chapters = dto.chapters?.length
-      ? Array.from(new Set(dto.chapters.map((chapter) => this.normalizeChapter(chapter))))
+      ? Array.from(
+          new Set(
+            dto.chapters.map((chapter) => this.normalizeChapter(chapter)),
+          ),
+        )
       : undefined;
 
     return {
@@ -503,7 +549,10 @@ export class KnowledgeAdminService {
   }> {
     const unresolvedTargets = await this.loadTargets(options);
     const targetChapters = unresolvedTargets.map((item) => item.chapter);
-    const existingCounts = await this.loadExistingNoteCounts(options.year, targetChapters);
+    const existingCounts = await this.loadExistingNoteCounts(
+      options.year,
+      targetChapters,
+    );
 
     const targets: BackfillPlanTarget[] = unresolvedTargets.map((target) => {
       const existingNotes = existingCounts.get(target.chapter) ?? 0;
@@ -521,10 +570,19 @@ export class KnowledgeAdminService {
       targets,
       totals: {
         targets: targets.length,
-        unresolvedReferences: targets.reduce((sum, target) => sum + target.unresolvedReferences, 0),
-        existingNotes: targets.reduce((sum, target) => sum + target.existingNotes, 0),
-        willImport: targets.filter((target) => target.action === 'IMPORT').length,
-        willSkip: targets.filter((target) => target.action === 'SKIP_ALREADY_PRESENT').length,
+        unresolvedReferences: targets.reduce(
+          (sum, target) => sum + target.unresolvedReferences,
+          0,
+        ),
+        existingNotes: targets.reduce(
+          (sum, target) => sum + target.existingNotes,
+          0,
+        ),
+        willImport: targets.filter((target) => target.action === 'IMPORT')
+          .length,
+        willSkip: targets.filter(
+          (target) => target.action === 'SKIP_ALREADY_PRESENT',
+        ).length,
       },
     };
   }
@@ -543,7 +601,7 @@ export class KnowledgeAdminService {
     year: number;
     chapters?: string[];
   }): Promise<BackfillTarget[]> {
-    const rows = (await this.dataSource.query(
+    const rows = await this.dataSource.query(
       `
         WITH active_rates AS (
           SELECT hts_number, chapter, version, 'general'::text AS source_column, general AS reference_text
@@ -595,7 +653,7 @@ export class KnowledgeAdminService {
         ORDER BY unresolved_references DESC, chapter ASC;
       `,
       [options.year],
-    )) as Array<{ year: number; chapter: string; unresolved_references: number }>;
+    );
 
     const byChapter = new Map<string, BackfillTarget>();
     for (const row of rows) {
@@ -625,7 +683,7 @@ export class KnowledgeAdminService {
       return new Map();
     }
 
-    const rows = (await this.dataSource.query(
+    const rows = await this.dataSource.query(
       `
         SELECT chapter, COUNT(*)::int AS note_count
         FROM hts_notes
@@ -634,7 +692,7 @@ export class KnowledgeAdminService {
         GROUP BY chapter
       `,
       [year, chapters],
-    )) as Array<{ chapter: string; note_count: number }>;
+    );
 
     const counts = new Map<string, number>();
     for (const row of rows) {
@@ -644,7 +702,10 @@ export class KnowledgeAdminService {
     return counts;
   }
 
-  private async countNotesForTarget(year: number, chapter: string): Promise<number> {
+  private async countNotesForTarget(
+    year: number,
+    chapter: string,
+  ): Promise<number> {
     const rows = await this.dataSource.query(
       `
         SELECT COUNT(*)::int AS count
@@ -682,7 +743,9 @@ export class KnowledgeAdminService {
     return rows[0]?.deleted_count ?? 0;
   }
 
-  private parseYearFromVersion(version: string | null | undefined): number | undefined {
+  private parseYearFromVersion(
+    version: string | null | undefined,
+  ): number | undefined {
     if (!version) {
       return undefined;
     }
@@ -700,7 +763,7 @@ export class KnowledgeAdminService {
     resolved: number;
     unresolved: number;
   }> {
-    const rows = (await this.dataSource.query(`
+    const rows = await this.dataSource.query(`
       SELECT hts_number, version, general, other
       FROM hts
       WHERE is_active = true
@@ -709,7 +772,7 @@ export class KnowledgeAdminService {
           OR other ~* 'note\\s+[0-9]'
         )
       ORDER BY hts_number ASC;
-    `)) as HtsNoteCandidate[];
+    `);
 
     let total = 0;
     let resolved = 0;

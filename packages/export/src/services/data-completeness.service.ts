@@ -167,7 +167,10 @@ export class DataCompletenessService {
       // Check dependencies
       if (rule.dependencies && value) {
         for (const dep of rule.dependencies) {
-          if (resource[dep] && this.fieldRequiresValue(resource, rule.field, dep)) {
+          if (
+            resource[dep] &&
+            this.fieldRequiresValue(resource, rule.field, dep)
+          ) {
             if (!value) {
               issues.push({
                 field: rule.field,
@@ -201,8 +204,9 @@ export class DataCompletenessService {
       }
     }
 
-    const overallScore = totalWeight > 0 ? (achievedWeight / totalWeight) * 100 : 0;
-    const isExportReady = issues.filter(i => i.blocker).length === 0;
+    const overallScore =
+      totalWeight > 0 ? (achievedWeight / totalWeight) * 100 : 0;
+    const isExportReady = issues.filter((i) => i.blocker).length === 0;
 
     // Save check result
     const checkEntity = this.completenessRepo.create({
@@ -239,18 +243,23 @@ export class DataCompletenessService {
     const reports: CompletenessReportDto[] = [];
 
     for (const resource of resources) {
-      const report = await this.checkResource(organizationId, resourceType, resource);
+      const report = await this.checkResource(
+        organizationId,
+        resourceType,
+        resource,
+      );
       reports.push(report);
     }
 
-    const exportReadyCount = reports.filter(r => r.isExportReady).length;
-    const averageScore = reports.reduce((sum, r) => sum + r.overallScore, 0) / reports.length;
+    const exportReadyCount = reports.filter((r) => r.isExportReady).length;
+    const averageScore =
+      reports.reduce((sum, r) => sum + r.overallScore, 0) / reports.length;
 
-    const allIssues = reports.flatMap(r => r.issues);
+    const allIssues = reports.flatMap((r) => r.issues);
     const summary = {
-      critical: allIssues.filter(i => i.severity === 'error').length,
-      warnings: allIssues.filter(i => i.severity === 'warning').length,
-      passed: reports.filter(r => r.issues.length === 0).length,
+      critical: allIssues.filter((i) => i.severity === 'error').length,
+      warnings: allIssues.filter((i) => i.severity === 'warning').length,
+      passed: reports.filter((r) => r.issues.length === 0).length,
     };
 
     return {
@@ -317,7 +326,12 @@ export class DataCompletenessService {
 
     // Group rules by component
     const components = {
-      classification: ['productDescription', 'confirmedHtsCode', 'originCountry', 'confirmedBy'],
+      classification: [
+        'productDescription',
+        'confirmedHtsCode',
+        'originCountry',
+        'confirmedBy',
+      ],
       valuation: ['declaredValue', 'currency', 'quantity'],
       origin: ['originCountry', 'manufacturer'],
       weight: ['weight', 'unitOfMeasure'],
@@ -325,13 +339,17 @@ export class DataCompletenessService {
     };
 
     for (const [component, fields] of Object.entries(components)) {
-      const relevantRules = rules.filter(r => fields.includes(r.field));
-      const totalWeight = relevantRules.reduce((sum, r) => sum + (r.weight || 10), 0);
+      const relevantRules = rules.filter((r) => fields.includes(r.field));
+      const totalWeight = relevantRules.reduce(
+        (sum, r) => sum + (r.weight || 10),
+        0,
+      );
       const achievedWeight = relevantRules
-        .filter(r => resource[r.field])
+        .filter((r) => resource[r.field])
         .reduce((sum, r) => sum + (r.weight || 10), 0);
 
-      scores[component] = totalWeight > 0 ? (achievedWeight / totalWeight) * 100 : 0;
+      scores[component] =
+        totalWeight > 0 ? (achievedWeight / totalWeight) * 100 : 0;
     }
 
     return scores;
@@ -340,7 +358,11 @@ export class DataCompletenessService {
   /**
    * Check if field requires value based on dependency
    */
-  private fieldRequiresValue(resource: any, field: string, dependency: string): boolean {
+  private fieldRequiresValue(
+    resource: any,
+    field: string,
+    dependency: string,
+  ): boolean {
     // Example: weight is required if HTS code has specific duty rate
     if (field === 'weight' && dependency === 'htsCode') {
       const htsCode = resource.htsCode;

@@ -58,7 +58,9 @@ export class NoteExtractionService {
     const sections = this.pdfParserService.extractSections(text);
 
     if (Object.keys(sections).length === 0) {
-      this.logger.warn('No section headers detected; extracting as chapter notes');
+      this.logger.warn(
+        'No section headers detected; extracting as chapter notes',
+      );
       return this.extractNotesFromSection(
         documentId,
         chapter,
@@ -126,7 +128,9 @@ export class NoteExtractionService {
     }
 
     if (extractedNotes.length === 0) {
-      const fallbackContent = this.sanitizeFallbackContent(text.slice(0, 4000)).slice(0, 2000);
+      const fallbackContent = this.sanitizeFallbackContent(
+        text.slice(0, 4000),
+      ).slice(0, 2000);
       if (fallbackContent.length >= 80) {
         this.logger.warn(
           `No structured notes extracted for ${noteType}; creating deterministic fallback note`,
@@ -142,7 +146,8 @@ export class NoteExtractionService {
     const noteMap = new Map<string, any>();
 
     for (const note of extractedNotes) {
-      const noteNumber = typeof note?.number === 'string' ? note.number.trim() : '';
+      const noteNumber =
+        typeof note?.number === 'string' ? note.number.trim() : '';
       if (!noteNumber || !note?.content) continue;
       note.number = noteNumber;
       if (typeof note.content === 'string') {
@@ -150,7 +155,9 @@ export class NoteExtractionService {
       }
       const key = `${noteType}:${noteNumber}`;
       const existing = noteMap.get(key);
-      const existingScore = existing ? this.scoreExtractedNote(existing) : Number.NEGATIVE_INFINITY;
+      const existingScore = existing
+        ? this.scoreExtractedNote(existing)
+        : Number.NEGATIVE_INFINITY;
       const candidateScore = this.scoreExtractedNote(note);
 
       if (
@@ -166,8 +173,10 @@ export class NoteExtractionService {
     const savedNotes: HtsNoteEntity[] = [];
 
     for (const note of noteMap.values()) {
-      const extractionSource = typeof note.source === 'string' ? note.source : 'llm';
-      const explicitRateText = typeof note?.rateText === 'string' ? note.rateText.trim() : '';
+      const extractionSource =
+        typeof note.source === 'string' ? note.source : 'llm';
+      const explicitRateText =
+        typeof note?.rateText === 'string' ? note.rateText.trim() : '';
       const derivedRateCandidates = this.getRateCandidates(note);
       const noteYear = year ?? new Date().getFullYear();
       const hasRate =
@@ -189,7 +198,8 @@ export class NoteExtractionService {
           crossReferences: note.crossReferences || [],
           htsCodes: note.htsCodes || [],
         },
-        confidence: typeof note.confidence === 'number' ? note.confidence : 0.85,
+        confidence:
+          typeof note.confidence === 'number' ? note.confidence : 0.85,
         metadata: {
           extractedAt: new Date().toISOString(),
           sourceSection: noteType,
@@ -213,9 +223,13 @@ export class NoteExtractionService {
       }
 
       try {
-        await this.noteEmbeddingGenerationService.generateSingleEmbedding(saved.id);
+        await this.noteEmbeddingGenerationService.generateSingleEmbedding(
+          saved.id,
+        );
       } catch (error) {
-        this.logger.warn(`Embedding generation failed for note ${saved.id}: ${error.message}`);
+        this.logger.warn(
+          `Embedding generation failed for note ${saved.id}: ${error.message}`,
+        );
       }
     }
 
@@ -241,7 +255,9 @@ export class NoteExtractionService {
       .where('note.year = :year', { year: payload.year })
       .andWhere('note.chapter = :chapter', { chapter: payload.chapter })
       .andWhere('note.type = :noteType', { noteType: payload.noteType })
-      .andWhere('note.note_number = :noteNumber', { noteNumber: payload.noteNumber })
+      .andWhere('note.note_number = :noteNumber', {
+        noteNumber: payload.noteNumber,
+      })
       .orderBy('note.updated_at', 'DESC')
       .addOrderBy('note.created_at', 'DESC')
       .getMany();
@@ -274,7 +290,10 @@ export class NoteExtractionService {
     return this.noteRepository.save(entity);
   }
 
-  private async extractNotesFromChunk(noteType: string, text: string): Promise<any[]> {
+  private async extractNotesFromChunk(
+    noteType: string,
+    text: string,
+  ): Promise<any[]> {
     const fallbackNotes = this.extractNotesByRegex(noteType, text);
     const input = `Extract all HTS notes from the following section text.
 Section type: ${noteType}
@@ -319,7 +338,10 @@ ${text}`;
                       rateText: { type: 'string' },
                       rateType: { type: 'string' },
                       confidence: { type: 'number' },
-                      crossReferences: { type: 'array', items: { type: 'string' } },
+                      crossReferences: {
+                        type: 'array',
+                        items: { type: 'string' },
+                      },
                       htsCodes: { type: 'array', items: { type: 'string' } },
                     },
                     required: ['number', 'content'],
@@ -371,10 +393,13 @@ ${text}`;
     declaredRateType?: string,
     allowAiFallback: boolean = false,
   ): Promise<void> {
-    const deterministic = this.formulaGenerationService.generateFormulaByPattern(rateText);
+    const deterministic =
+      this.formulaGenerationService.generateFormulaByPattern(rateText);
 
     if (deterministic) {
-      const existing = await this.rateRepository.findOne({ where: { noteId, rateText } });
+      const existing = await this.rateRepository.findOne({
+        where: { noteId, rateText },
+      });
       if (existing) {
         return;
       }
@@ -444,7 +469,9 @@ Return JSON with: formula, variables, confidence, rateType.`;
       }
 
       const rate = JSON.parse(outputText);
-      const existing = await this.rateRepository.findOne({ where: { noteId, rateText } });
+      const existing = await this.rateRepository.findOne({
+        where: { noteId, rateText },
+      });
       if (existing) {
         return;
       }
@@ -452,7 +479,8 @@ Return JSON with: formula, variables, confidence, rateType.`;
         noteId,
         rateText,
         formula: rate.formula,
-        rateType: rate.rateType || declaredRateType || this.classifyRateType(rateText),
+        rateType:
+          rate.rateType || declaredRateType || this.classifyRateType(rateText),
         variables: Array.isArray(rate.variables)
           ? rate.variables.map((name: string) => ({
               name,
@@ -472,7 +500,11 @@ Return JSON with: formula, variables, confidence, rateType.`;
     }
   }
 
-  private chunkText(text: string, maxLength: number, overlap: number): string[] {
+  private chunkText(
+    text: string,
+    maxLength: number,
+    overlap: number,
+  ): string[] {
     if (text.length <= maxLength) return [text];
 
     const chunks: string[] = [];
@@ -535,7 +567,11 @@ Return JSON with: formula, variables, confidence, rateType.`;
     }));
   }
 
-  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    message: string,
+  ): Promise<T> {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       return await Promise.race([
@@ -601,7 +637,10 @@ Return JSON with: formula, variables, confidence, rateType.`;
     if (/annotated for statistical reporting purposes/i.test(content)) {
       score -= 20;
     }
-    if (/u\.s\.\s*note\s+\d+/i.test(content) && !/the rates of duty applicable to subheading/i.test(content)) {
+    if (
+      /u\.s\.\s*note\s+\d+/i.test(content) &&
+      !/the rates of duty applicable to subheading/i.test(content)
+    ) {
       score -= 10;
     }
 
@@ -619,17 +658,20 @@ Return JSON with: formula, variables, confidence, rateType.`;
   }
 
   private buildFallbackNote(number: string, content: string): any {
-    const firstSentence = content.split(/(?<=[.?!])\s+/).find(Boolean) || content;
+    const firstSentence =
+      content.split(/(?<=[.?!])\s+/).find(Boolean) || content;
     const crossReferences = Array.from(
       new Set(
-        Array.from(content.matchAll(/note\s+([0-9]+[A-Za-z]?(?:\([a-z0-9]+\))*)/gi)).map(
-          (item) => item[1],
-        ),
+        Array.from(
+          content.matchAll(/note\s+([0-9]+[A-Za-z]?(?:\([a-z0-9]+\))*)/gi),
+        ).map((item) => item[1]),
       ),
     );
     const htsCodes = Array.from(
       new Set(
-        Array.from(content.matchAll(/\b\d{4}(?:\.\d{2}){0,3}\b/g)).map((item) => item[0]),
+        Array.from(content.matchAll(/\b\d{4}(?:\.\d{2}){0,3}\b/g)).map(
+          (item) => item[0],
+        ),
       ),
     );
 
@@ -638,7 +680,9 @@ Return JSON with: formula, variables, confidence, rateType.`;
       title: firstSentence.slice(0, 120),
       content,
       scope: null,
-      containsRate: /(?:\bfree\b|%|\$|ad valorem|specific|duty|cents?)/i.test(content),
+      containsRate: /(?:\bfree\b|%|\$|ad valorem|specific|duty|cents?)/i.test(
+        content,
+      ),
       rateText: null,
       confidence: 0.55,
       crossReferences,
@@ -653,7 +697,9 @@ Return JSON with: formula, variables, confidence, rateType.`;
       candidates.push(...this.extractRateCandidatesFromContent(content));
     }
 
-    return Array.from(new Set(candidates.map((entry) => entry.trim()).filter(Boolean))).slice(0, 5);
+    return Array.from(
+      new Set(candidates.map((entry) => entry.trim()).filter(Boolean)),
+    ).slice(0, 5);
   }
 
   private extractRateCandidatesFromContent(content: string): string[] {

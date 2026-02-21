@@ -1,4 +1,13 @@
-import { Controller, Post, Get, Body, Param, Query, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Query,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CalculationService } from '../services';
@@ -39,9 +48,8 @@ export class CalculatorController {
 
   @Get('calculations/:calculationId')
   async getCalculation(@Param('calculationId') calculationId: string) {
-    const calculation = await this.calculationService.getCalculationHistory(
-      calculationId,
-    );
+    const calculation =
+      await this.calculationService.getCalculationHistory(calculationId);
 
     if (!calculation) {
       return {
@@ -127,13 +135,15 @@ export class CalculatorController {
       currency: overrides?.currency || scenario.currency,
       weightKg: overrides?.weightKg ?? scenario.weightKg ?? undefined,
       quantity: overrides?.quantity ?? scenario.quantity ?? undefined,
-      quantityUnit: overrides?.quantityUnit ?? scenario.quantityUnit ?? undefined,
+      quantityUnit:
+        overrides?.quantityUnit ?? scenario.quantityUnit ?? undefined,
       entryDate:
         overrides?.entryDate ??
         (typeof scenario.additionalInputs?.entryDate === 'string'
           ? scenario.additionalInputs.entryDate
           : undefined),
-      additionalInputs: overrides?.additionalInputs ?? scenario.additionalInputs ?? undefined,
+      additionalInputs:
+        overrides?.additionalInputs ?? scenario.additionalInputs ?? undefined,
       htsVersion: overrides?.htsVersion ?? undefined,
       tradeAgreementCode,
       tradeAgreementCertificate,

@@ -8,7 +8,11 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthController } from './controllers/auth.controller';
 
-const userTypeOrmModule = TypeOrmModule.forFeature([UserEntity, RoleEntity, OrganizationEntity]);
+const userTypeOrmModule = TypeOrmModule.forFeature([
+  UserEntity,
+  RoleEntity,
+  OrganizationEntity,
+]);
 
 @Module({
   imports: [
@@ -21,6 +25,13 @@ const userTypeOrmModule = TypeOrmModule.forFeature([UserEntity, RoleEntity, Orga
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard],
-  exports: [AuthService, JwtStrategy, JwtAuthGuard, PassportModule, JwtModule, userTypeOrmModule],
+  exports: [
+    AuthService,
+    JwtStrategy,
+    JwtAuthGuard,
+    PassportModule,
+    JwtModule,
+    userTypeOrmModule,
+  ],
 })
 export class AuthModule {}

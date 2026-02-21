@@ -61,7 +61,9 @@ export class EmbeddingGenerationJobHandler {
           generated++;
 
           if (generated % 10 === 0) {
-            this.logger.log(`Progress: ${generated}/${chunks.length} embeddings generated`);
+            this.logger.log(
+              `Progress: ${generated}/${chunks.length} embeddings generated`,
+            );
           }
 
           // Rate limiting: Wait 100ms between requests
@@ -90,11 +92,15 @@ export class EmbeddingGenerationJobHandler {
       });
 
       if (remainingCount > 0) {
-        this.logger.log(`${remainingCount} chunks remaining, triggering next batch`);
+        this.logger.log(
+          `${remainingCount} chunks remaining, triggering next batch`,
+        );
         // Note: Would need to inject QueueService to trigger next batch
       }
     } catch (error) {
-      this.logger.error(`Embedding generation failed for document ${documentId}: ${error.message}`);
+      this.logger.error(
+        `Embedding generation failed for document ${documentId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -106,7 +112,9 @@ export class EmbeddingGenerationJobHandler {
     try {
       // TODO: OpenAiService.embedding method needs to be implemented
       // Temporarily return empty embedding to allow compilation
-      this.logger.warn('OpenAiService.embedding not yet implemented, returning empty embedding');
+      this.logger.warn(
+        'OpenAiService.embedding not yet implemented, returning empty embedding',
+      );
       return new Array(1536).fill(0); // text-embedding-ada-002 returns 1536 dimensions
 
       // Use OpenAI embedding API (commented out until method is implemented)

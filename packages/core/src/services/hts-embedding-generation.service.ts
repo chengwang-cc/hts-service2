@@ -62,7 +62,10 @@ export class HtsEmbeddingGenerationService {
       );
 
       try {
-        const generated = await this.generateBatchEmbeddings(batch, modelVersion);
+        const generated = await this.generateBatchEmbeddings(
+          batch,
+          modelVersion,
+        );
         result.generated += generated;
         result.failed += batch.length - generated;
 
@@ -101,7 +104,8 @@ export class HtsEmbeddingGenerationService {
         const searchText = this.buildSearchText(hts);
 
         // Generate embedding
-        const embeddingVector = await this.embeddingService.generateEmbedding(searchText);
+        const embeddingVector =
+          await this.embeddingService.generateEmbedding(searchText);
 
         await this.upsertEmbedding({
           htsNumber: hts.htsNumber,
@@ -142,7 +146,8 @@ export class HtsEmbeddingGenerationService {
     const searchText = this.buildSearchText(hts);
 
     // Generate embedding
-    const embeddingVector = await this.embeddingService.generateEmbedding(searchText);
+    const embeddingVector =
+      await this.embeddingService.generateEmbedding(searchText);
 
     await this.upsertEmbedding({
       htsNumber: hts.htsNumber,
@@ -170,7 +175,12 @@ export class HtsEmbeddingGenerationService {
     sourceVersion: string,
     batchSize: number = 100,
     modelVersion: string = 'text-embedding-3-small',
-  ): Promise<{ total: number; generated: number; failed: number; errors: string[] }> {
+  ): Promise<{
+    total: number;
+    generated: number;
+    failed: number;
+    errors: string[];
+  }> {
     const rows = await this.htsRepository.find({
       where: { sourceVersion, isActive: true },
       order: { htsNumber: 'ASC' },
@@ -222,7 +232,9 @@ export class HtsEmbeddingGenerationService {
       (hts) => hts.importDate && hts.importDate > since,
     );
 
-    this.logger.log(`Found ${toUpdate.length} modified HTS entries since ${since}`);
+    this.logger.log(
+      `Found ${toUpdate.length} modified HTS entries since ${since}`,
+    );
 
     let updated = 0;
     for (const hts of toUpdate) {
@@ -298,7 +310,9 @@ export class HtsEmbeddingGenerationService {
     missingEmbeddings: number;
     modelVersions: Record<string, number>;
   }> {
-    const totalHts = await this.htsRepository.count({ where: { isActive: true } });
+    const totalHts = await this.htsRepository.count({
+      where: { isActive: true },
+    });
     const totalEmbeddings = await this.embeddingRepository.count();
     const currentEmbeddings = await this.embeddingRepository.count({
       where: { isCurrent: true },

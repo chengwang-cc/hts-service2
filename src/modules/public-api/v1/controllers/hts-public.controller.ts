@@ -16,10 +16,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import {
-  ApiPermissions,
-  CurrentApiKey,
-} from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { HtsEntity } from '@hts/core';
 import { SearchService } from '@hts/lookup';
@@ -46,7 +43,8 @@ export class HtsPublicController {
   @Get('lookup')
   @ApiOperation({
     summary: 'Look up HTS code details',
-    description: 'Retrieve complete details for a specific HTS code including description, rates, notes, and units.',
+    description:
+      'Retrieve complete details for a specific HTS code including description, rates, notes, and units.',
   })
   @ApiQuery({
     name: 'code',
@@ -121,7 +119,8 @@ export class HtsPublicController {
   @Get('search')
   @ApiOperation({
     summary: 'Search HTS codes',
-    description: 'Search for HTS codes using semantic search. Supports natural language queries and product descriptions.',
+    description:
+      'Search for HTS codes using semantic search. Supports natural language queries and product descriptions.',
   })
   @ApiQuery({
     name: 'q',
@@ -252,7 +251,8 @@ export class HtsPublicController {
   @Get('hierarchy')
   @ApiOperation({
     summary: 'Get HTS code hierarchy',
-    description: 'Retrieve the hierarchical structure for an HTS code including parent and children codes.',
+    description:
+      'Retrieve the hierarchical structure for an HTS code including parent and children codes.',
   })
   @ApiQuery({
     name: 'code',

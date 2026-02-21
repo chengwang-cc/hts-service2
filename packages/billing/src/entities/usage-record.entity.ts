@@ -28,7 +28,11 @@ export class UsageRecordEntity {
   @Column('timestamp')
   timestamp: Date;
 
-  @Column('varchar', { name: 'stripe_usage_record_id', length: 255, nullable: true })
+  @Column('varchar', {
+    name: 'stripe_usage_record_id',
+    length: 255,
+    nullable: true,
+  })
   stripeUsageRecordId: string | null;
 
   @Column('jsonb', { nullable: true })

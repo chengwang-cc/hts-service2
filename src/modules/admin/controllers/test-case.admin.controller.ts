@@ -15,7 +15,12 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { TestCaseService } from '../services/test-case.service';
@@ -39,7 +44,10 @@ export class TestCaseAdminController {
    */
   @Get()
   @ApiOperation({ summary: 'List all test cases' })
-  @ApiResponse({ status: 200, description: 'Test cases retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Test cases retrieved successfully',
+  })
   async findAll() {
     const testCases = await this.testCaseService.findAll();
 
@@ -146,7 +154,10 @@ export class TestCaseAdminController {
    */
   @Post('run-regression')
   @ApiOperation({ summary: 'Run regression suite' })
-  @ApiResponse({ status: 201, description: 'Regression suite execution started' })
+  @ApiResponse({
+    status: 201,
+    description: 'Regression suite execution started',
+  })
   async runRegression() {
     const result = await this.testCaseService.runRegression();
 
@@ -163,7 +174,10 @@ export class TestCaseAdminController {
    */
   @Get('test-results')
   @ApiOperation({ summary: 'Get test results' })
-  @ApiResponse({ status: 200, description: 'Test results retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Test results retrieved successfully',
+  })
   async getResults(@Query() query: ListTestResultsDto) {
     const result = await this.testCaseService.getResults(query);
 

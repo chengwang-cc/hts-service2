@@ -80,7 +80,10 @@ export class ConnectorsController {
     @CurrentUser() user: any,
     @Param('connectorId') connectorId: string,
   ) {
-    await this.connectorService.deleteConnector(connectorId, user.organizationId);
+    await this.connectorService.deleteConnector(
+      connectorId,
+      user.organizationId,
+    );
     return { success: true };
   }
 

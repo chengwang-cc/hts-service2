@@ -45,14 +45,12 @@ export class HtsFormulaUpdateEntity {
    * Formula Variables - Describes variables used by formula
    */
   @Column('jsonb', { nullable: true })
-  formulaVariables:
-    | Array<{
-        name: string;
-        type: string;
-        description?: string;
-        unit?: string;
-      }>
-    | null;
+  formulaVariables: Array<{
+    name: string;
+    type: string;
+    description?: string;
+    unit?: string;
+  }> | null;
 
   /**
    * Comment - Reason for override
@@ -89,5 +87,4 @@ export class HtsFormulaUpdateEntity {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
 }

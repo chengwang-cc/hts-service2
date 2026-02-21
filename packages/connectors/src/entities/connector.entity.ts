@@ -18,7 +18,12 @@ export class ConnectorEntity {
   organizationId: string;
 
   @Column('varchar', { length: 50, name: 'connector_type' })
-  connectorType: 'shopify' | 'broker' | 'woocommerce' | 'magento' | 'bigcommerce';
+  connectorType:
+    | 'shopify'
+    | 'broker'
+    | 'woocommerce'
+    | 'magento'
+    | 'bigcommerce';
 
   @Column('varchar', { length: 100 })
   name: string;

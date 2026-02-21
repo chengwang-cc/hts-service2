@@ -75,18 +75,23 @@ export class DocumentProcessingJobHandler {
     this.logger.log(`Processing document: ${documentId}`);
 
     try {
-      const document = await this.documentRepo.findOne({ where: { id: documentId } });
+      const document = await this.documentRepo.findOne({
+        where: { id: documentId },
+      });
 
       if (!document) {
         throw new Error(`Document not found: ${documentId}`);
       }
 
       // Initialize or resume from checkpoint
-      const checkpoint: DocumentProcessingCheckpoint = (document.checkpoint as DocumentProcessingCheckpoint) || {
-        stage: 'DOWNLOADING'
-      };
+      const checkpoint: DocumentProcessingCheckpoint =
+        (document.checkpoint as DocumentProcessingCheckpoint) || {
+          stage: 'DOWNLOADING',
+        };
 
-      this.logger.log(`Document ${documentId} - Current stage: ${checkpoint.stage}`);
+      this.logger.log(
+        `Document ${documentId} - Current stage: ${checkpoint.stage}`,
+      );
 
       // STAGE 1: Download to S3
       if (checkpoint.stage === 'DOWNLOADING') {
@@ -136,7 +141,10 @@ export class DocumentProcessingJobHandler {
 
       this.logger.log(`Document ${documentId} processed successfully`);
     } catch (error) {
-      this.logger.error(`Document processing failed for ${documentId}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Document processing failed for ${documentId}: ${error.message}`,
+        error.stack,
+      );
 
       await this.documentRepo.update(documentId, {
         status: 'FAILED',
@@ -158,9 +166,14 @@ export class DocumentProcessingJobHandler {
 
     // Check if already exists in S3
     if (document.s3Bucket && document.s3Key) {
-      const exists = await this.s3StorageService.exists(document.s3Bucket, document.s3Key);
+      const exists = await this.s3StorageService.exists(
+        document.s3Bucket,
+        document.s3Key,
+      );
       if (exists) {
-        this.logger.log(`Document ${documentId} already exists in S3: ${document.s3Key}`);
+        this.logger.log(
+          `Document ${documentId} already exists in S3: ${document.s3Key}`,
+        );
         checkpoint.s3Key = document.s3Key;
         checkpoint.s3FileHash = document.s3FileHash || undefined;
         return;
@@ -174,12 +187,22 @@ export class DocumentProcessingJobHandler {
       // Use existing PDF data from database
       downloadStream = Readable.from(document.pdfData);
       this.logger.log(`Document ${documentId} - Using PDF data from database`);
-    } else if (document.sourceUrl && !document.sourceUrl.startsWith('uploaded:')) {
+    } else if (
+      document.sourceUrl &&
+      !document.sourceUrl.startsWith('uploaded:')
+    ) {
       // Download from URL
-      downloadStream = await this.downloadFromUrl(document.sourceUrl, document.documentType);
-      this.logger.log(`Document ${documentId} - Downloading from URL: ${document.sourceUrl}`);
+      downloadStream = await this.downloadFromUrl(
+        document.sourceUrl,
+        document.documentType,
+      );
+      this.logger.log(
+        `Document ${documentId} - Downloading from URL: ${document.sourceUrl}`,
+      );
     } else {
-      throw new Error('No source available for download (no pdfData or sourceUrl)');
+      throw new Error(
+        'No source available for download (no pdfData or sourceUrl)',
+      );
     }
 
     // Generate S3 key
@@ -187,14 +210,17 @@ export class DocumentProcessingJobHandler {
     const fileExtension = document.documentType === 'PDF' ? 'pdf' : 'txt';
     const s3Key = `documents/${document.year}/${document.chapter}/${documentId}.${fileExtension}`;
 
-    this.logger.log(`Document ${documentId} - Uploading to S3: s3://${s3Bucket}/${s3Key}`);
+    this.logger.log(
+      `Document ${documentId} - Uploading to S3: s3://${s3Bucket}/${s3Key}`,
+    );
 
     // Upload to S3 with streaming (calculates SHA-256 automatically)
     const uploadResult = await this.s3StorageService.uploadStream({
       bucket: s3Bucket,
       key: s3Key,
       stream: downloadStream,
-      contentType: document.documentType === 'PDF' ? 'application/pdf' : 'text/plain',
+      contentType:
+        document.documentType === 'PDF' ? 'application/pdf' : 'text/plain',
       metadata: {
         documentId: documentId,
         year: document.year.toString(),
@@ -204,7 +230,7 @@ export class DocumentProcessingJobHandler {
     });
 
     this.logger.log(
-      `Document ${documentId} - Upload completed: ${uploadResult.size} bytes, SHA-256: ${uploadResult.sha256?.substring(0, 12)}...`
+      `Document ${documentId} - Upload completed: ${uploadResult.size} bytes, SHA-256: ${uploadResult.sha256?.substring(0, 12)}...`,
     );
 
     // Update document record
@@ -238,12 +264,15 @@ export class DocumentProcessingJobHandler {
 
     // Check if already parsed
     if (document.parsedText) {
-      this.logger.log(`Document ${documentId} already has parsed text (${document.parsedText.length} chars)`);
+      this.logger.log(
+        `Document ${documentId} already has parsed text (${document.parsedText.length} chars)`,
+      );
       checkpoint.parsedTextLength = document.parsedText.length;
       return;
     }
 
-    const s3Bucket = document.s3Bucket || this.s3StorageService.getDefaultBucket();
+    const s3Bucket =
+      document.s3Bucket || this.s3StorageService.getDefaultBucket();
     const s3Key = document.s3Key || checkpoint.s3Key;
 
     if (!s3Key) {
@@ -257,12 +286,18 @@ export class DocumentProcessingJobHandler {
 
     if (document.documentType === 'PDF') {
       // Download PDF and parse
-      const pdfStream = await this.s3StorageService.downloadStream(s3Bucket, s3Key);
+      const pdfStream = await this.s3StorageService.downloadStream(
+        s3Bucket,
+        s3Key,
+      );
       const pdfBuffer = await this.streamToBuffer(pdfStream);
       parsedText = await this.pdfParserService.parsePdf(pdfBuffer);
     } else {
       // Download text file
-      const textStream = await this.s3StorageService.downloadStream(s3Bucket, s3Key);
+      const textStream = await this.s3StorageService.downloadStream(
+        s3Bucket,
+        s3Key,
+      );
       parsedText = await this.streamToString(textStream);
     }
 
@@ -270,7 +305,9 @@ export class DocumentProcessingJobHandler {
       throw new Error('Failed to extract text from document');
     }
 
-    this.logger.log(`Document ${documentId} - Parsed ${parsedText.length} characters`);
+    this.logger.log(
+      `Document ${documentId} - Parsed ${parsedText.length} characters`,
+    );
 
     // Save parsed text
     await this.documentRepo.update(documentId, {
@@ -326,15 +363,21 @@ export class DocumentProcessingJobHandler {
       notesExtractedAt: new Date().toISOString(),
     };
 
-    await this.documentRepo.update(documentId, { metadata: metadata as Record<string, any> });
+    await this.documentRepo.update(documentId, {
+      metadata: metadata,
+    });
     document.metadata = metadata;
 
     if (notes.length === 0) {
-      this.logger.warn(`Document ${documentId} - Note extraction completed with 0 notes`);
+      this.logger.warn(
+        `Document ${documentId} - Note extraction completed with 0 notes`,
+      );
       return;
     }
 
-    this.logger.log(`Document ${documentId} - Extracted ${notes.length} HTS notes`);
+    this.logger.log(
+      `Document ${documentId} - Extracted ${notes.length} HTS notes`,
+    );
   }
 
   /**
@@ -365,15 +408,24 @@ export class DocumentProcessingJobHandler {
     checkpoint.totalChunks = chunks.length;
 
     const startIndex = checkpoint.processedChunks || 0;
-    this.logger.log(`Document ${documentId} - Creating ${chunks.length - startIndex} chunks (${startIndex} already processed)`);
+    this.logger.log(
+      `Document ${documentId} - Creating ${chunks.length - startIndex} chunks (${startIndex} already processed)`,
+    );
 
     // Process in batches
     for (let i = startIndex; i < chunks.length; i += this.CHUNK_BATCH_SIZE) {
-      const batch = chunks.slice(i, Math.min(i + this.CHUNK_BATCH_SIZE, chunks.length));
+      const batch = chunks.slice(
+        i,
+        Math.min(i + this.CHUNK_BATCH_SIZE, chunks.length),
+      );
       const batchNumber = Math.floor(i / this.CHUNK_BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil((chunks.length - startIndex) / this.CHUNK_BATCH_SIZE);
+      const totalBatches = Math.ceil(
+        (chunks.length - startIndex) / this.CHUNK_BATCH_SIZE,
+      );
 
-      this.logger.log(`Document ${documentId} - Processing chunk batch ${batchNumber}/${totalBatches} (${batch.length} chunks)`);
+      this.logger.log(
+        `Document ${documentId} - Processing chunk batch ${batchNumber}/${totalBatches} (${batch.length} chunks)`,
+      );
 
       // Process batch in transaction
       await this.chunkRepo.manager.transaction(async (manager) => {
@@ -397,17 +449,26 @@ export class DocumentProcessingJobHandler {
       });
 
       // Update checkpoint after each batch
-      checkpoint.processedChunks = Math.min(i + this.CHUNK_BATCH_SIZE, chunks.length);
+      checkpoint.processedChunks = Math.min(
+        i + this.CHUNK_BATCH_SIZE,
+        chunks.length,
+      );
       await this.saveCheckpoint(documentId, checkpoint);
 
       // Log progress every 10 batches
       if (batchNumber % 10 === 0) {
-        const percent = Math.round((checkpoint.processedChunks / chunks.length) * 100);
-        this.logger.log(`Document ${documentId} - Progress: ${percent}% (${checkpoint.processedChunks}/${chunks.length} chunks)`);
+        const percent = Math.round(
+          (checkpoint.processedChunks / chunks.length) * 100,
+        );
+        this.logger.log(
+          `Document ${documentId} - Progress: ${percent}% (${checkpoint.processedChunks}/${chunks.length} chunks)`,
+        );
       }
     }
 
-    this.logger.log(`Document ${documentId} - All ${chunks.length} chunks created`);
+    this.logger.log(
+      `Document ${documentId} - All ${chunks.length} chunks created`,
+    );
   }
 
   /**
@@ -425,7 +486,10 @@ export class DocumentProcessingJobHandler {
   /**
    * Download from URL
    */
-  private async downloadFromUrl(url: string, documentType: string): Promise<Readable> {
+  private async downloadFromUrl(
+    url: string,
+    documentType: string,
+  ): Promise<Readable> {
     if (documentType === 'PDF') {
       const response = await axios.get(url, {
         responseType: 'stream',
@@ -474,7 +538,12 @@ export class DocumentProcessingJobHandler {
     text: string,
     maxTokens: number,
   ): Array<{ index: number; text: string; tokens: number; metadata: any }> {
-    const chunks: Array<{ index: number; text: string; tokens: number; metadata: any }> = [];
+    const chunks: Array<{
+      index: number;
+      text: string;
+      tokens: number;
+      metadata: any;
+    }> = [];
 
     // Split by paragraphs first
     const paragraphs = text.split(/\n\n+/);
@@ -486,7 +555,10 @@ export class DocumentProcessingJobHandler {
     for (const paragraph of paragraphs) {
       const paragraphTokens = this.estimateTokens(paragraph);
 
-      if (currentTokens + paragraphTokens > maxTokens && currentChunk.length > 0) {
+      if (
+        currentTokens + paragraphTokens > maxTokens &&
+        currentChunk.length > 0
+      ) {
         // Save current chunk
         chunks.push({
           index: chunkIndex,

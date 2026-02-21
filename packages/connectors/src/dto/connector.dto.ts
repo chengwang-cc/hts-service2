@@ -1,8 +1,20 @@
-import { IsString, IsEnum, IsOptional, IsObject, IsBoolean, IsNumber } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsObject,
+  IsBoolean,
+  IsNumber,
+} from 'class-validator';
 
 export class CreateConnectorDto {
   @IsEnum(['shopify', 'broker', 'woocommerce', 'magento', 'bigcommerce'])
-  connectorType: 'shopify' | 'broker' | 'woocommerce' | 'magento' | 'bigcommerce';
+  connectorType:
+    | 'shopify'
+    | 'broker'
+    | 'woocommerce'
+    | 'magento'
+    | 'bigcommerce';
 
   @IsString()
   name: string;

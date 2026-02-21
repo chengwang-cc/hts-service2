@@ -17,9 +17,7 @@ import type { CreateCreditCheckoutSessionDto } from '../services/credit-purchase
  */
 @Controller('billing/credits')
 export class CreditController {
-  constructor(
-    private readonly creditPurchaseService: CreditPurchaseService,
-  ) {}
+  constructor(private readonly creditPurchaseService: CreditPurchaseService) {}
 
   /**
    * Create Stripe Checkout Session for credit purchase
@@ -43,7 +41,8 @@ export class CreditController {
       throw new BadRequestException('Missing session_id');
     }
 
-    const result = await this.creditPurchaseService.handleCheckoutSuccess(sessionId);
+    const result =
+      await this.creditPurchaseService.handleCheckoutSuccess(sessionId);
 
     // Redirect back to frontend with result
     return res.redirect(result.returnUrl);
@@ -62,7 +61,8 @@ export class CreditController {
       throw new BadRequestException('Missing session_id');
     }
 
-    const result = await this.creditPurchaseService.handleCheckoutCancel(sessionId);
+    const result =
+      await this.creditPurchaseService.handleCheckoutCancel(sessionId);
 
     // Redirect back to frontend
     return res.redirect(result.returnUrl);

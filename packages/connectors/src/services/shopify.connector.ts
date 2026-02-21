@@ -38,12 +38,15 @@ export class ShopifyConnector {
   async testConnection(config: ShopifyConfig): Promise<boolean> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get(`https://${config.shopUrl}/admin/api/2024-01/shop.json`, {
-          headers: {
-            'X-Shopify-Access-Token': config.accessToken,
-            'Content-Type': 'application/json',
+        this.httpService.get(
+          `https://${config.shopUrl}/admin/api/2024-01/shop.json`,
+          {
+            headers: {
+              'X-Shopify-Access-Token': config.accessToken,
+              'Content-Type': 'application/json',
+            },
           },
-        }),
+        ),
       );
 
       return response.status === 200;
@@ -107,17 +110,22 @@ export class ShopifyConnector {
     updates: {
       harmonizedSystemCode?: string;
       countryCodeOfOrigin?: string;
-      variantUpdates?: Record<number, {
-        harmonized_system_code?: string;
-        country_code_of_origin?: string;
-      }>;
+      variantUpdates?: Record<
+        number,
+        {
+          harmonized_system_code?: string;
+          country_code_of_origin?: string;
+        }
+      >;
     },
   ): Promise<boolean> {
     const apiVersion = config.apiVersion || '2024-01';
 
     // Update variants if provided
     if (updates.variantUpdates) {
-      for (const [variantId, variantData] of Object.entries(updates.variantUpdates)) {
+      for (const [variantId, variantData] of Object.entries(
+        updates.variantUpdates,
+      )) {
         try {
           await firstValueFrom(
             this.httpService.put(
@@ -137,7 +145,10 @@ export class ShopifyConnector {
             ),
           );
         } catch (error: any) {
-          console.error(`Failed to update variant ${variantId}:`, error.message);
+          console.error(
+            `Failed to update variant ${variantId}:`,
+            error.message,
+          );
         }
       }
     }
@@ -195,7 +206,10 @@ export class ShopifyConnector {
   /**
    * Get product by ID
    */
-  async getProduct(config: ShopifyConfig, productId: number): Promise<ShopifyProduct> {
+  async getProduct(
+    config: ShopifyConfig,
+    productId: number,
+  ): Promise<ShopifyProduct> {
     const apiVersion = config.apiVersion || '2024-01';
 
     try {

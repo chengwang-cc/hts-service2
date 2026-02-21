@@ -31,4 +31,3 @@ export class RefreshReciprocalTariffDto {
   @IsBoolean()
   useAiDeepSearch?: boolean = true;
 }
-

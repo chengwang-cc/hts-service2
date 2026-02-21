@@ -13,7 +13,12 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { FormulaAdminService } from '../services/formula.admin.service';
@@ -60,7 +65,10 @@ export class FormulaAdminController {
    */
   @Get('candidates')
   @ApiOperation({ summary: 'List formula candidates' })
-  @ApiResponse({ status: 200, description: 'Candidates retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Candidates retrieved successfully',
+  })
   async getCandidates(@Query() query: ListCandidatesDto) {
     const result = await this.formulaService.getCandidates(query);
 
@@ -101,7 +109,11 @@ export class FormulaAdminController {
   @ApiOperation({ summary: 'Approve formula candidate' })
   @ApiResponse({ status: 200, description: 'Candidate approved successfully' })
   @ApiResponse({ status: 404, description: 'Candidate not found' })
-  async approveCandidate(@Param('id') id: string, @Body() dto: ReviewDto, @Request() req) {
+  async approveCandidate(
+    @Param('id') id: string,
+    @Body() dto: ReviewDto,
+    @Request() req,
+  ) {
     const userId = req.user?.email || 'UNKNOWN';
     await this.formulaService.approveCandidate(id, userId, dto.comment);
 
@@ -119,7 +131,11 @@ export class FormulaAdminController {
   @ApiOperation({ summary: 'Reject formula candidate' })
   @ApiResponse({ status: 200, description: 'Candidate rejected successfully' })
   @ApiResponse({ status: 404, description: 'Candidate not found' })
-  async rejectCandidate(@Param('id') id: string, @Body() dto: ReviewDto, @Request() req) {
+  async rejectCandidate(
+    @Param('id') id: string,
+    @Body() dto: ReviewDto,
+    @Request() req,
+  ) {
     const userId = req.user?.email || 'UNKNOWN';
     await this.formulaService.rejectCandidate(id, userId, dto.comment);
 

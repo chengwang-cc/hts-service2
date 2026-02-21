@@ -1,6 +1,10 @@
 import { IsString, IsNumber, IsOptional } from 'class-validator';
 
-export class UploadDocumentDto {
+/**
+ * Knowledgebase Upload Document DTO
+ * Internal DTO for knowledgebase document operations
+ */
+export class KnowledgebaseUploadDocumentDto {
   @IsString()
   chapter: string;
 

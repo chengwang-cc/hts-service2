@@ -51,7 +51,7 @@ export class HtsEmbeddingEntity {
   /**
    * Model Version - Version of the embedding model
    */
-  @Column('varchar', { length: 20, nullable: true })
+  @Column('varchar', { length: 50, nullable: true })
   modelVersion: string | null;
 
   /**
@@ -79,5 +79,4 @@ export class HtsEmbeddingEntity {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
 }

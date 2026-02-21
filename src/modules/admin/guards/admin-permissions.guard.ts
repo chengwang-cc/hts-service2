@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ADMIN_PERMISSIONS_KEY } from '../decorators/admin-permissions.decorator';
 
@@ -34,12 +39,17 @@ export class AdminPermissionsGuard implements CanActivate {
     throw new ForbiddenException('Insufficient permissions');
   }
 
-  private hasAnyPermission(userPermissions: string[], required: string[]): boolean {
+  private hasAnyPermission(
+    userPermissions: string[],
+    required: string[],
+  ): boolean {
     for (const permission of userPermissions) {
       if (permission === 'admin:*') return true;
     }
 
-    return required.some((needed) => this.hasPermission(userPermissions, needed));
+    return required.some((needed) =>
+      this.hasPermission(userPermissions, needed),
+    );
   }
 
   private hasPermission(userPermissions: string[], needed: string): boolean {

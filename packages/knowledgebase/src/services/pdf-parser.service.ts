@@ -38,12 +38,17 @@ export class PdfParserService {
       try {
         await fs.rm(tempDir, { recursive: true, force: true });
       } catch (cleanupError) {
-        this.logger.warn(`Failed to cleanup temp PDF directory: ${cleanupError.message}`);
+        this.logger.warn(
+          `Failed to cleanup temp PDF directory: ${cleanupError.message}`,
+        );
       }
     }
   }
 
-  private async extractWithPdftotext(inputPath: string, outputPath: string): Promise<void> {
+  private async extractWithPdftotext(
+    inputPath: string,
+    outputPath: string,
+  ): Promise<void> {
     await execFileAsync(
       'pdftotext',
       ['-layout', '-nopgbrk', '-enc', 'UTF-8', inputPath, outputPath],
@@ -56,7 +61,10 @@ export class PdfParserService {
       return false;
     }
     const commandError = error as { code?: string; message?: string };
-    return commandError.code === 'ENOENT' || /not found|enoent/i.test(commandError.message || '');
+    return (
+      commandError.code === 'ENOENT' ||
+      /not found|enoent/i.test(commandError.message || '')
+    );
   }
 
   private validateExtractedText(extractedText: string): void {
@@ -65,7 +73,9 @@ export class PdfParserService {
       throw new Error('pdftotext produced empty output');
     }
     if (normalized.length < 10) {
-      throw new Error('pdftotext output is too short to be a valid HTS extraction');
+      throw new Error(
+        'pdftotext output is too short to be a valid HTS extraction',
+      );
     }
   }
 

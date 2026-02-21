@@ -94,35 +94,41 @@ export class BrokerConnector {
     const lines: string[] = [];
 
     // Header record
-    lines.push([
-      'H', // Record type
-      data.metadata.entryNumber || '',
-      data.metadata.port || '',
-      data.metadata.entryDate || new Date().toISOString().split('T')[0],
-      data.metadata.importerOfRecord || '',
-    ].join('|'));
+    lines.push(
+      [
+        'H', // Record type
+        data.metadata.entryNumber || '',
+        data.metadata.port || '',
+        data.metadata.entryDate || new Date().toISOString().split('T')[0],
+        data.metadata.importerOfRecord || '',
+      ].join('|'),
+    );
 
     // Line item records
     data.lineItems.forEach((item) => {
-      lines.push([
-        'L', // Record type
-        item.lineNumber,
-        this.formatHtsForBroker(item.htsNumber),
-        this.escapeForPipe(item.description),
-        item.quantity,
-        item.uom,
-        item.value.toFixed(2),
-        item.originCountry,
-        this.escapeForPipe(item.manufacturer || ''),
-      ].join('|'));
+      lines.push(
+        [
+          'L', // Record type
+          item.lineNumber,
+          this.formatHtsForBroker(item.htsNumber),
+          this.escapeForPipe(item.description),
+          item.quantity,
+          item.uom,
+          item.value.toFixed(2),
+          item.originCountry,
+          this.escapeForPipe(item.manufacturer || ''),
+        ].join('|'),
+      );
     });
 
     // Trailer record
-    lines.push([
-      'T', // Record type
-      data.lineItems.length, // Total lines
-      data.lineItems.reduce((sum, item) => sum + item.value, 0).toFixed(2), // Total value
-    ].join('|'));
+    lines.push(
+      [
+        'T', // Record type
+        data.lineItems.length, // Total lines
+        data.lineItems.reduce((sum, item) => sum + item.value, 0).toFixed(2), // Total value
+      ].join('|'),
+    );
 
     return lines.join('\n');
   }
@@ -142,7 +148,9 @@ export class BrokerConnector {
 
     data.lineItems.forEach((item, index) => {
       if (!item.htsNumber || !/^\d{10}$/.test(item.htsNumber)) {
-        errors.push(`Line ${index + 1}: Invalid HTS number format (must be 10 digits)`);
+        errors.push(
+          `Line ${index + 1}: Invalid HTS number format (must be 10 digits)`,
+        );
       }
 
       if (!item.description || item.description.trim().length === 0) {
@@ -158,7 +166,9 @@ export class BrokerConnector {
       }
 
       if (!item.originCountry || !/^[A-Z]{2}$/.test(item.originCountry)) {
-        errors.push(`Line ${index + 1}: Invalid country code (must be 2-letter ISO code)`);
+        errors.push(
+          `Line ${index + 1}: Invalid country code (must be 2-letter ISO code)`,
+        );
       }
 
       if (!item.uom || item.uom.trim().length === 0) {

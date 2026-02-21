@@ -15,7 +15,9 @@ export class SubscriptionService {
     private readonly stripeService: StripeService,
   ) {}
 
-  async getActiveSubscription(organizationId: string): Promise<SubscriptionEntity | null> {
+  async getActiveSubscription(
+    organizationId: string,
+  ): Promise<SubscriptionEntity | null> {
     return this.subscriptionRepo.findOne({
       where: { organizationId, status: 'active' },
       order: { createdAt: 'DESC' },
@@ -75,7 +77,9 @@ export class SubscriptionService {
     return this.subscriptionRepo.save(subscription);
   }
 
-  async reactivateSubscription(organizationId: string): Promise<SubscriptionEntity> {
+  async reactivateSubscription(
+    organizationId: string,
+  ): Promise<SubscriptionEntity> {
     const subscription = await this.subscriptionRepo.findOne({
       where: { organizationId },
       order: { createdAt: 'DESC' },
@@ -99,7 +103,10 @@ export class SubscriptionService {
     });
   }
 
-  async getInvoice(organizationId: string, invoiceId: string): Promise<InvoiceEntity | null> {
+  async getInvoice(
+    organizationId: string,
+    invoiceId: string,
+  ): Promise<InvoiceEntity | null> {
     return this.invoiceRepo.findOne({
       where: { id: invoiceId, organizationId },
     });

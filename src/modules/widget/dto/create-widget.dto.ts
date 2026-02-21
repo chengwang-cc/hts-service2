@@ -75,7 +75,7 @@ export class UpdateWidgetDto {
 
   @IsOptional()
   @IsArray()
-  @IsString({ each: true})
+  @IsString({ each: true })
   allowedDomains?: string[];
 
   @IsOptional()

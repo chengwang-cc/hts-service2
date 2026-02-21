@@ -118,7 +118,8 @@ export class ListCandidatesDto {
  */
 export class GenerateFormulasDto {
   @ApiPropertyOptional({
-    description: 'Specific HTS numbers to generate formulas for (if empty, generates for all missing formulas)',
+    description:
+      'Specific HTS numbers to generate formulas for (if empty, generates for all missing formulas)',
     example: ['0101.21.00', '0101.29.10'],
   })
   @IsOptional()

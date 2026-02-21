@@ -43,11 +43,15 @@ export class UsersAdminController {
     const pageNum = page ? parseInt(page, 10) : 1;
     const size = pageSize ? parseInt(pageSize, 10) : 20;
 
-    const { users, total } = await this.usersAdminService.findAll(pageNum, size, search);
+    const { users, total } = await this.usersAdminService.findAll(
+      pageNum,
+      size,
+      search,
+    );
 
     return {
       success: true,
-      data: users.map(user => ({
+      data: users.map((user) => ({
         id: user.id,
         email: user.email,
         firstName: user.firstName,
@@ -56,15 +60,19 @@ export class UsersAdminController {
         emailVerified: user.emailVerified,
         lastLoginAt: user.lastLoginAt,
         organizationId: user.organizationId,
-        organization: user.organization ? {
-          id: user.organization.id,
-          name: user.organization.name,
-        } : null,
-        role: user.roles?.[0] ? {
-          id: user.roles[0].id,
-          name: user.roles[0].name,
-          description: user.roles[0].description,
-        } : null,
+        organization: user.organization
+          ? {
+              id: user.organization.id,
+              name: user.organization.name,
+            }
+          : null,
+        role: user.roles?.[0]
+          ? {
+              id: user.roles[0].id,
+              name: user.roles[0].name,
+              description: user.roles[0].description,
+            }
+          : null,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       })),
@@ -97,15 +105,18 @@ export class UsersAdminController {
         emailVerified: user.emailVerified,
         lastLoginAt: user.lastLoginAt,
         organizationId: user.organizationId,
-        organization: user.organization ? {
-          id: user.organization.id,
-          name: user.organization.name,
-        } : null,
-        roles: user.roles?.map(role => ({
-          id: role.id,
-          name: role.name,
-          description: role.description,
-        })) || [],
+        organization: user.organization
+          ? {
+              id: user.organization.id,
+              name: user.organization.name,
+            }
+          : null,
+        roles:
+          user.roles?.map((role) => ({
+            id: role.id,
+            name: role.name,
+            description: role.description,
+          })) || [],
         metadata: user.metadata,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,

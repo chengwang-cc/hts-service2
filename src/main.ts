@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -9,11 +10,11 @@ async function bootstrap() {
   // Enable CORS for frontend
   app.enableCors({
     origin: [
-      'http://localhost:7000',  // Development frontend
-      'http://localhost:4200',  // Alternative dev port
-      'http://localhost:4201',  // Widget dev port
-      'http://localhost:4202',  // Admin dev port
-      'http://127.0.0.1:4200',  // Same as localhost but explicit IP
+      'http://localhost:7000', // Development frontend
+      'http://localhost:4200', // Alternative dev port
+      'http://localhost:4201', // Widget dev port
+      'http://localhost:4202', // Admin dev port
+      'http://127.0.0.1:4200', // Same as localhost but explicit IP
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -44,7 +45,7 @@ async function bootstrap() {
     .setTitle('HTS Service API')
     .setDescription(
       'HTS duty calculation and lookup API with AI-powered classification. ' +
-      'Provides duty calculation, HTS code lookup, trade agreement analysis, and embeddable widgets.',
+        'Provides duty calculation, HTS code lookup, trade agreement analysis, and embeddable widgets.',
     )
     .setVersion('1.0')
     .addApiKey(
@@ -52,7 +53,8 @@ async function bootstrap() {
         type: 'apiKey',
         name: 'X-API-Key',
         in: 'header',
-        description: 'API key for authentication. Format: hts_{environment}_{random}',
+        description:
+          'API key for authentication. Format: hts_{environment}_{random}',
       },
       'api-key',
     )

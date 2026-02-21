@@ -1,4 +1,10 @@
-import { IsString, IsObject, IsBoolean, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsObject,
+  IsBoolean,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 
 export class CreateTemplateDto {
   @IsString()
@@ -8,8 +14,23 @@ export class CreateTemplateDto {
   @IsOptional()
   description?: string;
 
-  @IsEnum(['shopify', 'broker', 'customs', 'audit-pack', 'invoice', 'packing-list', 'custom'])
-  templateType: 'shopify' | 'broker' | 'customs' | 'audit-pack' | 'invoice' | 'packing-list' | 'custom';
+  @IsEnum([
+    'shopify',
+    'broker',
+    'customs',
+    'audit-pack',
+    'invoice',
+    'packing-list',
+    'custom',
+  ])
+  templateType:
+    | 'shopify'
+    | 'broker'
+    | 'customs'
+    | 'audit-pack'
+    | 'invoice'
+    | 'packing-list'
+    | 'custom';
 
   @IsObject()
   fieldMapping: {

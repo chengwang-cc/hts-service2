@@ -5,10 +5,7 @@ import { CountryConfigEntity, CountryService } from '@hts/i18n';
 import { I18nController } from './controllers/i18n.controller';
 
 @Module({
-  imports: [
-    I18nPackageModule,
-    TypeOrmModule.forFeature([CountryConfigEntity]),
-  ],
+  imports: [I18nPackageModule, TypeOrmModule.forFeature([CountryConfigEntity])],
   controllers: [I18nController],
   providers: [CountryService],
   exports: [CountryService],

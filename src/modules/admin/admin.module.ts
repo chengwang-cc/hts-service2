@@ -14,6 +14,7 @@ import { OrganizationEntity } from '../auth/entities/organization.entity';
 // Entities - Phase 2
 import {
   HtsEntity,
+  HtsEmbeddingEntity,
   HtsImportHistoryEntity,
   HtsSettingEntity,
   HtsStageEntryEntity,
@@ -32,7 +33,11 @@ import {
 import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
 
 // Core Services (from packages)
-import { HtsProcessorService, FormulaGenerationService, OpenAiService } from '@hts/core';
+import {
+  HtsProcessorService,
+  FormulaGenerationService,
+  OpenAiService,
+} from '@hts/core';
 import { FormulaEvaluationService } from '@hts/calculator';
 
 // Wrapper modules that provide services with repository access
@@ -59,6 +64,7 @@ import { TestCaseAdminController } from './controllers/test-case.admin.controlle
 import { KnowledgeAdminController } from './controllers/knowledge.admin.controller';
 import { ExternalProviderFormulaAdminController } from './controllers/external-provider-formula.admin.controller';
 import { ReciprocalTariffAdminController } from './controllers/reciprocal-tariff.admin.controller';
+import { HtsEmbeddingAdminController } from './controllers/hts-embedding.admin.controller';
 
 // Services - Phase 1
 import { UsersAdminService } from './services/users.admin.service';
@@ -94,6 +100,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       OrganizationEntity,
       // Phase 2 entities
       HtsEntity,
+      HtsEmbeddingEntity,
       HtsImportHistoryEntity,
       HtsSettingEntity,
       HtsStageEntryEntity,
@@ -131,6 +138,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     KnowledgeAdminController,
     ExternalProviderFormulaAdminController,
     ReciprocalTariffAdminController,
+    HtsEmbeddingAdminController,
   ],
   providers: [
     // Phase 1 services
@@ -154,7 +162,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     EmbeddingGenerationJobHandler,
     AdminPermissionsGuard,
     // Core services (imported from wrapper modules, not provided here)
-    // HtsProcessorService, FormulaGenerationService, FormulaEvaluationService, OpenAiService - from wrapper modules
+    // HtsProcessorService, FormulaGenerationService, HtsEmbeddingGenerationService, FormulaEvaluationService, OpenAiService - from CoreWrapperModule
     // QueueService - from QueueModule
   ],
   exports: [

@@ -3,7 +3,12 @@
  * Business logic for role management in admin portal
  */
 
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoleEntity } from '../../auth/entities/role.entity';
@@ -54,7 +59,9 @@ export class RolesAdminService {
   /**
    * Get role with user count
    */
-  async findOneWithUserCount(id: string): Promise<{ role: RoleEntity; userCount: number }> {
+  async findOneWithUserCount(
+    id: string,
+  ): Promise<{ role: RoleEntity; userCount: number }> {
     const role = await this.findOne(id);
 
     const userCount = await this.userRepository
@@ -151,10 +158,22 @@ export class RolesAdminService {
           { key: 'hts:search', title: 'Search HTS Codes', isLeaf: true },
           { key: 'hts:calculate', title: 'Calculate Duties', isLeaf: true },
           { key: 'hts:import', title: 'Import HTS Data', isLeaf: true },
-          { key: 'hts:import:review', title: 'Review HTS Imports', isLeaf: true },
+          {
+            key: 'hts:import:review',
+            title: 'Review HTS Imports',
+            isLeaf: true,
+          },
           { key: 'hts:import:export', title: 'Export HTS Diffs', isLeaf: true },
-          { key: 'hts:import:promote', title: 'Promote HTS Imports', isLeaf: true },
-          { key: 'hts:import:override', title: 'Override HTS Validation', isLeaf: true },
+          {
+            key: 'hts:import:promote',
+            title: 'Promote HTS Imports',
+            isLeaf: true,
+          },
+          {
+            key: 'hts:import:override',
+            title: 'Override HTS Validation',
+            isLeaf: true,
+          },
         ],
       },
       {
@@ -172,7 +191,11 @@ export class RolesAdminService {
         children: [
           { key: 'admin:users', title: 'Manage Users', isLeaf: true },
           { key: 'admin:roles', title: 'Manage Roles', isLeaf: true },
-          { key: 'admin:organizations', title: 'Manage Organizations', isLeaf: true },
+          {
+            key: 'admin:organizations',
+            title: 'Manage Organizations',
+            isLeaf: true,
+          },
           { key: 'admin:settings', title: 'System Settings', isLeaf: true },
           { key: 'admin:analytics', title: 'View Analytics', isLeaf: true },
         ],
@@ -185,8 +208,16 @@ export class RolesAdminService {
           { key: 'formula:generate', title: 'Generate Formulas', isLeaf: true },
           { key: 'formula:approve', title: 'Approve Formulas', isLeaf: true },
           { key: 'formula:override', title: 'Override Formulas', isLeaf: true },
-          { key: 'formula:external:view', title: 'View External Provider Snapshots', isLeaf: true },
-          { key: 'formula:external:write', title: 'Write External Provider Snapshots', isLeaf: true },
+          {
+            key: 'formula:external:view',
+            title: 'View External Provider Snapshots',
+            isLeaf: true,
+          },
+          {
+            key: 'formula:external:write',
+            title: 'Write External Provider Snapshots',
+            isLeaf: true,
+          },
         ],
       },
       {

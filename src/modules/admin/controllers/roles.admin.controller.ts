@@ -39,7 +39,7 @@ export class RolesAdminController {
 
     return {
       success: true,
-      data: roles.map(role => ({
+      data: roles.map((role) => ({
         id: role.id,
         name: role.name,
         description: role.description,
@@ -58,7 +58,8 @@ export class RolesAdminController {
   @Get(':id')
   @ApiOperation({ summary: 'Get role by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    const { role, userCount } = await this.rolesAdminService.findOneWithUserCount(id);
+    const { role, userCount } =
+      await this.rolesAdminService.findOneWithUserCount(id);
 
     return {
       success: true,

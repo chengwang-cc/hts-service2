@@ -46,7 +46,9 @@ export class ReciprocalTariffs2026SeedService {
       const existing = await this.extraTaxRepo
         .createQueryBuilder('tax')
         .where('tax.taxCode = :taxCode', { taxCode: row.taxCode })
-        .andWhere('tax.countryCode = :countryCode', { countryCode: row.countryCode })
+        .andWhere('tax.countryCode = :countryCode', {
+          countryCode: row.countryCode,
+        })
         .andWhere('tax.isActive = :isActive', { isActive: true })
         .orderBy('tax.updatedAt', 'DESC')
         .getOne();
@@ -90,7 +92,9 @@ export class ReciprocalTariffs2026SeedService {
     }
 
     await this.markAsLoaded(processed, null);
-    this.logger.log(`Reciprocal tariff seed complete: ${processed} rows upserted`);
+    this.logger.log(
+      `Reciprocal tariff seed complete: ${processed} rows upserted`,
+    );
     return { processed, skipped: false };
   }
 
@@ -105,11 +109,16 @@ export class ReciprocalTariffs2026SeedService {
       return false;
     }
 
-    const normalized = String(setting.value ?? '').trim().toLowerCase();
+    const normalized = String(setting.value ?? '')
+      .trim()
+      .toLowerCase();
     return ['true', '1', 'yes', 'y'].includes(normalized);
   }
 
-  private async markAsLoaded(processed: number, reason: string | null): Promise<void> {
+  private async markAsLoaded(
+    processed: number,
+    reason: string | null,
+  ): Promise<void> {
     const existing = await this.settingRepo.findOne({
       where: {
         key: this.loadedSettingKey,

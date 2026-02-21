@@ -9,7 +9,11 @@ import { Repository, MoreThanOrEqual, IsNull, Not } from 'typeorm';
 import { HtsEntity } from '@hts/core';
 import { HtsFormulaCandidateEntity } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
-import { ListFormulasDto, ListCandidatesDto, GenerateFormulasDto } from '../dto/formula.dto';
+import {
+  ListFormulasDto,
+  ListCandidatesDto,
+  GenerateFormulasDto,
+} from '../dto/formula.dto';
 
 @Injectable()
 export class FormulaAdminService {
@@ -43,11 +47,15 @@ export class FormulaAdminService {
     query.andWhere('hts.rateFormula IS NOT NULL');
 
     if (htsNumber) {
-      query.andWhere('hts.htsNumber LIKE :htsNumber', { htsNumber: `${htsNumber}%` });
+      query.andWhere('hts.htsNumber LIKE :htsNumber', {
+        htsNumber: `${htsNumber}%`,
+      });
     }
 
     if (generatedOnly) {
-      query.andWhere('hts.isFormulaGenerated = :generated', { generated: true });
+      query.andWhere('hts.isFormulaGenerated = :generated', {
+        generated: true,
+      });
     }
 
     query.orderBy('hts.htsNumber', 'ASC');
@@ -85,10 +93,14 @@ export class FormulaAdminService {
     query.where('candidate.status = :status', { status });
 
     if (minConfidence !== undefined) {
-      query.andWhere('candidate.confidence >= :minConfidence', { minConfidence });
+      query.andWhere('candidate.confidence >= :minConfidence', {
+        minConfidence,
+      });
     }
 
-    query.orderBy('candidate.confidence', 'DESC').addOrderBy('candidate.createdAt', 'DESC');
+    query
+      .orderBy('candidate.confidence', 'DESC')
+      .addOrderBy('candidate.createdAt', 'DESC');
 
     const [data, total] = await query
       .skip((page - 1) * pageSize)
@@ -123,7 +135,11 @@ export class FormulaAdminService {
   /**
    * Approve a formula candidate
    */
-  async approveCandidate(id: string, userId: string, comment?: string): Promise<void> {
+  async approveCandidate(
+    id: string,
+    userId: string,
+    comment?: string,
+  ): Promise<void> {
     const candidate = await this.candidateRepo.findOne({ where: { id } });
 
     if (!candidate) {
@@ -131,10 +147,14 @@ export class FormulaAdminService {
     }
 
     if (candidate.status !== 'PENDING') {
-      throw new Error(`Candidate is not pending. Current status: ${candidate.status}`);
+      throw new Error(
+        `Candidate is not pending. Current status: ${candidate.status}`,
+      );
     }
 
-    this.logger.log(`Approving formula candidate ${id} for HTS ${candidate.htsNumber}`);
+    this.logger.log(
+      `Approving formula candidate ${id} for HTS ${candidate.htsNumber}`,
+    );
 
     // Update HtsEntity with the proposed formula
     await this.htsRepo
@@ -164,7 +184,11 @@ export class FormulaAdminService {
   /**
    * Reject a formula candidate
    */
-  async rejectCandidate(id: string, userId: string, comment?: string): Promise<void> {
+  async rejectCandidate(
+    id: string,
+    userId: string,
+    comment?: string,
+  ): Promise<void> {
     const candidate = await this.candidateRepo.findOne({ where: { id } });
 
     if (!candidate) {
@@ -172,10 +196,14 @@ export class FormulaAdminService {
     }
 
     if (candidate.status !== 'PENDING') {
-      throw new Error(`Candidate is not pending. Current status: ${candidate.status}`);
+      throw new Error(
+        `Candidate is not pending. Current status: ${candidate.status}`,
+      );
     }
 
-    this.logger.log(`Rejecting formula candidate ${id} for HTS ${candidate.htsNumber}`);
+    this.logger.log(
+      `Rejecting formula candidate ${id} for HTS ${candidate.htsNumber}`,
+    );
 
     await this.candidateRepo.update(id, {
       status: 'REJECTED',
@@ -209,7 +237,11 @@ export class FormulaAdminService {
     let approved = 0;
     for (const candidate of candidates) {
       try {
-        await this.approveCandidate(candidate.id, userId, comment || 'Auto-approved by bulk operation');
+        await this.approveCandidate(
+          candidate.id,
+          userId,
+          comment || 'Auto-approved by bulk operation',
+        );
         approved++;
       } catch (error) {
         this.logger.error(
@@ -218,7 +250,9 @@ export class FormulaAdminService {
       }
     }
 
-    this.logger.log(`Bulk approval completed: ${approved}/${candidates.length} approved`);
+    this.logger.log(
+      `Bulk approval completed: ${approved}/${candidates.length} approved`,
+    );
 
     return { approved };
   }
@@ -234,24 +268,28 @@ export class FormulaAdminService {
     avgCandidateConfidence: number;
     coveragePercentage: number;
   }> {
-    const [totalFormulas, generatedFormulas, totalHtsEntries, pendingCandidates, avgResult] =
-      await Promise.all([
-        this.htsRepo.count({ where: { rateFormula: Not(IsNull()) } }),
-        this.htsRepo.count({ where: { isFormulaGenerated: true } }),
-        this.htsRepo.count(),
-        this.candidateRepo.count({ where: { status: 'PENDING' } }),
-        this.candidateRepo
-          .createQueryBuilder('candidate')
-          .select('AVG(candidate.confidence)', 'avg')
-          .where('candidate.status = :status', { status: 'PENDING' })
-          .getRawOne(),
-      ]);
+    const [
+      totalFormulas,
+      generatedFormulas,
+      totalHtsEntries,
+      pendingCandidates,
+      avgResult,
+    ] = await Promise.all([
+      this.htsRepo.count({ where: { rateFormula: Not(IsNull()) } }),
+      this.htsRepo.count({ where: { isFormulaGenerated: true } }),
+      this.htsRepo.count(),
+      this.candidateRepo.count({ where: { status: 'PENDING' } }),
+      this.candidateRepo
+        .createQueryBuilder('candidate')
+        .select('AVG(candidate.confidence)', 'avg')
+        .where('candidate.status = :status', { status: 'PENDING' })
+        .getRawOne(),
+    ]);
 
     const manualFormulas = totalFormulas - generatedFormulas;
     const avgCandidateConfidence = parseFloat(avgResult?.avg || '0');
-    const coveragePercentage = totalHtsEntries > 0
-      ? (totalFormulas / totalHtsEntries) * 100
-      : 0;
+    const coveragePercentage =
+      totalHtsEntries > 0 ? (totalFormulas / totalHtsEntries) * 100 : 0;
 
     return {
       totalFormulas,

@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OnboardingProgressEntity } from '../entities/onboarding-progress.entity';
-import { StartOnboardingDto, UpdateOnboardingStepDto } from '../dto/onboarding.dto';
+import {
+  StartOnboardingDto,
+  UpdateOnboardingStepDto,
+} from '../dto/onboarding.dto';
 
 export interface OnboardingFlow {
   persona: 'merchant' | 'broker' | 'developer';
@@ -269,7 +272,10 @@ export class OnboardingService {
     return this.flows[persona];
   }
 
-  async getProgressSummary(organizationId: string, userId: string): Promise<{
+  async getProgressSummary(
+    organizationId: string,
+    userId: string,
+  ): Promise<{
     flow: OnboardingFlow;
     progress: OnboardingProgressEntity | null;
     completionPercentage: number;
@@ -291,9 +297,13 @@ export class OnboardingService {
     const flow = this.flows[progress.persona];
     const completedCount = Object.keys(progress.completedSteps).length;
     const totalSteps = flow.steps.filter((s) => s.required).length;
-    const completionPercentage = Math.round((completedCount / totalSteps) * 100);
+    const completionPercentage = Math.round(
+      (completedCount / totalSteps) * 100,
+    );
 
-    const currentStepIndex = flow.steps.findIndex((s) => s.id === progress.currentStep);
+    const currentStepIndex = flow.steps.findIndex(
+      (s) => s.id === progress.currentStep,
+    );
     const nextStep =
       currentStepIndex < flow.steps.length - 1
         ? flow.steps[currentStepIndex + 1].id

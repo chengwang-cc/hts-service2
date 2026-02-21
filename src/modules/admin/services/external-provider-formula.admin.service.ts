@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
@@ -71,7 +76,9 @@ type ProviderFetchResult = {
 
 @Injectable()
 export class ExternalProviderFormulaAdminService {
-  private readonly logger = new Logger(ExternalProviderFormulaAdminService.name);
+  private readonly logger = new Logger(
+    ExternalProviderFormulaAdminService.name,
+  );
 
   constructor(
     @InjectRepository(ExternalProviderFormulaEntity)
@@ -92,9 +99,14 @@ export class ExternalProviderFormulaAdminService {
   }> {
     const normalizedProvider = (dto.provider || '').trim().toUpperCase();
     const normalizedCountry = (dto.countryCode || '').trim().toUpperCase();
-    const normalizedMode = (dto.modeOfTransport || 'OCEAN').trim().toUpperCase();
+    const normalizedMode = (dto.modeOfTransport || 'OCEAN')
+      .trim()
+      .toUpperCase();
     const normalizedInputContext = this.normalizeJson(dto.inputContext || {});
-    const contextHash = this.hashContext(normalizedProvider, normalizedInputContext);
+    const contextHash = this.hashContext(
+      normalizedProvider,
+      normalizedInputContext,
+    );
     const observedAt = dto.observedAt ? new Date(dto.observedAt) : new Date();
 
     const basePayload = {
@@ -171,7 +183,8 @@ export class ExternalProviderFormulaAdminService {
       latest.observedBy = observedBy || latest.observedBy;
       latest.evidence = dto.evidence || latest.evidence;
       latest.outputBreakdown = dto.outputBreakdown || latest.outputBreakdown;
-      latest.extractionConfidence = dto.extractionConfidence ?? latest.extractionConfidence;
+      latest.extractionConfidence =
+        dto.extractionConfidence ?? latest.extractionConfidence;
       const refreshed = await this.externalFormulaRepo.save(latest);
 
       return {
@@ -252,7 +265,9 @@ export class ExternalProviderFormulaAdminService {
       });
     }
 
-    query.orderBy('formula.observedAt', 'DESC').addOrderBy('formula.createdAt', 'DESC');
+    query
+      .orderBy('formula.observedAt', 'DESC')
+      .addOrderBy('formula.createdAt', 'DESC');
 
     const [data, total] = await query
       .skip((page - 1) * pageSize)
@@ -268,16 +283,22 @@ export class ExternalProviderFormulaAdminService {
     });
 
     if (!record) {
-      throw new NotFoundException(`External provider formula snapshot not found: ${id}`);
+      throw new NotFoundException(
+        `External provider formula snapshot not found: ${id}`,
+      );
     }
 
     return record;
   }
 
-  async compareWithLiveFormula(dto: CompareExternalProviderFormulaDto): Promise<LiveComparisonResult> {
+  async compareWithLiveFormula(
+    dto: CompareExternalProviderFormulaDto,
+  ): Promise<LiveComparisonResult> {
     const normalizedProvider = (dto.provider || '').trim().toUpperCase();
     const normalizedCountry = (dto.countryCode || '').trim().toUpperCase();
-    const normalizedMode = (dto.modeOfTransport || 'OCEAN').trim().toUpperCase();
+    const normalizedMode = (dto.modeOfTransport || 'OCEAN')
+      .trim()
+      .toUpperCase();
 
     const providerSnapshot = await this.externalFormulaRepo.findOne({
       where: {
@@ -304,11 +325,20 @@ export class ExternalProviderFormulaAdminService {
       },
     });
 
-    const liveProjection = this.projectLiveFormula(liveHtsEntity, normalizedCountry);
+    const liveProjection = this.projectLiveFormula(
+      liveHtsEntity,
+      normalizedCountry,
+    );
     const providerFormulaNormalized = providerSnapshot
-      ? this.normalizeFormula(providerSnapshot.formulaNormalized || providerSnapshot.formulaRaw || null)
+      ? this.normalizeFormula(
+          providerSnapshot.formulaNormalized ||
+            providerSnapshot.formulaRaw ||
+            null,
+        )
       : null;
-    const liveFormulaNormalized = this.normalizeFormula(liveProjection?.selectedFormula || null);
+    const liveFormulaNormalized = this.normalizeFormula(
+      liveProjection?.selectedFormula || null,
+    );
 
     if (!providerSnapshot) {
       return {
@@ -394,11 +424,16 @@ export class ExternalProviderFormulaAdminService {
 
     const fetchResult = await this.fetchProviderSnapshot(dto);
     const usedMock =
-      dto.useMock === true || process.env.EXTERNAL_PROVIDER_FLEXPORT_MOCK === 'true';
-    const providerFormulaExtracted = !!(fetchResult.formulaNormalized || fetchResult.formulaRaw);
+      dto.useMock === true ||
+      process.env.EXTERNAL_PROVIDER_FLEXPORT_MOCK === 'true';
+    const providerFormulaExtracted = !!(
+      fetchResult.formulaNormalized || fetchResult.formulaRaw
+    );
     const requireFormulaExtraction = dto.requireFormulaExtraction !== false;
     if (requireFormulaExtraction && !providerFormulaExtracted) {
-      throw new BadRequestException(this.buildProviderExtractionFailureMessage(fetchResult));
+      throw new BadRequestException(
+        this.buildProviderExtractionFailureMessage(fetchResult),
+      );
     }
 
     const upsertResult = await this.upsertSnapshot(
@@ -558,7 +593,9 @@ export class ExternalProviderFormulaAdminService {
     const snapshot = await this.findOne(id);
 
     if (snapshot.reviewStatus === 'PUBLISHED') {
-      throw new BadRequestException('Published snapshot cannot be reviewed again.');
+      throw new BadRequestException(
+        'Published snapshot cannot be reviewed again.',
+      );
     }
 
     snapshot.reviewStatus = dto.decision;
@@ -592,10 +629,14 @@ export class ExternalProviderFormulaAdminService {
     const formula = snapshot.formulaNormalized || snapshot.formulaRaw || null;
 
     if (!formula) {
-      throw new BadRequestException('Cannot publish override: snapshot formula is empty.');
+      throw new BadRequestException(
+        'Cannot publish override: snapshot formula is empty.',
+      );
     }
     if (snapshot.reviewStatus === 'REJECTED') {
-      throw new BadRequestException('Cannot publish override from a rejected snapshot.');
+      throw new BadRequestException(
+        'Cannot publish override from a rejected snapshot.',
+      );
     }
     if (!['APPROVED', 'PUBLISHED'].includes(snapshot.reviewStatus || '')) {
       throw new BadRequestException(
@@ -607,10 +648,14 @@ export class ExternalProviderFormulaAdminService {
       where: { htsNumber: snapshot.htsNumber, isActive: true },
       order: { updatedAt: 'DESC', importDate: 'DESC' },
     });
-    const inferredFormulaType = await this.inferFormulaTypeForSnapshot(snapshot);
+    const inferredFormulaType =
+      await this.inferFormulaTypeForSnapshot(snapshot);
     const formulaType = (dto.formulaType || inferredFormulaType).toUpperCase();
     const updateVersion =
-      dto.updateVersion || activeHts?.sourceVersion || activeHts?.version || 'GLOBAL';
+      dto.updateVersion ||
+      activeHts?.sourceVersion ||
+      activeHts?.version ||
+      'GLOBAL';
 
     const formulaUpdate = await this.formulaUpdateService.upsert({
       htsNumber: snapshot.htsNumber,
@@ -636,7 +681,8 @@ export class ExternalProviderFormulaAdminService {
     );
 
     snapshot.reviewStatus = 'PUBLISHED';
-    snapshot.reviewDecisionComment = dto.comment || snapshot.reviewDecisionComment || null;
+    snapshot.reviewDecisionComment =
+      dto.comment || snapshot.reviewDecisionComment || null;
     snapshot.reviewedAt = snapshot.reviewedAt || new Date();
     snapshot.reviewedBy = snapshot.reviewedBy || publishedBy || null;
     snapshot.publishedFormulaUpdateId = formulaUpdate.id;
@@ -722,7 +768,12 @@ export class ExternalProviderFormulaAdminService {
             schema: {
               type: 'object',
               additionalProperties: false,
-              required: ['summary', 'probableCauses', 'recommendedActions', 'confidence'],
+              required: [
+                'summary',
+                'probableCauses',
+                'recommendedActions',
+                'confidence',
+              ],
               properties: {
                 summary: { type: 'string' },
                 probableCauses: {
@@ -766,7 +817,8 @@ export class ExternalProviderFormulaAdminService {
             ? parsed.recommendedActions.map((value: any) => String(value))
             : fallback.recommendedActions,
           confidence:
-            typeof parsed.confidence === 'number' && Number.isFinite(parsed.confidence)
+            typeof parsed.confidence === 'number' &&
+            Number.isFinite(parsed.confidence)
               ? Math.max(0, Math.min(1, parsed.confidence))
               : fallback.confidence,
           provider: 'ai',
@@ -783,9 +835,14 @@ export class ExternalProviderFormulaAdminService {
     }
   }
 
-  private hashContext(provider: string, inputContext: Record<string, any>): string {
+  private hashContext(
+    provider: string,
+    inputContext: Record<string, any>,
+  ): string {
     const canonicalInput = JSON.stringify(this.normalizeJson(inputContext));
-    return createHash('sha256').update(`${provider}:${canonicalInput}`).digest('hex');
+    return createHash('sha256')
+      .update(`${provider}:${canonicalInput}`)
+      .digest('hex');
   }
 
   private normalizeFormula(value: string | null): string | null {
@@ -806,10 +863,14 @@ export class ExternalProviderFormulaAdminService {
 
     const defaultNonNtr = ['CU', 'KP', 'RU', 'BY'];
     const nonNtrCountries = Array.isArray(hts.nonNtrApplicableCountries)
-      ? hts.nonNtrApplicableCountries.map((value) => String(value).trim().toUpperCase())
+      ? hts.nonNtrApplicableCountries.map((value) =>
+          String(value).trim().toUpperCase(),
+        )
       : defaultNonNtr;
     const chapter99Countries = Array.isArray(hts.chapter99ApplicableCountries)
-      ? hts.chapter99ApplicableCountries.map((value) => String(value).trim().toUpperCase())
+      ? hts.chapter99ApplicableCountries.map((value) =>
+          String(value).trim().toUpperCase(),
+        )
       : [];
 
     const isNonNtr = nonNtrCountries.includes(countryCode);
@@ -823,8 +884,10 @@ export class ExternalProviderFormulaAdminService {
         rateFormula: hts.rateFormula || null,
         adjustedFormula: hts.adjustedFormula || null,
         otherRateFormula: hts.otherRateFormula || null,
-        chapter99ApplicableCountries: chapter99Countries.length > 0 ? chapter99Countries : null,
-        nonNtrApplicableCountries: nonNtrCountries.length > 0 ? nonNtrCountries : null,
+        chapter99ApplicableCountries:
+          chapter99Countries.length > 0 ? chapter99Countries : null,
+        nonNtrApplicableCountries:
+          nonNtrCountries.length > 0 ? nonNtrCountries : null,
         selectedFormulaType: 'NON_NTR',
         selectedFormula: hts.otherRateFormula || null,
         selectedRateText: hts.otherRate || null,
@@ -839,8 +902,10 @@ export class ExternalProviderFormulaAdminService {
         rateFormula: hts.rateFormula || null,
         adjustedFormula: hts.adjustedFormula || null,
         otherRateFormula: hts.otherRateFormula || null,
-        chapter99ApplicableCountries: chapter99Countries.length > 0 ? chapter99Countries : null,
-        nonNtrApplicableCountries: nonNtrCountries.length > 0 ? nonNtrCountries : null,
+        chapter99ApplicableCountries:
+          chapter99Countries.length > 0 ? chapter99Countries : null,
+        nonNtrApplicableCountries:
+          nonNtrCountries.length > 0 ? nonNtrCountries : null,
         selectedFormulaType: 'CHAPTER99',
         selectedFormula: hts.adjustedFormula || hts.rateFormula || null,
         selectedRateText: hts.chapter99 || hts.generalRate || null,
@@ -855,8 +920,10 @@ export class ExternalProviderFormulaAdminService {
         rateFormula: hts.rateFormula || null,
         adjustedFormula: hts.adjustedFormula || null,
         otherRateFormula: hts.otherRateFormula || null,
-        chapter99ApplicableCountries: chapter99Countries.length > 0 ? chapter99Countries : null,
-        nonNtrApplicableCountries: nonNtrCountries.length > 0 ? nonNtrCountries : null,
+        chapter99ApplicableCountries:
+          chapter99Countries.length > 0 ? chapter99Countries : null,
+        nonNtrApplicableCountries:
+          nonNtrCountries.length > 0 ? nonNtrCountries : null,
         selectedFormulaType: 'SPECIAL',
         selectedFormula: hts.rateFormula || null,
         selectedRateText: hts.generalRate || null,
@@ -870,8 +937,10 @@ export class ExternalProviderFormulaAdminService {
       rateFormula: hts.rateFormula || null,
       adjustedFormula: hts.adjustedFormula || null,
       otherRateFormula: hts.otherRateFormula || null,
-      chapter99ApplicableCountries: chapter99Countries.length > 0 ? chapter99Countries : null,
-      nonNtrApplicableCountries: nonNtrCountries.length > 0 ? nonNtrCountries : null,
+      chapter99ApplicableCountries:
+        chapter99Countries.length > 0 ? chapter99Countries : null,
+      nonNtrApplicableCountries:
+        nonNtrCountries.length > 0 ? nonNtrCountries : null,
       selectedFormulaType: 'GENERAL',
       selectedFormula: hts.rateFormula || null,
       selectedRateText: hts.generalRate || null,
@@ -880,7 +949,13 @@ export class ExternalProviderFormulaAdminService {
   }
 
   private mapLiveTypeToOverrideType(
-    selectedType: 'GENERAL' | 'CHAPTER99' | 'NON_NTR' | 'SPECIAL' | null | undefined,
+    selectedType:
+      | 'GENERAL'
+      | 'CHAPTER99'
+      | 'NON_NTR'
+      | 'SPECIAL'
+      | null
+      | undefined,
   ): 'GENERAL' | 'OTHER' | 'ADJUSTED' | 'OTHER_CHAPTER99' {
     if (selectedType === 'NON_NTR') {
       return 'OTHER';
@@ -901,7 +976,9 @@ export class ExternalProviderFormulaAdminService {
       entryDate: snapshot.entryDate,
       modeOfTransport: snapshot.modeOfTransport,
     });
-    return this.mapLiveTypeToOverrideType(comparison.liveHts?.selectedFormulaType || null);
+    return this.mapLiveTypeToOverrideType(
+      comparison.liveHts?.selectedFormulaType || null,
+    );
   }
 
   private async applyOverrideToActiveHts(
@@ -910,7 +987,11 @@ export class ExternalProviderFormulaAdminService {
     formulaType: string,
     formula: string,
     comment: string | null,
-  ): Promise<{ htsId: string | null; sourceVersion: string | null; patched: boolean }> {
+  ): Promise<{
+    htsId: string | null;
+    sourceVersion: string | null;
+    patched: boolean;
+  }> {
     const hts = await this.htsRepo.findOne({
       where: { htsNumber, isActive: true },
       order: { updatedAt: 'DESC', importDate: 'DESC' },
@@ -925,12 +1006,18 @@ export class ExternalProviderFormulaAdminService {
       hts.otherRateFormula = formula;
     } else if (normalizedFormulaType === 'ADJUSTED') {
       hts.adjustedFormula = formula;
-      const countries = new Set((hts.chapter99ApplicableCountries || []).map((code) => code.toUpperCase()));
+      const countries = new Set(
+        (hts.chapter99ApplicableCountries || []).map((code) =>
+          code.toUpperCase(),
+        ),
+      );
       countries.add(countryCode.toUpperCase());
       hts.chapter99ApplicableCountries = Array.from(countries);
     } else if (normalizedFormulaType === 'OTHER_CHAPTER99') {
       const countries = new Set(
-        (hts.otherChapter99Detail?.countries || []).map((code) => code.toUpperCase()),
+        (hts.otherChapter99Detail?.countries || []).map((code) =>
+          code.toUpperCase(),
+        ),
       );
       countries.add(countryCode.toUpperCase());
       hts.otherChapter99Detail = {
@@ -946,7 +1033,8 @@ export class ExternalProviderFormulaAdminService {
     hts.confirmed = true;
     hts.requiredReview = false;
     hts.updateFormulaComment =
-      comment || `Manual external-provider override published (${normalizedFormulaType})`;
+      comment ||
+      `Manual external-provider override published (${normalizedFormulaType})`;
     hts.metadata = {
       ...(hts.metadata || {}),
       manualOverride: true,
@@ -981,7 +1069,9 @@ export class ExternalProviderFormulaAdminService {
     const htsNumber = (dto.htsNumber || '').trim();
     const countryCode = (dto.countryCode || '').trim().toUpperCase();
     const entryDate = dto.entryDate;
-    const modeOfTransport = (dto.modeOfTransport || 'OCEAN').trim().toUpperCase();
+    const modeOfTransport = (dto.modeOfTransport || 'OCEAN')
+      .trim()
+      .toUpperCase();
 
     const inputContext = this.normalizeJson({
       value: dto.value ?? null,
@@ -1001,7 +1091,8 @@ export class ExternalProviderFormulaAdminService {
     });
 
     const useMock =
-      dto.useMock === true || process.env.EXTERNAL_PROVIDER_FLEXPORT_MOCK === 'true';
+      dto.useMock === true ||
+      process.env.EXTERNAL_PROVIDER_FLEXPORT_MOCK === 'true';
 
     if (useMock) {
       const formulaRaw = this.buildMockFlexportFormula(countryCode);
@@ -1029,18 +1120,35 @@ export class ExternalProviderFormulaAdminService {
         sourceUrl,
         evidence: {
           mode: 'mock',
-          reason: 'EXTERNAL_PROVIDER_FLEXPORT_MOCK=true or request.useMock=true',
+          reason:
+            'EXTERNAL_PROVIDER_FLEXPORT_MOCK=true or request.useMock=true',
         },
       };
     }
 
     const useAiExtraction =
-      dto.useAiExtraction !== false && process.env.EXTERNAL_PROVIDER_AI_EXTRACTION !== 'false';
-    const startupDelayMs = this.readIntEnv('EXTERNAL_PROVIDER_FLEXPORT_REQUEST_DELAY_MS', 0);
-    const postLoadWaitMs = this.readIntEnv('EXTERNAL_PROVIDER_FLEXPORT_POST_LOAD_WAIT_MS', 5000);
-    const navTimeoutMs = this.readIntEnv('EXTERNAL_PROVIDER_FLEXPORT_NAV_TIMEOUT_MS', 90000);
-    const maxRetries = this.readIntEnv('EXTERNAL_PROVIDER_FLEXPORT_MAX_RETRIES', 2);
-    const retryDelayMs = this.readIntEnv('EXTERNAL_PROVIDER_FLEXPORT_RETRY_DELAY_MS', 8000);
+      dto.useAiExtraction !== false &&
+      process.env.EXTERNAL_PROVIDER_AI_EXTRACTION !== 'false';
+    const startupDelayMs = this.readIntEnv(
+      'EXTERNAL_PROVIDER_FLEXPORT_REQUEST_DELAY_MS',
+      0,
+    );
+    const postLoadWaitMs = this.readIntEnv(
+      'EXTERNAL_PROVIDER_FLEXPORT_POST_LOAD_WAIT_MS',
+      5000,
+    );
+    const navTimeoutMs = this.readIntEnv(
+      'EXTERNAL_PROVIDER_FLEXPORT_NAV_TIMEOUT_MS',
+      90000,
+    );
+    const maxRetries = this.readIntEnv(
+      'EXTERNAL_PROVIDER_FLEXPORT_MAX_RETRIES',
+      2,
+    );
+    const retryDelayMs = this.readIntEnv(
+      'EXTERNAL_PROVIDER_FLEXPORT_RETRY_DELAY_MS',
+      8000,
+    );
     const maxAttempts = Math.max(1, maxRetries + 1);
     let lastResult: ProviderFetchResult | null = null;
 
@@ -1079,19 +1187,28 @@ export class ExternalProviderFormulaAdminService {
           }
         });
 
-        await page.goto(sourceUrl, { waitUntil: 'networkidle2', timeout: navTimeoutMs });
+        await page.goto(sourceUrl, {
+          waitUntil: 'networkidle2',
+          timeout: navTimeoutMs,
+        });
         await this.sleep(postLoadWaitMs);
 
         const html = await page.content();
-        const bodyText = await page.evaluate(() => document.body?.innerText || '');
-        const formulaFromJson = this.findFormulaFromJsonPayloads(responsePayloads);
+        const bodyText = await page.evaluate(
+          () => document.body?.innerText || '',
+        );
+        const formulaFromJson =
+          this.findFormulaFromJsonPayloads(responsePayloads);
         const formulaFromDom = this.findFormulaFromDomText(bodyText);
         const formulaFromHtml = this.findFormulaFromHtmlText(html);
         let formulaRaw = formulaFromJson || formulaFromDom || formulaFromHtml;
-        let extractionMethod: ProviderFetchResult['extractionMethod'] = formulaFromJson
-          ? 'NETWORK'
-          : 'DOM';
-        let confidence = formulaFromJson ? 0.95 : formulaFromDom || formulaFromHtml ? 0.7 : 0.15;
+        let extractionMethod: ProviderFetchResult['extractionMethod'] =
+          formulaFromJson ? 'NETWORK' : 'DOM';
+        let confidence = formulaFromJson
+          ? 0.95
+          : formulaFromDom || formulaFromHtml
+            ? 0.7
+            : 0.15;
         let aiEvidence: Record<string, any> | null = null;
 
         if (!formulaRaw && useAiExtraction) {
@@ -1136,7 +1253,9 @@ export class ExternalProviderFormulaAdminService {
           jsonResponseCount: responsePayloads.length,
           responseUrls: responsePayloads.map((item) => item.url).slice(0, 20),
           aiFallback: aiEvidence,
-          challengeDetected: this.looksLikeBotProtectionPage(`${bodyText}\n${html}`),
+          challengeDetected: this.looksLikeBotProtectionPage(
+            `${bodyText}\n${html}`,
+          ),
           domTextSample: bodyText.slice(0, 2000),
           htmlSample: html.slice(0, 2000),
           attempt,
@@ -1166,7 +1285,9 @@ export class ExternalProviderFormulaAdminService {
           outputBreakdown: breakdown,
           extractionMethod,
           extractionConfidence: confidence,
-          parserVersion: useAiExtraction ? 'flexport-puppeteer-ai-v2' : 'flexport-puppeteer-v2',
+          parserVersion: useAiExtraction
+            ? 'flexport-puppeteer-ai-v2'
+            : 'flexport-puppeteer-v2',
           sourceUrl,
           evidence,
         };
@@ -1207,7 +1328,9 @@ export class ExternalProviderFormulaAdminService {
           outputBreakdown: null,
           extractionMethod: 'DOM',
           extractionConfidence: 0,
-          parserVersion: useAiExtraction ? 'flexport-puppeteer-ai-v2' : 'flexport-puppeteer-v2',
+          parserVersion: useAiExtraction
+            ? 'flexport-puppeteer-ai-v2'
+            : 'flexport-puppeteer-v2',
           sourceUrl,
           evidence: {
             error: error?.message || 'unknown error',
@@ -1248,7 +1371,9 @@ export class ExternalProviderFormulaAdminService {
       outputBreakdown: null,
       extractionMethod: 'DOM',
       extractionConfidence: 0,
-      parserVersion: useAiExtraction ? 'flexport-puppeteer-ai-v2' : 'flexport-puppeteer-v2',
+      parserVersion: useAiExtraction
+        ? 'flexport-puppeteer-ai-v2'
+        : 'flexport-puppeteer-v2',
       sourceUrl,
       evidence: {
         error: 'unknown extraction failure',
@@ -1256,7 +1381,9 @@ export class ExternalProviderFormulaAdminService {
     };
   }
 
-  private buildProviderExtractionFailureMessage(fetchResult: ProviderFetchResult): string {
+  private buildProviderExtractionFailureMessage(
+    fetchResult: ProviderFetchResult,
+  ): string {
     const baseMessage =
       'Provider formula extraction failed. No formula was retrieved from provider response.';
     const evidence = fetchResult.evidence || {};
@@ -1324,7 +1451,10 @@ export class ExternalProviderFormulaAdminService {
 
     const dateOfLoading = input.inputContext?.dateOfLoading || input.entryDate;
     if (dateOfLoading) {
-      params.set('FIELD_DATE_OF_LOADING', JSON.stringify(String(dateOfLoading)));
+      params.set(
+        'FIELD_DATE_OF_LOADING',
+        JSON.stringify(String(dateOfLoading)),
+      );
     }
 
     return `https://tariffs.flexport.com/?${params.toString()}`;
@@ -1378,7 +1508,11 @@ export class ExternalProviderFormulaAdminService {
 
       for (const key of Object.keys(node)) {
         const value = node[key];
-        if (formulaLikeKeys.includes(key) && typeof value === 'string' && value.trim()) {
+        if (
+          formulaLikeKeys.includes(key) &&
+          typeof value === 'string' &&
+          value.trim()
+        ) {
           return value.trim();
         }
       }
@@ -1524,7 +1658,9 @@ export class ExternalProviderFormulaAdminService {
     );
   }
 
-  private isLikelyProviderBlockEvidence(evidence: Record<string, any> | null | undefined): boolean {
+  private isLikelyProviderBlockEvidence(
+    evidence: Record<string, any> | null | undefined,
+  ): boolean {
     if (!evidence || typeof evidence !== 'object') {
       return false;
     }
@@ -1552,7 +1688,11 @@ export class ExternalProviderFormulaAdminService {
     const includeLine = (line: string) => {
       const normalized = line.replace(/\s+/g, ' ').trim();
       if (!normalized) return;
-      if (!/(duty|tariff|rate|tax|ad valorem|applicable subheading|%|\+|\*|value)/i.test(normalized)) {
+      if (
+        !/(duty|tariff|rate|tax|ad valorem|applicable subheading|%|\+|\*|value)/i.test(
+          normalized,
+        )
+      ) {
         return;
       }
       if (normalized.length < 4 || normalized.length > 260) return;
@@ -1624,7 +1764,10 @@ export class ExternalProviderFormulaAdminService {
       };
     }
 
-    const signals = this.collectFormulaSignalLines(input.bodyText, input.payloads);
+    const signals = this.collectFormulaSignalLines(
+      input.bodyText,
+      input.payloads,
+    );
     if (signals.length === 0) {
       return {
         formulaRaw: null,
@@ -1688,7 +1831,8 @@ export class ExternalProviderFormulaAdminService {
       const formulaRaw =
         typeof parsed.formulaRaw === 'string' ? parsed.formulaRaw.trim() : null;
       const confidence =
-        typeof parsed.confidence === 'number' && Number.isFinite(parsed.confidence)
+        typeof parsed.confidence === 'number' &&
+        Number.isFinite(parsed.confidence)
           ? Math.max(0, Math.min(1, parsed.confidence))
           : 0;
 
@@ -1773,7 +1917,8 @@ export class ExternalProviderFormulaAdminService {
 
     if (mismatchReason === 'NO_PROVIDER_SNAPSHOT') {
       return {
-        summary: 'No provider snapshot exists for the selected HTS/country/date context.',
+        summary:
+          'No provider snapshot exists for the selected HTS/country/date context.',
         probableCauses: [
           'Validation has not been executed for this context.',
           'Snapshot may have been filtered by mode-of-transport mismatch.',
@@ -1805,7 +1950,8 @@ export class ExternalProviderFormulaAdminService {
 
     if (mismatchReason === 'NO_LIVE_FORMULA') {
       return {
-        summary: 'Live HTS entry has no resolved formula for the selected context.',
+        summary:
+          'Live HTS entry has no resolved formula for the selected context.',
         probableCauses: [
           'Formula generation pipeline did not populate this HTS entry.',
           'Selected formula type resolved to a null path (e.g., chapter99/non-NTR branch missing).',
@@ -1869,7 +2015,9 @@ export class ExternalProviderFormulaAdminService {
       return true;
     }
 
-    if ((latest.formulaNormalized || null) !== (current.formulaNormalized || null)) {
+    if (
+      (latest.formulaNormalized || null) !== (current.formulaNormalized || null)
+    ) {
       return true;
     }
 
@@ -1885,14 +2033,22 @@ export class ExternalProviderFormulaAdminService {
       return true;
     }
 
-    const latestComponents = JSON.stringify(this.normalizeJson(latest.formulaComponents || null));
-    const currentComponents = JSON.stringify(this.normalizeJson(current.formulaComponents || null));
+    const latestComponents = JSON.stringify(
+      this.normalizeJson(latest.formulaComponents || null),
+    );
+    const currentComponents = JSON.stringify(
+      this.normalizeJson(current.formulaComponents || null),
+    );
     if (latestComponents !== currentComponents) {
       return true;
     }
 
-    const latestBreakdown = JSON.stringify(this.normalizeJson(latest.outputBreakdown || null));
-    const currentBreakdown = JSON.stringify(this.normalizeJson(current.outputBreakdown || null));
+    const latestBreakdown = JSON.stringify(
+      this.normalizeJson(latest.outputBreakdown || null),
+    );
+    const currentBreakdown = JSON.stringify(
+      this.normalizeJson(current.outputBreakdown || null),
+    );
     if (latestBreakdown !== currentBreakdown) {
       return true;
     }

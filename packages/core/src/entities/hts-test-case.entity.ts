@@ -110,5 +110,4 @@ export class HtsTestCaseEntity {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
 }

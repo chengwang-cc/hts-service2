@@ -1,8 +1,11 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { SearchService, ClassificationService, UrlClassifierService } from '../services';
+import {
+  SearchService,
+  ClassificationService,
+  UrlClassifierService,
+} from '../services';
 import { SearchDto, ClassifyProductDto, ClassifyUrlRequestDto } from '../dto';
-import { RateLimit } from '../decorators';
-import { Public } from '../../../../src/modules/auth/decorators/public.decorator';
+import { RateLimit, Public } from '../decorators';
 
 @Controller('lookup')
 export class LookupController {
@@ -33,8 +36,14 @@ export class LookupController {
     @Query('q') query: string,
     @Query('limit') limit?: string,
   ) {
-    const maxResults = Math.min(Math.max(parseInt(limit || '10', 10) || 10, 1), 20);
-    const results = await this.searchService.autocomplete(query || '', maxResults);
+    const maxResults = Math.min(
+      Math.max(parseInt(limit || '10', 10) || 10, 1),
+      20,
+    );
+    const results = await this.searchService.autocomplete(
+      query || '',
+      maxResults,
+    );
 
     return {
       success: true,
@@ -62,7 +71,8 @@ export class LookupController {
     return {
       htsCode: classification.suggestedHts,
       confidence: classification.confidence,
-      reasoning: classification.aiSuggestions?.[0]?.reasoning || 'AI classification',
+      reasoning:
+        classification.aiSuggestions?.[0]?.reasoning || 'AI classification',
     };
   }
 

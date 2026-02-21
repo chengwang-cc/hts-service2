@@ -118,10 +118,7 @@ export class WidgetService {
    * Delete (deactivate) a widget
    */
   async deleteWidget(widgetId: string): Promise<void> {
-    await this.widgetConfigRepository.update(
-      { widgetId },
-      { isActive: false },
-    );
+    await this.widgetConfigRepository.update({ widgetId }, { isActive: false });
 
     this.logger.log(`Deactivated widget ${widgetId}`);
   }
@@ -228,7 +225,9 @@ export class WidgetService {
     });
 
     if (!session) {
-      this.logger.warn(`Session ${sessionId} not found for interaction tracking`);
+      this.logger.warn(
+        `Session ${sessionId} not found for interaction tracking`,
+      );
       return;
     }
 
@@ -290,10 +289,10 @@ export class WidgetService {
       0,
     );
     const avgDuration =
-      sessions.filter((s) => s.durationSeconds !== null).reduce(
-        (sum, s) => sum + (s.durationSeconds || 0),
-        0,
-      ) / totalSessions || 0;
+      sessions
+        .filter((s) => s.durationSeconds !== null)
+        .reduce((sum, s) => sum + (s.durationSeconds || 0), 0) /
+        totalSessions || 0;
 
     // Group by domain
     const byDomain: Record<string, number> = {};

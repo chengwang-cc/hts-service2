@@ -31,7 +31,9 @@ export class RateRetrievalService {
     if (this.noteResolutionService) {
       this.logger.log('Knowledgebase integration enabled for rate retrieval');
     } else {
-      this.logger.log('Running without knowledgebase - using fallback strategy');
+      this.logger.log(
+        'Running without knowledgebase - using fallback strategy',
+      );
     }
   }
 
@@ -46,7 +48,12 @@ export class RateRetrievalService {
     confidence: number;
     overrideExtraTax?: boolean;
     formulaType?: string;
-    variables?: Array<{ name: string; type: string; description?: string; unit?: string }> | null;
+    variables?: Array<{
+      name: string;
+      type: string;
+      description?: string;
+      unit?: string;
+    }> | null;
   }> {
     const normalizedCountry = countryOfOrigin.toUpperCase();
 
@@ -62,43 +69,44 @@ export class RateRetrievalService {
 
     const nonNtrCountries = this.resolveNonNtrCountries(htsEntry);
     const isNonNTR = nonNtrCountries.includes(normalizedCountry);
-    const chapter99Countries = (htsEntry.chapter99ApplicableCountries || []).map((code) =>
-      code.toUpperCase(),
+    const chapter99Countries = (
+      htsEntry.chapter99ApplicableCountries || []
+    ).map((code) => code.toUpperCase());
+    const chapter99Links = this.normalizeChapter99Headings(
+      htsEntry.chapter99Links || [],
     );
-    const chapter99Links = this.normalizeChapter99Headings(htsEntry.chapter99Links || []);
     const selectedChapter99Headings = this.normalizeChapter99Headings(
       context.selectedChapter99Headings || [],
     );
-    const hasExplicitChapter99Selection = selectedChapter99Headings.some((heading) =>
-      chapter99Links.includes(heading),
+    const hasExplicitChapter99Selection = selectedChapter99Headings.some(
+      (heading) => chapter99Links.includes(heading),
     );
     const chapter99SynthesisMetadata =
-      (htsEntry.metadata as Record<string, any> | null | undefined)?.chapter99Synthesis || null;
-    const reciprocalOnlyChapter99 = !!chapter99SynthesisMetadata?.reciprocalOnly;
+      (htsEntry.metadata as Record<string, any> | null | undefined)
+        ?.chapter99Synthesis || null;
+    const reciprocalOnlyChapter99 =
+      !!chapter99SynthesisMetadata?.reciprocalOnly;
     const hasChapter99Signals =
       chapter99Links.length > 0 ||
       !!(htsEntry.chapter99 && htsEntry.chapter99.trim());
     const chapter99CountryEligible =
-      chapter99Countries.length === 0 || chapter99Countries.includes(normalizedCountry);
+      chapter99Countries.length === 0 ||
+      chapter99Countries.includes(normalizedCountry);
     const chapter99Eligible =
       !isNonNTR &&
       !reciprocalOnlyChapter99 &&
       hasChapter99Signals &&
       hasExplicitChapter99Selection &&
       chapter99CountryEligible;
-    const chapter99Applies =
-      chapter99Eligible &&
-      !!htsEntry.adjustedFormula;
+    const chapter99Applies = chapter99Eligible && !!htsEntry.adjustedFormula;
     const otherChapter99Applies =
       isNonNTR &&
       !!htsEntry.otherChapter99Detail?.formula &&
-      (
-        !htsEntry.otherChapter99Detail?.countries ||
+      (!htsEntry.otherChapter99Detail?.countries ||
         htsEntry.otherChapter99Detail.countries.length === 0 ||
         htsEntry.otherChapter99Detail.countries
           .map((code) => code.toUpperCase())
-          .includes(normalizedCountry)
-      );
+          .includes(normalizedCountry));
 
     const desiredFormulaType = otherChapter99Applies
       ? 'OTHER_CHAPTER99'
@@ -109,16 +117,22 @@ export class RateRetrievalService {
           : 'GENERAL';
 
     // Priority 1: Manual override (version + country + type aware)
-    for (const formulaType of this.getManualFormulaLookupOrder(desiredFormulaType)) {
-      const manualOverride = await this.formulaUpdateService.findUpdatedFormula({
-        htsNumber,
-        countryCode: normalizedCountry,
-        formulaType,
-        version: resolvedVersion,
-      });
+    for (const formulaType of this.getManualFormulaLookupOrder(
+      desiredFormulaType,
+    )) {
+      const manualOverride = await this.formulaUpdateService.findUpdatedFormula(
+        {
+          htsNumber,
+          countryCode: normalizedCountry,
+          formulaType,
+          version: resolvedVersion,
+        },
+      );
 
       if (manualOverride) {
-        this.logger.debug(`Using manual override for ${htsNumber} (${formulaType})`);
+        this.logger.debug(
+          `Using manual override for ${htsNumber} (${formulaType})`,
+        );
         return {
           formula: manualOverride.formula,
           source: 'manual',
@@ -132,10 +146,8 @@ export class RateRetrievalService {
 
     // Priority 1b: For Chapter 99 requests dated in/through 2025, prefer historical 2025 rates.
     if (htsNumber.startsWith('99')) {
-      const historicalChapter99Formula = await this.resolveHistorical2025Formula(
-        htsNumber,
-        context.entryDate,
-      );
+      const historicalChapter99Formula =
+        await this.resolveHistorical2025Formula(htsNumber, context.entryDate);
       if (historicalChapter99Formula) {
         this.logger.debug(`Using 2025 chapter99 fallback for ${htsNumber}`);
         return {
@@ -193,15 +205,20 @@ export class RateRetrievalService {
       };
     }
 
-    const deterministicGeneralFormula = this.resolveDeterministicGeneralFormula(htsEntry);
+    const deterministicGeneralFormula =
+      this.resolveDeterministicGeneralFormula(htsEntry);
     if (deterministicGeneralFormula) {
-      this.logger.debug(`Using deterministic general-rate fallback for ${htsNumber}`);
+      this.logger.debug(
+        `Using deterministic general-rate fallback for ${htsNumber}`,
+      );
       return deterministicGeneralFormula;
     }
 
     const inferredBaseFormula = this.inferBaseFormulaFromAdjusted(htsEntry);
     if (inferredBaseFormula) {
-      this.logger.debug(`Using inferred base formula from adjusted formula for ${htsNumber}`);
+      this.logger.debug(
+        `Using inferred base formula from adjusted formula for ${htsNumber}`,
+      );
       return {
         formula: inferredBaseFormula,
         source: 'general',
@@ -217,12 +234,13 @@ export class RateRetrievalService {
         const rateText = isNonNTR ? htsEntry.otherRate : htsEntry.generalRate;
         if (rateText && /note/i.test(rateText)) {
           const inferredYear = this.extractYear(resolvedVersion);
-          const kbResolution = await this.noteResolutionService.resolveNoteReference(
-            htsNumber,
-            rateText,
-            isNonNTR ? 'other' : 'general',
-            inferredYear,
-          );
+          const kbResolution =
+            await this.noteResolutionService.resolveNoteReference(
+              htsNumber,
+              rateText,
+              isNonNTR ? 'other' : 'general',
+              inferredYear,
+            );
 
           if (kbResolution?.formula) {
             this.logger.debug(`Using knowledgebase formula for ${htsNumber}`);
@@ -315,10 +333,14 @@ export class RateRetrievalService {
   ): Promise<HtsEntity | null> {
     const qb = this.htsRepository
       .createQueryBuilder('hts')
-      .where(`REGEXP_REPLACE(hts.htsNumber, '[^0-9]', '', 'g') = :digits`, { digits });
+      .where(`REGEXP_REPLACE(hts.htsNumber, '[^0-9]', '', 'g') = :digits`, {
+        digits,
+      });
 
     if (version) {
-      qb.andWhere('(hts.version = :version OR hts.sourceVersion = :version)', { version });
+      qb.andWhere('(hts.version = :version OR hts.sourceVersion = :version)', {
+        version,
+      });
     } else {
       qb.andWhere('hts.isActive = true');
     }
@@ -330,7 +352,9 @@ export class RateRetrievalService {
       );
     }
 
-    qb.addOrderBy('hts.isActive', 'DESC').addOrderBy('hts.updatedAt', 'DESC').limit(1);
+    qb.addOrderBy('hts.isActive', 'DESC')
+      .addOrderBy('hts.updatedAt', 'DESC')
+      .limit(1);
 
     if (version) {
       qb.setParameter('version', version);
@@ -340,9 +364,11 @@ export class RateRetrievalService {
   }
 
   private hasRateOrFormulaData(entry: HtsEntity): boolean {
-    const metadata = (entry.metadata as Record<string, any> | null | undefined) || {};
-    const stagedGeneralRate =
-      (metadata?.stagedNormalized?.generalRate || '').toString().trim();
+    const metadata =
+      (entry.metadata as Record<string, any> | null | undefined) || {};
+    const stagedGeneralRate = (metadata?.stagedNormalized?.generalRate || '')
+      .toString()
+      .trim();
 
     return !!(
       (entry.rateFormula || '').trim() ||
@@ -392,7 +418,9 @@ export class RateRetrievalService {
     );
   }
 
-  private normalizeChapter99Heading(value: string | null | undefined): string | null {
+  private normalizeChapter99Heading(
+    value: string | null | undefined,
+  ): string | null {
     if (!value) return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -426,10 +454,18 @@ export class RateRetrievalService {
     if (Number.isNaN(parsed.getTime())) {
       return null;
     }
-    return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+    return new Date(
+      Date.UTC(
+        parsed.getUTCFullYear(),
+        parsed.getUTCMonth(),
+        parsed.getUTCDate(),
+      ),
+    );
   }
 
-  private toComparableRate(value: number | string | null | undefined): number | null {
+  private toComparableRate(
+    value: number | string | null | undefined,
+  ): number | null {
     if (value === null || value === undefined) return null;
     const parsed =
       typeof value === 'number'
@@ -445,21 +481,34 @@ export class RateRetrievalService {
   private isWeightUnit(unitCode: string | null | undefined): boolean {
     if (!unitCode) return false;
     const code = unitCode.trim().toUpperCase();
-    return code === 'KG' || code === 'G' || code === 'GM' || code === 'CGM' || code === 'CKG' || code === 'T';
+    return (
+      code === 'KG' ||
+      code === 'G' ||
+      code === 'GM' ||
+      code === 'CGM' ||
+      code === 'CKG' ||
+      code === 'T'
+    );
   }
 
   private inferBaseFormulaFromAdjusted(entry: HtsEntity): string | null {
     const adjusted = (entry.adjustedFormula || '').trim();
     if (!adjusted) return null;
 
-    const metadata = (entry.metadata as Record<string, any> | null | undefined) || {};
-    const synthesis = (metadata.chapter99Synthesis || {}) as Record<string, any>;
+    const metadata =
+      (entry.metadata as Record<string, any> | null | undefined) || {};
+    const synthesis = (metadata.chapter99Synthesis || {}) as Record<
+      string,
+      any
+    >;
     const adjustmentRate = this.toComparableRate(synthesis.adjustmentRate);
     if (adjustmentRate === null || adjustmentRate <= 0) {
       return null;
     }
 
-    const additive = adjusted.match(/^\((.+)\)\s*\+\s*\(\s*value\s*\*\s*([0-9.]+)\s*\)$/i);
+    const additive = adjusted.match(
+      /^\((.+)\)\s*\+\s*\(\s*value\s*\*\s*([0-9.]+)\s*\)$/i,
+    );
     if (!additive) {
       return null;
     }
@@ -482,7 +531,12 @@ export class RateRetrievalService {
     source: 'general';
     confidence: number;
     formulaType: 'GENERAL';
-    variables: Array<{ name: string; type: string; description?: string; unit?: string }> | null;
+    variables: Array<{
+      name: string;
+      type: string;
+      description?: string;
+      unit?: string;
+    }> | null;
   } | null {
     const candidates = this.collectGeneralRateCandidates(entry);
     for (const candidate of candidates) {
@@ -502,7 +556,8 @@ export class RateRetrievalService {
       return {
         formula: parsed.formula,
         source: 'general',
-        confidence: candidate.source === 'stagedNormalized.generalRate' ? 0.78 : 0.82,
+        confidence:
+          candidate.source === 'stagedNormalized.generalRate' ? 0.78 : 0.82,
         formulaType: 'GENERAL',
         variables: this.buildVariableObjects(parsed.variables),
       };
@@ -511,17 +566,29 @@ export class RateRetrievalService {
     return null;
   }
 
-  private collectGeneralRateCandidates(
-    entry: HtsEntity,
-  ): Array<{ source: 'generalRate' | 'general' | 'stagedNormalized.generalRate'; rateText: string }> {
-    const metadata = (entry.metadata as Record<string, any> | null | undefined) || {};
-    const stagedGeneralRate =
-      (metadata?.stagedNormalized?.generalRate || '').toString().trim();
+  private collectGeneralRateCandidates(entry: HtsEntity): Array<{
+    source: 'generalRate' | 'general' | 'stagedNormalized.generalRate';
+    rateText: string;
+  }> {
+    const metadata =
+      (entry.metadata as Record<string, any> | null | undefined) || {};
+    const stagedGeneralRate = (metadata?.stagedNormalized?.generalRate || '')
+      .toString()
+      .trim();
 
     const candidates = [
-      { source: 'generalRate' as const, rateText: (entry.generalRate || '').toString().trim() },
-      { source: 'general' as const, rateText: (entry.general || '').toString().trim() },
-      { source: 'stagedNormalized.generalRate' as const, rateText: stagedGeneralRate },
+      {
+        source: 'generalRate' as const,
+        rateText: (entry.generalRate || '').toString().trim(),
+      },
+      {
+        source: 'general' as const,
+        rateText: (entry.general || '').toString().trim(),
+      },
+      {
+        source: 'stagedNormalized.generalRate' as const,
+        rateText: stagedGeneralRate,
+      },
     ];
 
     const seen = new Set<string>();
@@ -552,9 +619,12 @@ export class RateRetrievalService {
     return true;
   }
 
-  private buildVariableObjects(
-    variableNames: string[],
-  ): Array<{ name: string; type: string; description?: string; unit?: string }> | null {
+  private buildVariableObjects(variableNames: string[]): Array<{
+    name: string;
+    type: string;
+    description?: string;
+    unit?: string;
+  }> | null {
     if (!Array.isArray(variableNames) || variableNames.length === 0) {
       return null;
     }
@@ -582,7 +652,12 @@ export class RateRetrievalService {
   ): Promise<{
     formula: string;
     confidence: number;
-    variables: Array<{ name: string; type: string; description?: string; unit?: string }>;
+    variables: Array<{
+      name: string;
+      type: string;
+      description?: string;
+      unit?: string;
+    }>;
   } | null> {
     const parsedEntryDate = this.parseDateOnly(entryDate);
     if (!parsedEntryDate || parsedEntryDate > this.historyFallbackCutoff) {
@@ -599,8 +674,12 @@ export class RateRetrievalService {
       .createQueryBuilder('h')
       .where('h.hts8 = :hts8', { hts8 })
       .andWhere('h.sourceYear = 2025')
-      .andWhere('h.beginEffectDate <= :entryDate', { entryDate: parsedEntryDate.toISOString().slice(0, 10) })
-      .andWhere('h.endEffectiveDate >= :entryDate', { entryDate: parsedEntryDate.toISOString().slice(0, 10) })
+      .andWhere('h.beginEffectDate <= :entryDate', {
+        entryDate: parsedEntryDate.toISOString().slice(0, 10),
+      })
+      .andWhere('h.endEffectiveDate >= :entryDate', {
+        entryDate: parsedEntryDate.toISOString().slice(0, 10),
+      })
       .orderBy('h.beginEffectDate', 'DESC')
       .limit(1)
       .getOne();
@@ -621,22 +700,27 @@ export class RateRetrievalService {
     }
 
     if (specificRate !== null && specificRate !== 0) {
-      const variable = this.isWeightUnit(row.quantity1Code) ? 'weight' : 'quantity';
+      const variable = this.isWeightUnit(row.quantity1Code)
+        ? 'weight'
+        : 'quantity';
       components.push(`${variable} * ${specificRate}`);
       variableNames.add(variable);
     }
 
     if (otherRate !== null && otherRate !== 0) {
-      const variable = this.isWeightUnit(row.quantity2Code || row.quantity1Code) ? 'weight' : 'quantity';
+      const variable = this.isWeightUnit(row.quantity2Code || row.quantity1Code)
+        ? 'weight'
+        : 'quantity';
       components.push(`${variable} * ${otherRate}`);
       variableNames.add(variable);
     }
 
     if (components.length === 0) {
-      const parsedFromText = this.formulaGenerationService.generateFormulaByPattern(
-        row.mfnTextRate || '',
-        row.quantity1Code || undefined,
-      );
+      const parsedFromText =
+        this.formulaGenerationService.generateFormulaByPattern(
+          row.mfnTextRate || '',
+          row.quantity1Code || undefined,
+        );
       if (!parsedFromText?.formula) {
         return null;
       }

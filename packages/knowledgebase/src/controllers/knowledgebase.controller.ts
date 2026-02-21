@@ -5,7 +5,11 @@ import {
   NoteExtractionService,
   NoteResolutionService,
 } from '../services';
-import { UploadDocumentDto, SearchNotesDto, ResolveNoteDto } from '../dto';
+import {
+  KnowledgebaseUploadDocumentDto,
+  SearchNotesDto,
+  ResolveNoteDto,
+} from '../dto';
 
 @Controller('knowledgebase')
 export class KnowledgebaseController {
@@ -17,7 +21,7 @@ export class KnowledgebaseController {
   ) {}
 
   @Post('documents/download')
-  async downloadDocument(@Body() uploadDto: UploadDocumentDto) {
+  async downloadDocument(@Body() uploadDto: KnowledgebaseUploadDocumentDto) {
     const document = await this.documentService.downloadDocument(
       uploadDto.year,
       uploadDto.chapter,

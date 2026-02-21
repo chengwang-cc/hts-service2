@@ -3,7 +3,12 @@
  * Verifies that the authenticated user has admin role
  */
 
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
@@ -21,7 +26,7 @@ export class AdminGuard implements CanActivate {
         role.name === 'admin' ||
         role.name === 'superadmin' ||
         role.name === 'Platform Administrator' ||
-        role.permissions?.includes('admin:*')
+        role.permissions?.includes('admin:*'),
     );
 
     if (!hasAdminRole) {

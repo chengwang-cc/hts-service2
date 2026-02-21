@@ -27,7 +27,8 @@ export class ApiKeyGuard implements CanActivate {
     const response = context.switchToHttp().getResponse();
 
     // Extract API key from header
-    const apiKeyHeader = request.headers['x-api-key'] || request.headers['authorization'];
+    const apiKeyHeader =
+      request.headers['x-api-key'] || request.headers['authorization'];
 
     if (!apiKeyHeader) {
       throw new UnauthorizedException('API key is required');
@@ -64,24 +65,44 @@ export class ApiKeyGuard implements CanActivate {
       // Check IP whitelist
       if (validatedKey.ipWhitelist && validatedKey.ipWhitelist.length > 0) {
         const clientIp = this.getClientIp(request);
-        const isAllowed = this.checkIpWhitelist(clientIp, validatedKey.ipWhitelist);
+        const isAllowed = this.checkIpWhitelist(
+          clientIp,
+          validatedKey.ipWhitelist,
+        );
 
         if (!isAllowed) {
-          throw new ForbiddenException(`IP address ${clientIp} is not whitelisted`);
+          throw new ForbiddenException(
+            `IP address ${clientIp} is not whitelisted`,
+          );
         }
       }
 
       // Check rate limits
-      const minuteLimit = await this.apiKeyService.checkRateLimit(validatedKey, 'minute');
-      const dayLimit = await this.apiKeyService.checkRateLimit(validatedKey, 'day');
+      const minuteLimit = await this.apiKeyService.checkRateLimit(
+        validatedKey,
+        'minute',
+      );
+      const dayLimit = await this.apiKeyService.checkRateLimit(
+        validatedKey,
+        'day',
+      );
 
       // Set rate limit headers
-      response.setHeader('X-RateLimit-Limit-Minute', validatedKey.rateLimitPerMinute);
+      response.setHeader(
+        'X-RateLimit-Limit-Minute',
+        validatedKey.rateLimitPerMinute,
+      );
       response.setHeader('X-RateLimit-Remaining-Minute', minuteLimit.remaining);
-      response.setHeader('X-RateLimit-Reset-Minute', minuteLimit.resetAt.toISOString());
+      response.setHeader(
+        'X-RateLimit-Reset-Minute',
+        minuteLimit.resetAt.toISOString(),
+      );
       response.setHeader('X-RateLimit-Limit-Day', validatedKey.rateLimitPerDay);
       response.setHeader('X-RateLimit-Remaining-Day', dayLimit.remaining);
-      response.setHeader('X-RateLimit-Reset-Day', dayLimit.resetAt.toISOString());
+      response.setHeader(
+        'X-RateLimit-Reset-Day',
+        dayLimit.resetAt.toISOString(),
+      );
 
       // Check if rate limit exceeded
       if (!minuteLimit.allowed) {
@@ -115,7 +136,13 @@ export class ApiKeyGuard implements CanActivate {
       const requestTimestamp = Date.now();
       response.on('finish', () => {
         const responseTimeMs = Date.now() - requestTimestamp;
-        this.trackRequest(request, response, validatedKey, responseTimeMs, requestTimestamp);
+        this.trackRequest(
+          request,
+          response,
+          validatedKey,
+          responseTimeMs,
+          requestTimestamp,
+        );
       });
 
       return true;
@@ -200,7 +227,8 @@ export class ApiKeyGuard implements CanActivate {
         responseTimeMs,
         clientIp: this.getClientIp(request),
         userAgent: request.headers['user-agent'],
-        errorMessage: response.statusCode >= 400 ? response.statusMessage : undefined,
+        errorMessage:
+          response.statusCode >= 400 ? response.statusMessage : undefined,
         timestamp: new Date(requestTimestamp),
       });
     } catch (error) {

@@ -3,7 +3,14 @@
  * Data transfer objects for HTS import management
  */
 
-import { IsString, IsOptional, IsNumber, IsIn, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -13,7 +20,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  */
 export class TriggerImportDto {
   @ApiPropertyOptional({
-    description: 'Set to "latest" to auto-detect and import the latest available revision',
+    description:
+      'Set to "latest" to auto-detect and import the latest available revision',
     example: 'latest',
   })
   @IsOptional()
@@ -86,10 +94,28 @@ export class ListImportsDto {
 
   @ApiPropertyOptional({
     description: 'Filter by import status',
-    enum: ['PENDING', 'IN_PROGRESS', 'STAGED_READY', 'REQUIRES_REVIEW', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REJECTED'],
+    enum: [
+      'PENDING',
+      'IN_PROGRESS',
+      'STAGED_READY',
+      'REQUIRES_REVIEW',
+      'COMPLETED',
+      'FAILED',
+      'ROLLED_BACK',
+      'REJECTED',
+    ],
   })
   @IsOptional()
-  @IsIn(['PENDING', 'IN_PROGRESS', 'STAGED_READY', 'REQUIRES_REVIEW', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'REJECTED'])
+  @IsIn([
+    'PENDING',
+    'IN_PROGRESS',
+    'STAGED_READY',
+    'REQUIRES_REVIEW',
+    'COMPLETED',
+    'FAILED',
+    'ROLLED_BACK',
+    'REJECTED',
+  ])
   status?: string;
 
   @ApiPropertyOptional({

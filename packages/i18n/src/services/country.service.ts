@@ -18,7 +18,10 @@ export class CountryService {
     private readonly countryRepo: Repository<CountryConfigEntity>,
   ) {}
 
-  private readonly builtInCountries: Record<string, Partial<CountryConfigEntity>> = {
+  private readonly builtInCountries: Record<
+    string,
+    Partial<CountryConfigEntity>
+  > = {
     US: {
       countryCode: 'US',
       name: 'United States',
@@ -147,7 +150,9 @@ export class CountryService {
     },
   };
 
-  async getCountryConfig(countryCode: string): Promise<CountryConfigEntity | null> {
+  async getCountryConfig(
+    countryCode: string,
+  ): Promise<CountryConfigEntity | null> {
     // Try to get from database first
     let config = await this.countryRepo.findOne({
       where: { countryCode: countryCode.toUpperCase(), isActive: true },
@@ -213,7 +218,10 @@ export class CountryService {
       config.localeSettings.numberFormat;
 
     const parts = amount.toFixed(2).split('.');
-    const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandsSeparator);
+    const integerPart = parts[0].replace(
+      /\B(?=(\d{3})+(?!\d))/g,
+      thousandsSeparator,
+    );
     const decimalPart = parts[1];
 
     return `${currencySymbol}${integerPart}${decimalSeparator}${decimalPart}`;

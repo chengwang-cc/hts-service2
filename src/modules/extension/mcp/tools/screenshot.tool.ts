@@ -65,7 +65,8 @@ export function createScreenshotTool(webScrapingService: WebScrapingService) {
           success: false,
           url: params.url,
           error: error.message,
-          suggestion: 'Screenshot capture failed. The site may be inaccessible or timing out.',
+          suggestion:
+            'Screenshot capture failed. The site may be inaccessible or timing out.',
         };
       }
     },

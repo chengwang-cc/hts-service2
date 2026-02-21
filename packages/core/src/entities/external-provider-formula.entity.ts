@@ -12,13 +12,22 @@ import {
  * Stores versioned formula snapshots retrieved from external benchmark providers.
  */
 @Entity('external_provider_formulas')
-@Index('IDX_ext_provider_formula_lookup', ['provider', 'htsNumber', 'countryCode', 'entryDate'])
+@Index('IDX_ext_provider_formula_lookup', [
+  'provider',
+  'htsNumber',
+  'countryCode',
+  'entryDate',
+])
 @Index('IDX_ext_provider_formula_context', ['provider', 'contextHash'])
 @Index('IDX_ext_provider_formula_review_status', ['reviewStatus'])
-@Index('UQ_ext_provider_formula_latest_context', ['provider', 'contextHash', 'isLatest'], {
-  unique: true,
-  where: '"is_latest" = true',
-})
+@Index(
+  'UQ_ext_provider_formula_latest_context',
+  ['provider', 'contextHash', 'isLatest'],
+  {
+    unique: true,
+    where: '"is_latest" = true',
+  },
+)
 export class ExternalProviderFormulaEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -59,7 +68,7 @@ export class ExternalProviderFormulaEntity {
   @Column('varchar', { length: 16, default: 'NETWORK' })
   extractionMethod: string;
 
-  @Column('decimal', { precision: 5, scale: 4, default: () => '0' })
+  @Column('decimal', { precision: 5, scale: 4, default: 0 })
   extractionConfidence: number;
 
   @Column('varchar', { length: 32, default: 'v1' })

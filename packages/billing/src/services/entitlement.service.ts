@@ -44,7 +44,9 @@ export class EntitlementService {
       return {
         allowed: featureConfig,
         remaining: null,
-        message: featureConfig ? undefined : `Feature ${feature} not available in ${plan} plan`,
+        message: featureConfig
+          ? undefined
+          : `Feature ${feature} not available in ${plan} plan`,
       };
     }
 
@@ -88,7 +90,9 @@ export class EntitlementService {
         remaining: Math.max(0, quota - usage),
         usage,
         quota,
-        message: allowed ? undefined : `Quota exceeded for ${feature}. Current: ${usage}, Limit: ${quota}`,
+        message: allowed
+          ? undefined
+          : `Quota exceeded for ${feature}. Current: ${usage}, Limit: ${quota}`,
       };
     }
 
@@ -115,11 +119,17 @@ export class EntitlementService {
     currentUsage: Record<string, number>,
     feature: string,
   ): Promise<void> {
-    const result = await this.checkEntitlement(plan, currentUsage, feature, 'check');
+    const result = await this.checkEntitlement(
+      plan,
+      currentUsage,
+      feature,
+      'check',
+    );
 
     if (!result.allowed) {
       throw new ForbiddenException(
-        result.message || `Access denied: ${feature} not available in your plan`,
+        result.message ||
+          `Access denied: ${feature} not available in your plan`,
       );
     }
   }
@@ -226,7 +236,8 @@ export class EntitlementService {
     // Check classifications
     if (
       features.classifications.monthly !== -1 &&
-      currentUsage['classifications.monthly'] >= features.classifications.monthly * 0.9
+      currentUsage['classifications.monthly'] >=
+        features.classifications.monthly * 0.9
     ) {
       reasons.push('Approaching classification limit');
     }
@@ -234,7 +245,8 @@ export class EntitlementService {
     // Check calculations
     if (
       features.calculations.monthly !== -1 &&
-      currentUsage['calculations.monthly'] >= features.calculations.monthly * 0.9
+      currentUsage['calculations.monthly'] >=
+        features.calculations.monthly * 0.9
     ) {
       reasons.push('Approaching calculation limit');
     }
@@ -242,7 +254,8 @@ export class EntitlementService {
     // Check API requests
     if (
       features.api.requestsPerMonth !== -1 &&
-      currentUsage['api.requestsPerMonth'] >= features.api.requestsPerMonth * 0.9
+      currentUsage['api.requestsPerMonth'] >=
+        features.api.requestsPerMonth * 0.9
     ) {
       reasons.push('Approaching API request limit');
     }

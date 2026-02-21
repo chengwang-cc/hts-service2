@@ -24,7 +24,14 @@ export class ExportTemplateEntity {
   description: string | null;
 
   @Column('varchar', { name: 'template_type', length: 50 })
-  templateType: 'shopify' | 'broker' | 'customs' | 'audit-pack' | 'invoice' | 'packing-list' | 'custom';
+  templateType:
+    | 'shopify'
+    | 'broker'
+    | 'customs'
+    | 'audit-pack'
+    | 'invoice'
+    | 'packing-list'
+    | 'custom';
 
   @Column('jsonb')
   fieldMapping: {

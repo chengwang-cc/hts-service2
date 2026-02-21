@@ -11,6 +11,7 @@
     "dev": "pnpm --filter hts-service dev",
     "format": "prettier --write \"**/*.ts\"",
     "start": "nest start",
+    "prestart:dev": "./scripts/kill-port.sh 3100",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
@@ -46,7 +47,8 @@
     "notes:audit:fix": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes",
     "notes:audit:fix-all": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes --dedupe-notes",
     "notes:backfill": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts",
-    "notes:backfill:dry": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts --dry-run"
+    "notes:backfill:dry": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts --dry-run",
+    "kill-port": "./scripts/kill-port.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.990.0",

@@ -144,7 +144,8 @@ export class UpsertExternalProviderFormulaDto {
   observedAt?: string;
 
   @ApiPropertyOptional({
-    description: 'When true, existing latest snapshot for same context is superseded if changed',
+    description:
+      'When true, existing latest snapshot for same context is superseded if changed',
     default: true,
   })
   @IsOptional()
@@ -159,7 +160,10 @@ export class ListExternalProviderFormulasDto {
   @IsString()
   provider?: string;
 
-  @ApiPropertyOptional({ description: 'HTS number filter', example: '4820.10.20.10' })
+  @ApiPropertyOptional({
+    description: 'HTS number filter',
+    example: '4820.10.20.10',
+  })
   @IsOptional()
   @IsString()
   htsNumber?: string;
@@ -174,12 +178,18 @@ export class ListExternalProviderFormulasDto {
   @IsString()
   modeOfTransport?: string;
 
-  @ApiPropertyOptional({ description: 'Entry date filter', example: '2026-02-15' })
+  @ApiPropertyOptional({
+    description: 'Entry date filter',
+    example: '2026-02-15',
+  })
   @IsOptional()
   @IsDateString()
   entryDate?: string;
 
-  @ApiPropertyOptional({ description: 'Show latest records only', default: true })
+  @ApiPropertyOptional({
+    description: 'Show latest records only',
+    default: true,
+  })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
@@ -249,25 +259,36 @@ export class ValidateExternalProviderFormulaDto {
   @IsDateString()
   entryDate: string;
 
-  @ApiPropertyOptional({ description: 'Mode of transport', example: 'OCEAN', default: 'OCEAN' })
+  @ApiPropertyOptional({
+    description: 'Mode of transport',
+    example: 'OCEAN',
+    default: 'OCEAN',
+  })
   @IsOptional()
   @IsString()
   modeOfTransport?: string;
 
-  @ApiPropertyOptional({ description: 'Shipment customs value', example: 10000 })
+  @ApiPropertyOptional({
+    description: 'Shipment customs value',
+    example: 10000,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   value?: number;
 
-  @ApiPropertyOptional({ description: 'Product name hint for provider UI', example: 'diaries-and-address-books' })
+  @ApiPropertyOptional({
+    description: 'Product name hint for provider UI',
+    example: 'diaries-and-address-books',
+  })
   @IsOptional()
   @IsString()
   productName?: string;
 
   @ApiPropertyOptional({
-    description: 'Provider context payload (chapter99 selections, SPI selections, loading date, etc.)',
+    description:
+      'Provider context payload (chapter99 selections, SPI selections, loading date, etc.)',
     example: {
       chapter99Selections: { '9903.88.15': true },
       spiSelections: {},
@@ -279,7 +300,8 @@ export class ValidateExternalProviderFormulaDto {
   inputContext?: Record<string, any>;
 
   @ApiPropertyOptional({
-    description: 'When true, use mock provider extraction instead of live browser scraping',
+    description:
+      'When true, use mock provider extraction instead of live browser scraping',
     default: false,
   })
   @IsOptional()
@@ -367,12 +389,19 @@ export class ManualReviewExternalProviderFormulaDto {
   @IsDateString()
   entryDate: string;
 
-  @ApiPropertyOptional({ description: 'Mode of transport', example: 'OCEAN', default: 'OCEAN' })
+  @ApiPropertyOptional({
+    description: 'Mode of transport',
+    example: 'OCEAN',
+    default: 'OCEAN',
+  })
   @IsOptional()
   @IsString()
   modeOfTransport?: string;
 
-  @ApiPropertyOptional({ description: 'Provider context payload', example: { value: 10000 } })
+  @ApiPropertyOptional({
+    description: 'Provider context payload',
+    example: { value: 10000 },
+  })
   @IsOptional()
   @IsObject()
   inputContext?: Record<string, any>;
@@ -385,14 +414,18 @@ export class ManualReviewExternalProviderFormulaDto {
   manualFormulaRaw: string;
 
   @ApiPropertyOptional({
-    description: 'Optional normalized formula; if omitted, service normalizes manualFormulaRaw',
+    description:
+      'Optional normalized formula; if omitted, service normalizes manualFormulaRaw',
     example: 'THE DUTY PROVIDED IN THE APPLICABLE SUBHEADING + 25%',
   })
   @IsOptional()
   @IsString()
   manualFormulaNormalized?: string;
 
-  @ApiProperty({ description: 'Provider source URL', example: 'https://tariffs.flexport.com/?...' })
+  @ApiProperty({
+    description: 'Provider source URL',
+    example: 'https://tariffs.flexport.com/?...',
+  })
   @IsString()
   sourceUrl: string;
 
@@ -409,7 +442,8 @@ export class ManualReviewExternalProviderFormulaDto {
   evidence?: Record<string, any>;
 
   @ApiPropertyOptional({
-    description: 'When true, service automatically runs discrepancy analysis after compare',
+    description:
+      'When true, service automatically runs discrepancy analysis after compare',
     default: true,
   })
   @IsOptional()
@@ -442,20 +476,27 @@ export class PublishExternalProviderFormulaDto {
   formulaType?: string;
 
   @ApiPropertyOptional({
-    description: 'Target version for override record. Defaults to active HTS sourceVersion.',
+    description:
+      'Target version for override record. Defaults to active HTS sourceVersion.',
     example: '2026_revision_1',
   })
   @IsOptional()
   @IsString()
   updateVersion?: string;
 
-  @ApiPropertyOptional({ description: 'Carry this override forward to future versions', default: true })
+  @ApiPropertyOptional({
+    description: 'Carry this override forward to future versions',
+    default: true,
+  })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   carryover?: boolean = true;
 
-  @ApiPropertyOptional({ description: 'Override extra taxes when this formula is used', default: false })
+  @ApiPropertyOptional({
+    description: 'Override extra taxes when this formula is used',
+    default: false,
+  })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()

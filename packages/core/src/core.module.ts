@@ -78,9 +78,9 @@ export class CoreModule {
   /**
    * Configure Core Module for use in other modules (without root config)
    * Use this when the root module has already been configured
-   * 
+   *
    * This is a lightweight import that doesn't add any providers.
-   * All repository-dependent services should be provided in the 
+   * All repository-dependent services should be provided in the
    * wrapper modules where TypeORM entities are registered.
    */
   static forFeature(): DynamicModule {

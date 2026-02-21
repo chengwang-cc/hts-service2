@@ -263,10 +263,10 @@ export const PLANS: Record<string, Plan> = {
 
 // Overage rates (per unit over quota)
 export const OVERAGE_RATES: Record<string, number> = {
-  'classifications.monthly': 0.50, // $0.50 per classification
-  'calculations.monthly': 0.10,    // $0.10 per calculation
+  'classifications.monthly': 0.5, // $0.50 per classification
+  'calculations.monthly': 0.1, // $0.10 per calculation
   'widget.calculationsPerMonth': 0.15, // $0.15 per widget calculation
-  'api.requestsPerMonth': 0.001,  // $0.001 per API request
+  'api.requestsPerMonth': 0.001, // $0.001 per API request
 };
 
 // Helper function to get plan by ID

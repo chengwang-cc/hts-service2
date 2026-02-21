@@ -15,10 +15,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import {
-  ApiPermissions,
-  CurrentApiKey,
-} from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { SearchService } from '@hts/lookup';
 import { DocumentService } from '@hts/knowledgebase';
@@ -44,7 +41,8 @@ export class KnowledgebasePublicController {
   @Post('query')
   @ApiOperation({
     summary: 'Query the HTS knowledgebase',
-    description: 'Ask questions about HTS codes, tariffs, and trade regulations using natural language.',
+    description:
+      'Ask questions about HTS codes, tariffs, and trade regulations using natural language.',
   })
   @ApiBody({
     description: 'Query parameters',
@@ -55,7 +53,8 @@ export class KnowledgebasePublicController {
         question: {
           type: 'string',
           description: 'Natural language question',
-          example: 'What is the duty rate for importing cotton t-shirts from China?',
+          example:
+            'What is the duty rate for importing cotton t-shirts from China?',
         },
         context: {
           type: 'object',
@@ -119,7 +118,8 @@ export class KnowledgebasePublicController {
   @Post('recommend')
   @ApiOperation({
     summary: 'Get HTS code recommendations',
-    description: 'Get AI-powered HTS code recommendations for a product description.',
+    description:
+      'Get AI-powered HTS code recommendations for a product description.',
   })
   @ApiBody({
     description: 'Product description and options',
@@ -130,7 +130,8 @@ export class KnowledgebasePublicController {
         productDescription: {
           type: 'string',
           description: 'Detailed product description',
-          example: 'Cotton t-shirts with printed graphics, crew neck, short sleeves',
+          example:
+            'Cotton t-shirts with printed graphics, crew neck, short sleeves',
         },
         limit: {
           type: 'number',

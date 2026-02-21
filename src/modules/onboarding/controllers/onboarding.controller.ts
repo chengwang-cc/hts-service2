@@ -78,11 +78,7 @@ export class OnboardingController {
     @CurrentUser() user: any,
     @Body() dto: UpdateOnboardingStepDto,
   ) {
-    return this.onboardingService.updateStep(
-      user.organizationId,
-      user.id,
-      dto,
-    );
+    return this.onboardingService.updateStep(user.organizationId, user.id, dto);
   }
 
   /**

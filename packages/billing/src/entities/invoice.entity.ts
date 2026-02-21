@@ -56,7 +56,11 @@ export class InvoiceEntity {
   @Column('timestamp', { name: 'paid_at', nullable: true })
   paidAt: Date | null;
 
-  @Column('varchar', { name: 'hosted_invoice_url', length: 500, nullable: true })
+  @Column('varchar', {
+    name: 'hosted_invoice_url',
+    length: 500,
+    nullable: true,
+  })
   hostedInvoiceUrl: string | null;
 
   @Column('varchar', { name: 'invoice_pdf', length: 500, nullable: true })

@@ -14,7 +14,10 @@ export type ReciprocalTariff2026SeedRow = {
   priority: number;
 };
 
-const reciprocalFrameworkCountryRates: Array<{ countryCode: string; ratePercent: number }> = [
+const reciprocalFrameworkCountryRates: Array<{
+  countryCode: string;
+  ratePercent: number;
+}> = [
   { countryCode: 'CN', ratePercent: 54 },
   { countryCode: 'EU', ratePercent: 20 },
   { countryCode: 'VN', ratePercent: 46 },
@@ -57,8 +60,8 @@ const reciprocalFrameworkCountryRates: Array<{ countryCode: string; ratePercent:
   { countryCode: 'TD', ratePercent: 13 },
 ];
 
-const frameworkSeedRows: ReciprocalTariff2026SeedRow[] = reciprocalFrameworkCountryRates.map(
-  ({ countryCode, ratePercent }) => ({
+const frameworkSeedRows: ReciprocalTariff2026SeedRow[] =
+  reciprocalFrameworkCountryRates.map(({ countryCode, ratePercent }) => ({
     taxCode: `RECIP_FRAMEWORK_${countryCode}`,
     taxName: `Reciprocal Tariff Framework (${countryCode})`,
     description:
@@ -78,8 +81,7 @@ const frameworkSeedRows: ReciprocalTariff2026SeedRow[] = reciprocalFrameworkCoun
       frameworkRateOnly: true,
     },
     priority: 8,
-  }),
-);
+  }));
 
 export const reciprocalTariffs2026Seed: ReciprocalTariff2026SeedRow[] = [
   {
@@ -113,7 +115,8 @@ export const reciprocalTariffs2026Seed: ReciprocalTariff2026SeedRow[] = [
     rateFormula: '0',
     effectiveDate: '2025-04-05',
     expirationDate: null,
-    legalReference: 'CBP reciprocal tariff exception references for heading 9903.01.26',
+    legalReference:
+      'CBP reciprocal tariff exception references for heading 9903.01.26',
     notes:
       'Conditional policy row used to suppress baseline reciprocal tariffs when exception heading 9903.01.26 is selected.',
     conditions: {
@@ -133,7 +136,8 @@ export const reciprocalTariffs2026Seed: ReciprocalTariff2026SeedRow[] = [
     rateFormula: '0',
     effectiveDate: '2025-04-05',
     expirationDate: null,
-    legalReference: 'CBP reciprocal tariff exception references for heading 9903.01.27',
+    legalReference:
+      'CBP reciprocal tariff exception references for heading 9903.01.27',
     notes:
       'Conditional policy row used to suppress baseline reciprocal tariffs when exception heading 9903.01.27 is selected.',
     conditions: {

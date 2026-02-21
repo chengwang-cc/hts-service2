@@ -145,12 +145,17 @@ export class UrlClassifierService {
       }
 
       // No image found - extract product description for text-based classification
-      this.logger.log(`No image found, extracting product description from ${url}`);
+      this.logger.log(
+        `No image found, extracting product description from ${url}`,
+      );
 
       // Check if this is actually a product page
       const isLikelyProductPage = this.detectProductPage(html, ogData);
 
-      const productDescription = await this.extractProductDescription(html, ogData);
+      const productDescription = await this.extractProductDescription(
+        html,
+        ogData,
+      );
 
       if (productDescription) {
         return {
@@ -167,7 +172,8 @@ export class UrlClassifierService {
       if (!isLikelyProductPage) {
         return {
           type: UrlType.INVALID,
-          error: 'This does not appear to be a product page. Please use a direct product URL.',
+          error:
+            'This does not appear to be a product page. Please use a direct product URL.',
         };
       }
 
@@ -176,7 +182,10 @@ export class UrlClassifierService {
         error: 'No image or product description found on this webpage',
       };
     } catch (error) {
-      this.logger.error(`URL classification failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `URL classification failed: ${error.message}`,
+        error.stack,
+      );
 
       // Return user-friendly error messages
       if (error.code === 'ENOTFOUND') {
@@ -274,12 +283,12 @@ export class UrlClassifierService {
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept':
+            Accept:
               'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
+            DNT: '1',
+            Connection: 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
           },
         }),
@@ -510,7 +519,9 @@ export class UrlClassifierService {
         return null;
       }
 
-      this.logger.log(`Extracted ${combinedText.length} chars of focused product text, sending to OpenAI...`);
+      this.logger.log(
+        `Extracted ${combinedText.length} chars of focused product text, sending to OpenAI...`,
+      );
 
       // Use OpenAI to extract product information
       const prompt = `Extract product information from this webpage text. Return a concise product description (2-3 sentences) suitable for customs classification.
@@ -522,7 +533,8 @@ Respond with ONLY the product description, nothing else.`;
 
       const response = await this.openAiService.response(prompt, {
         model: 'gpt-5-nano', // Ultra-fast and cheap model optimized for extraction
-        instructions: 'You are a product information extractor. Extract only the key product details in 2-3 sentences.',
+        instructions:
+          'You are a product information extractor. Extract only the key product details in 2-3 sentences.',
         store: false,
         // Note: temperature not set - gpt-5-nano uses default value only
       });
@@ -530,14 +542,18 @@ Respond with ONLY the product description, nothing else.`;
       const description = (response as any).output_text?.trim();
 
       if (description && description.length > 30) {
-        this.logger.log(`AI extracted description: ${description.substring(0, 100)}...`);
+        this.logger.log(
+          `AI extracted description: ${description.substring(0, 100)}...`,
+        );
         return description;
       }
 
       this.logger.warn('AI did not return a valid description');
       return null;
     } catch (error) {
-      this.logger.error(`Failed to extract description with AI: ${error.message}`);
+      this.logger.error(
+        `Failed to extract description with AI: ${error.message}`,
+      );
       return null;
     }
   }

@@ -10,8 +10,17 @@ export class CompletenessCheckRequestDto {
   resourceType: 'classification' | 'calculation' | 'product';
 
   @IsArray()
-  @IsEnum(['classification', 'valuation', 'origin', 'weight', 'documentation'], { each: true })
-  checkTypes: ('classification' | 'valuation' | 'origin' | 'weight' | 'documentation')[];
+  @IsEnum(
+    ['classification', 'valuation', 'origin', 'weight', 'documentation'],
+    { each: true },
+  )
+  checkTypes: (
+    | 'classification'
+    | 'valuation'
+    | 'origin'
+    | 'weight'
+    | 'documentation'
+  )[];
 }
 
 export class CompletenessIssue {

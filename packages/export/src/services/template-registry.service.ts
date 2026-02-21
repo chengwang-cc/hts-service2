@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ExportTemplateEntity } from '../entities';
-import { CreateTemplateDto, UpdateTemplateDto, TemplateResponseDto } from '../dto';
+import {
+  CreateTemplateDto,
+  UpdateTemplateDto,
+  TemplateResponseDto,
+} from '../dto';
 
 @Injectable()
 export class TemplateRegistryService {
@@ -44,7 +48,10 @@ export class TemplateRegistryService {
         isSystem: true,
         isActive: true,
         fieldMapping: {
-          'Product Title': { sourceField: 'productDescription', required: true },
+          'Product Title': {
+            sourceField: 'productDescription',
+            required: true,
+          },
           'HS Code': { sourceField: 'confirmedHtsCode', required: true },
           'Country of Origin': { sourceField: 'originCountry', required: true },
           'Harmonized Code': {
@@ -70,9 +77,9 @@ export class TemplateRegistryService {
         isActive: true,
         fieldMapping: {
           'HTS Number': { sourceField: 'htsCode', required: true },
-          'Description': { sourceField: 'productDescription', required: true },
-          'Quantity': { sourceField: 'quantity', required: true },
-          'Value': { sourceField: 'declaredValue', required: true },
+          Description: { sourceField: 'productDescription', required: true },
+          Quantity: { sourceField: 'quantity', required: true },
+          Value: { sourceField: 'declaredValue', required: true },
           'Country of Origin': { sourceField: 'originCountry', required: true },
           'Duty Rate': { sourceField: 'results.effectiveRate', required: true },
           'Duty Amount': { sourceField: 'results.totalDuty', required: true },
@@ -93,10 +100,16 @@ export class TemplateRegistryService {
         isActive: true,
         fieldMapping: {
           'Classification Date': { sourceField: 'confirmedAt', required: true },
-          'Product Description': { sourceField: 'productDescription', required: true },
+          'Product Description': {
+            sourceField: 'productDescription',
+            required: true,
+          },
           'Suggested HTS': { sourceField: 'suggestedHtsCode', required: false },
           'Confirmed HTS': { sourceField: 'confirmedHtsCode', required: true },
-          'Confidence Score': { sourceField: 'confidenceScore', required: false },
+          'Confidence Score': {
+            sourceField: 'confidenceScore',
+            required: false,
+          },
           'Confirmed By': { sourceField: 'confirmedBy.email', required: true },
           'AI Reasoning': { sourceField: 'aiReasoning', required: false },
           'Tariff Version': { sourceField: 'tariffVersion', required: true },
@@ -160,7 +173,7 @@ export class TemplateRegistryService {
       .addOrderBy('template.name', 'ASC');
 
     const templates = await query.getMany();
-    return templates.map(t => this.toResponseDto(t));
+    return templates.map((t) => this.toResponseDto(t));
   }
 
   /**
@@ -198,7 +211,10 @@ export class TemplateRegistryService {
   /**
    * Delete template
    */
-  async deleteTemplate(templateId: string, organizationId: string): Promise<void> {
+  async deleteTemplate(
+    templateId: string,
+    organizationId: string,
+  ): Promise<void> {
     const template = await this.templateRepo.findOne({
       where: { id: templateId, organizationId },
     });

@@ -23,6 +23,8 @@ import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
+import { DataSource } from 'typeorm/data-source/index.js';
+import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes.js';
 
 @Module({
   imports: [
@@ -33,25 +35,52 @@ import { TestModule } from './modules/test/test.module';
     }),
 
     // Database configuration
-    TypeOrmModule.forRoot({
-      //@ts-ignore
-      type: process.env.DB_PROVIDER ?? 'postgres',
-      host: process.env.DB_HOST ?? 'localhost',
-      port: parseInt(process.env.DB_PORT ?? '5432'),
-      username: process.env.DB_USERNAME ?? 'postgres',
-      password: process.env.DB_PASSWORD ?? '',
-      namingStrategy: new CustomNamingStrategy(),
-      autoLoadEntities: true,
-      database: process.env.DB_DATABASE ?? 'hts',
-      synchronize: (process.env.DB_SYNCHRONIZE ?? 'false') === 'true', // Default to false
-      migrations: [__dirname + '/migrations/**/*.js'], // Path to migration files
-      migrationsTableName: 'typeorm_migrations', // Table to track migrations
-      ssl:
-        process.env.NODE_ENV === 'development'
-          ? false // Disable SSL in development
-          : { rejectUnauthorized: false },
-      logging: (process.env.DB_LOGGING ?? 'false') === 'true',
-    }),
+    TypeOrmModule.forRootAsync({
+      useFactory: async () => ({
+        type: (process.env?.DB_PROVIDER as any) ?? 'postgres',
+        host: process.env?.DB_HOST ?? 'localhost',
+        port: parseInt(process.env?.DB_PORT ?? '5432'),
+        username: process.env?.DB_USERNAME ?? 'postgres',
+        password: process.env?.DB_PASSWORD ?? '',
+        database: process.env?.DB_DATABASE ?? 'hts',
+        namingStrategy: new CustomNamingStrategy(),
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        synchronize: false,
+        migrations: [__dirname + '/db/migrations/**/*{.ts,.js}'],
+        migrationsTableName: 'typeorm_migrations',
+        ssl:
+          process.env?.NODE_ENV === 'development'
+            ? false
+              :false,
+            //: { rejectUnauthorized: false },
+        logging: (process.env?.DB_LOGGING ?? 'false') === 'true',
+      }),
+      dataSourceFactory: async (options: any) => {
+        const dataSource = new DataSource(options);
+
+        // Push vector into length column type for PostgreSQL vector extension
+        dataSource.driver.supportedDataTypes.push(
+          'vector' as WithLengthColumnType,
+        );
+        dataSource.driver.withLengthColumnTypes.push(
+          'vector' as WithLengthColumnType,
+        );
+
+        dataSource.driver.supportedDataTypes.push(
+          'tsvector' as WithLengthColumnType,
+        );
+        dataSource.driver.withLengthColumnTypes.push(
+          'tsvector' as WithLengthColumnType,
+        );
+
+
+
+        // Initialize datasource
+        await dataSource.initialize();
+
+        return dataSource;
+      },
+    }),    
 
     // Core module with OpenAI configuration
     CoreModule.forRoot({

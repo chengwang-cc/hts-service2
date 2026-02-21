@@ -21,7 +21,11 @@ export class OnboardingTemplateEntity {
   description: string | null;
 
   @Column('varchar', { length: 50, name: 'template_type' })
-  templateType: 'product-catalog' | 'sku-mapping' | 'broker-format' | 'customs-declaration';
+  templateType:
+    | 'product-catalog'
+    | 'sku-mapping'
+    | 'broker-format'
+    | 'customs-declaration';
 
   @Column('jsonb')
   schema: {

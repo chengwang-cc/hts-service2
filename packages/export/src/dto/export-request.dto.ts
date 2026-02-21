@@ -1,11 +1,33 @@
-import { IsEnum, IsObject, IsOptional, IsBoolean, IsArray, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsObject,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsString,
+} from 'class-validator';
 
 export class ExportRequestDto {
   @IsEnum(['csv', 'excel', 'pdf', 'json'])
   format: 'csv' | 'excel' | 'pdf' | 'json';
 
-  @IsEnum(['shopify', 'broker', 'customs', 'audit-pack', 'invoice', 'packing-list', 'custom'])
-  template: 'shopify' | 'broker' | 'customs' | 'audit-pack' | 'invoice' | 'packing-list' | 'custom';
+  @IsEnum([
+    'shopify',
+    'broker',
+    'customs',
+    'audit-pack',
+    'invoice',
+    'packing-list',
+    'custom',
+  ])
+  template:
+    | 'shopify'
+    | 'broker'
+    | 'customs'
+    | 'audit-pack'
+    | 'invoice'
+    | 'packing-list'
+    | 'custom';
 
   @IsString()
   @IsOptional()

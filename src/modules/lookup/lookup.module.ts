@@ -18,7 +18,7 @@ import { AuthModule } from '../auth/auth.module';
  * Lookup Wrapper Module
  * Provides Lookup services with access to TypeORM repositories
  * in the main app context where DataSource is available
- * 
+ *
  * Authentication is handled by global JwtAuthGuard in AppModule
  */
 @Module({

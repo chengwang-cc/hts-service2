@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import type { Job, JobWithMetadata } from 'pg-boss';
 import { ConfigService } from '@nestjs/config';
 
@@ -38,7 +43,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     if (this.queueDisabled) {
       this.isStarted = true;
-      this.logger.warn('QueueService disabled for test/runtime override (jobs will be no-op)');
+      this.logger.warn(
+        'QueueService disabled for test/runtime override (jobs will be no-op)',
+      );
       return;
     }
     await this.initialize();
@@ -55,8 +62,14 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     // Construct database URL from existing environment variables
     const dbHost = this.configService.get<string>('DB_HOST', 'localhost');
     const dbPort = this.configService.get<number>('DB_PORT', 5432);
-    const dbUsername = this.configService.get<string>('DB_USERNAME', 'postgres');
-    const dbPassword = this.configService.get<string>('DB_PASSWORD', 'postgres');
+    const dbUsername = this.configService.get<string>(
+      'DB_USERNAME',
+      'postgres',
+    );
+    const dbPassword = this.configService.get<string>(
+      'DB_PASSWORD',
+      'postgres',
+    );
     const dbName =
       this.configService.get<string>('DB_DATABASE') ||
       this.configService.get<string>('DB') ||
@@ -64,7 +77,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     const databaseUrl = `postgresql://${dbUsername}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
 
-    this.logger.log(`Initializing pg-boss with database: ${dbName}@${dbHost}:${dbPort}`);
+    this.logger.log(
+      `Initializing pg-boss with database: ${dbName}@${dbHost}:${dbPort}`,
+    );
 
     try {
       const PgBoss = await this.loadPgBoss();
@@ -81,8 +96,12 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       // Add error handler to prevent unhandled errors from crashing the app
       this.boss.on('error', (error) => {
         // Log queue-not-exist errors as warnings (queues will be created on first job submission)
-        if (error && error.message && error.message.includes('does not exist')) {
-          this.logger.warn(`Queue will be created on first job submission: ${error.message}`);
+        if (
+          error &&
+          error.message &&
+          error.message.includes('does not exist')
+        ) {
+          // this.logger.warn(`Queue will be created on first job submission: ${error.message}`);
         } else {
           this.logger.error('pg-boss error:', error);
         }
@@ -144,7 +163,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     options?: {
       teamSize?: number;
       teamConcurrency?: number;
-    }
+    },
   ): Promise<void> {
     this.handlers.set(queueName, handler);
     this.logger.log(`Handler registered for queue: ${queueName}`);
@@ -168,7 +187,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     options?: {
       teamSize?: number;
       teamConcurrency?: number;
-    }
+    },
   ): Promise<void> {
     if (!this.boss || !this.isStarted) {
       this.logger.warn(`Cannot start queue ${queueName}: pg-boss not started`);
@@ -177,39 +196,36 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     try {
       // pg-boss v12 work handler receives Job[] array
-      await this.boss.work(
-        queueName,
-        async (jobs: Job[]) => {
-          // Process each job in the batch
-          for (const job of jobs) {
-            this.logger.log(`Processing job ${job.id} from queue ${queueName}`);
+      await this.boss.work(queueName, async (jobs: Job[]) => {
+        // Process each job in the batch
+        for (const job of jobs) {
+          this.logger.log(`Processing job ${job.id} from queue ${queueName}`);
 
-            const startTime = Date.now();
+          const startTime = Date.now();
 
-            try {
-              await handler(job);
+          try {
+            await handler(job);
 
-              const duration = Date.now() - startTime;
-              this.logger.log(
-                `Job ${job.id} completed successfully in ${duration}ms`
-              );
-            } catch (error) {
-              const duration = Date.now() - startTime;
-              this.logger.error(
-                `Job ${job.id} failed after ${duration}ms: ${error.message}`,
-                error.stack
-              );
-              throw error; // pg-boss will handle retry
-            }
+            const duration = Date.now() - startTime;
+            this.logger.log(
+              `Job ${job.id} completed successfully in ${duration}ms`,
+            );
+          } catch (error) {
+            const duration = Date.now() - startTime;
+            this.logger.error(
+              `Job ${job.id} failed after ${duration}ms: ${error.message}`,
+              error.stack,
+            );
+            throw error; // pg-boss will handle retry
           }
         }
-      );
+      });
 
       this.logger.log(`Started processing queue: ${queueName}`);
     } catch (error) {
       this.logger.error(
         `Failed to start queue ${queueName}: ${error.message}`,
-        error.stack
+        error.stack,
       );
       throw error;
     }
@@ -222,21 +238,29 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   async sendJob(
     queueName: string,
     data: Record<string, any>,
-    options?: SendJobOptions
+    options?: SendJobOptions,
   ): Promise<string> {
     const inlineJobId = `job-inline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     if (this.queueDisabled) {
-      this.triggerInlineFallback(queueName, inlineJobId, data, 'queue_disabled');
+      this.triggerInlineFallback(
+        queueName,
+        inlineJobId,
+        data,
+        'queue_disabled',
+      );
       return inlineJobId;
     }
 
     if (!this.boss || !this.isStarted) {
-      this.logger.error(
-        `Cannot send job to ${queueName}: pg-boss not started`
-      );
+      this.logger.error(`Cannot send job to ${queueName}: pg-boss not started`);
       if (this.inlineFallbackEnabled) {
-        this.triggerInlineFallback(queueName, inlineJobId, data, 'queue_not_started');
+        this.triggerInlineFallback(
+          queueName,
+          inlineJobId,
+          data,
+          'queue_not_started',
+        );
         return inlineJobId;
       }
       throw new Error('Queue service not available');
@@ -248,25 +272,32 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
       // Filter out undefined values to avoid pg-boss validation errors
       const jobOptions: Record<string, any> = {};
-      if (options?.priority !== undefined) jobOptions.priority = options.priority;
-      if (options?.retryLimit !== undefined) jobOptions.retryLimit = options.retryLimit;
-      if (options?.retryDelay !== undefined) jobOptions.retryDelay = options.retryDelay;
-      if (options?.retryBackoff !== undefined) jobOptions.retryBackoff = options.retryBackoff;
-      if (options?.expireInSeconds !== undefined) jobOptions.expireInSeconds = options.expireInSeconds;
-      if (options?.singletonKey !== undefined) jobOptions.singletonKey = options.singletonKey;
-      if (options?.startAfter !== undefined) jobOptions.startAfter = options.startAfter;
+      if (options?.priority !== undefined)
+        jobOptions.priority = options.priority;
+      if (options?.retryLimit !== undefined)
+        jobOptions.retryLimit = options.retryLimit;
+      if (options?.retryDelay !== undefined)
+        jobOptions.retryDelay = options.retryDelay;
+      if (options?.retryBackoff !== undefined)
+        jobOptions.retryBackoff = options.retryBackoff;
+      if (options?.expireInSeconds !== undefined)
+        jobOptions.expireInSeconds = options.expireInSeconds;
+      if (options?.singletonKey !== undefined)
+        jobOptions.singletonKey = options.singletonKey;
+      if (options?.startAfter !== undefined)
+        jobOptions.startAfter = options.startAfter;
 
       const jobId = await this.boss.send(queueName, data, jobOptions);
 
       this.logger.log(
-        `Job submitted to ${queueName}: ${jobId}${options?.singletonKey ? ` (singleton: ${options.singletonKey})` : ''}`
+        `Job submitted to ${queueName}: ${jobId}${options?.singletonKey ? ` (singleton: ${options.singletonKey})` : ''}`,
       );
 
       return jobId || '';
     } catch (error) {
       this.logger.error(
         `Failed to send job to ${queueName}: ${error.message}`,
-        error.stack
+        error.stack,
       );
       if (this.inlineFallbackEnabled) {
         this.triggerInlineFallback(queueName, inlineJobId, data, 'send_failed');
@@ -302,7 +333,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
           data,
         } as Job;
         await handler(fallbackJob);
-        this.logger.log(`Inline fallback job completed for ${queueName}: ${jobId}`);
+        this.logger.log(
+          `Inline fallback job completed for ${queueName}: ${jobId}`,
+        );
       })
       .catch((error) => {
         this.logger.error(
@@ -315,7 +348,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get job status by ID
    */
-  async getJobStatus(queueName: string, jobId: string): Promise<JobWithMetadata<any> | null> {
+  async getJobStatus(
+    queueName: string,
+    jobId: string,
+  ): Promise<JobWithMetadata<any> | null> {
     if (this.queueDisabled) {
       return null;
     }
@@ -346,7 +382,11 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   /**
    * Complete job manually (for custom job completion)
    */
-  async completeJob(queueName: string, jobId: string, data?: any): Promise<void> {
+  async completeJob(
+    queueName: string,
+    jobId: string,
+    data?: any,
+  ): Promise<void> {
     if (this.queueDisabled) {
       return;
     }
@@ -362,7 +402,11 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   /**
    * Fail job manually
    */
-  async failJob(queueName: string, jobId: string, errorData: any): Promise<void> {
+  async failJob(
+    queueName: string,
+    jobId: string,
+    errorData: any,
+  ): Promise<void> {
     if (this.queueDisabled) {
       return;
     }

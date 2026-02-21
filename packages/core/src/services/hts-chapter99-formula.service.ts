@@ -61,21 +61,22 @@ export type Chapter99PreviewResult = {
 export class HtsChapter99FormulaService {
   private readonly logger = new Logger(HtsChapter99FormulaService.name);
   private readonly defaultNonNtrCountries = ['CU', 'KP', 'RU', 'BY'];
-  private readonly chapter99CodePattern = /\b(99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g;
+  private readonly chapter99CodePattern =
+    /\b(99\d{2}\.\d{2}\.\d{2}(?:\.\d{2})?)\b/g;
   private readonly reciprocalChapter99Pattern = /^9903\.01\./;
   private readonly countryAliasToIso: Record<string, string> = {
     china: 'CN',
     "people's republic of china": 'CN',
     'peoples republic of china': 'CN',
-    'prc': 'CN',
-    'russia': 'RU',
+    prc: 'CN',
+    russia: 'RU',
     'russian federation': 'RU',
-    'belarus': 'BY',
+    belarus: 'BY',
     'north korea': 'KP',
     "democratic people's republic of korea": 'KP',
     'democratic peoples republic of korea': 'KP',
-    'dprk': 'KP',
-    'cuba': 'CU',
+    dprk: 'KP',
+    cuba: 'CU',
   };
 
   constructor(
@@ -169,7 +170,8 @@ export class HtsChapter99FormulaService {
       }
 
       linked++;
-      const nonReciprocalLinks = this.filterNonReciprocalChapter99Links(chapter99Links);
+      const nonReciprocalLinks =
+        this.filterNonReciprocalChapter99Links(chapter99Links);
       if (nonReciprocalLinks.length === 0) {
         entry.chapter99Links = chapter99Links;
         entry.nonNtrApplicableCountries = nextNonNtr;
@@ -196,7 +198,10 @@ export class HtsChapter99FormulaService {
         continue;
       }
 
-      const selected = this.selectChapter99Entry(nonReciprocalLinks, chapter99ByCode);
+      const selected = this.selectChapter99Entry(
+        nonReciprocalLinks,
+        chapter99ByCode,
+      );
       if (!selected) {
         unresolved++;
         entry.chapter99Links = chapter99Links;
@@ -271,10 +276,10 @@ export class HtsChapter99FormulaService {
         entry.rateVariables,
         this.extractFormulaVariables(baseFormulaResult),
       );
-      const adjustedVariables = this.mergeVariableObjects(
-        entry.rateVariables,
-        ['value', ...this.extractFormulaVariables(baseFormulaResult)],
-      );
+      const adjustedVariables = this.mergeVariableObjects(entry.rateVariables, [
+        'value',
+        ...this.extractFormulaVariables(baseFormulaResult),
+      ]);
 
       const nextMetadata = {
         ...(entry.metadata || {}),
@@ -284,7 +289,8 @@ export class HtsChapter99FormulaService {
           links: chapter99Links,
           selectedChapter99: selected.entry.htsNumber,
           adjustmentRate: selected.adjustmentRate,
-          referencesApplicableSubheading: selected.referencesApplicableSubheading,
+          referencesApplicableSubheading:
+            selected.referencesApplicableSubheading,
           generatedAt: new Date().toISOString(),
         },
       };
@@ -297,7 +303,12 @@ export class HtsChapter99FormulaService {
         entry.chapter99Links = chapter99Links;
         mutated = true;
       }
-      if (!this.sameStringArray(entry.chapter99ApplicableCountries, chapter99Countries)) {
+      if (
+        !this.sameStringArray(
+          entry.chapter99ApplicableCountries,
+          chapter99Countries,
+        )
+      ) {
         entry.chapter99ApplicableCountries = chapter99Countries;
         mutated = true;
       }
@@ -321,7 +332,9 @@ export class HtsChapter99FormulaService {
         entry.adjustedFormula = adjustedFormula;
         mutated = true;
       }
-      if (!this.isDeepEqual(entry.adjustedFormulaVariables, adjustedVariables)) {
+      if (
+        !this.isDeepEqual(entry.adjustedFormulaVariables, adjustedVariables)
+      ) {
         entry.adjustedFormulaVariables = adjustedVariables;
         mutated = true;
       }
@@ -392,7 +405,8 @@ export class HtsChapter99FormulaService {
       };
     }
 
-    const nonReciprocalLinks = this.filterNonReciprocalChapter99Links(chapter99Links);
+    const nonReciprocalLinks =
+      this.filterNonReciprocalChapter99Links(chapter99Links);
     if (nonReciprocalLinks.length === 0) {
       return {
         status: 'NONE',
@@ -408,7 +422,10 @@ export class HtsChapter99FormulaService {
       };
     }
 
-    const selected = this.selectChapter99Entry(nonReciprocalLinks, chapter99ByCode);
+    const selected = this.selectChapter99Entry(
+      nonReciprocalLinks,
+      chapter99ByCode,
+    );
     if (!selected) {
       return {
         status: 'UNRESOLVED',
@@ -435,9 +452,12 @@ export class HtsChapter99FormulaService {
           description: selected.entry.description || '',
           rateText: this.extractChapter99RateText(selected.entry),
           adjustmentRate: selected.adjustmentRate,
-          referencesApplicableSubheading: selected.referencesApplicableSubheading,
+          referencesApplicableSubheading:
+            selected.referencesApplicableSubheading,
         },
-        chapter99ApplicableCountries: this.inferApplicableCountries(selected.entry),
+        chapter99ApplicableCountries: this.inferApplicableCountries(
+          selected.entry,
+        ),
         nonNtrApplicableCountries,
         baseFormula: null,
         adjustedFormula: null,
@@ -451,10 +471,10 @@ export class HtsChapter99FormulaService {
       selected.adjustmentRate,
       selected.referencesApplicableSubheading,
     );
-    const adjustedFormulaVariables = this.mergeVariableObjects(
-      null,
-      ['value', ...this.extractFormulaVariables(baseFormula)],
-    );
+    const adjustedFormulaVariables = this.mergeVariableObjects(null, [
+      'value',
+      ...this.extractFormulaVariables(baseFormula),
+    ]);
 
     return {
       status: 'LINKED',
@@ -467,7 +487,9 @@ export class HtsChapter99FormulaService {
         adjustmentRate: selected.adjustmentRate,
         referencesApplicableSubheading: selected.referencesApplicableSubheading,
       },
-      chapter99ApplicableCountries: this.inferApplicableCountries(selected.entry),
+      chapter99ApplicableCountries: this.inferApplicableCountries(
+        selected.entry,
+      ),
       nonNtrApplicableCountries,
       baseFormula,
       adjustedFormula,
@@ -557,13 +579,11 @@ export class HtsChapter99FormulaService {
   private selectChapter99Entry(
     links: string[],
     chapter99ByCode: Map<string, HtsEntity>,
-  ):
-    | {
-        entry: HtsEntity;
-        adjustmentRate: number;
-        referencesApplicableSubheading: boolean;
-      }
-    | null {
+  ): {
+    entry: HtsEntity;
+    adjustmentRate: number;
+    referencesApplicableSubheading: boolean;
+  } | null {
     for (const link of links) {
       if (this.isReciprocalChapter99Heading(link)) {
         continue;
@@ -609,9 +629,8 @@ export class HtsChapter99FormulaService {
   } {
     const rateText = this.extractChapter99RateText(entry);
     const normalized = rateText.toLowerCase();
-    const referencesApplicableSubheading = /duty provided in the applicable subheading/.test(
-      normalized,
-    );
+    const referencesApplicableSubheading =
+      /duty provided in the applicable subheading/.test(normalized);
 
     const plusPercent = rateText.match(/(?:\+|plus)\s*(\d+(?:\.\d+)?)\s*%/i);
     if (plusPercent) {
@@ -621,8 +640,13 @@ export class HtsChapter99FormulaService {
       };
     }
 
-    const deterministic = this.formulaGenerationService.generateFormulaByPattern(rateText);
-    if (deterministic && deterministic.variables.length === 1 && deterministic.variables[0] === 'value') {
+    const deterministic =
+      this.formulaGenerationService.generateFormulaByPattern(rateText);
+    if (
+      deterministic &&
+      deterministic.variables.length === 1 &&
+      deterministic.variables[0] === 'value'
+    ) {
       const multiplier = deterministic.formula.match(/value\s*\*\s*([0-9.]+)/i);
       if (multiplier) {
         return {
@@ -640,7 +664,9 @@ export class HtsChapter99FormulaService {
 
   private extractChapter99RateText(entry: HtsEntity): string {
     return (
-      (entry.generalRate || entry.general || entry.chapter99 || '').toString().trim() || ''
+      (entry.generalRate || entry.general || entry.chapter99 || '')
+        .toString()
+        .trim() || ''
     );
   }
 
@@ -703,7 +729,9 @@ export class HtsChapter99FormulaService {
   }
 
   private extractFormulaVariables(formula: string): string[] {
-    return this.formulaGenerationService.validateFormula(formula).variables || [];
+    return (
+      this.formulaGenerationService.validateFormula(formula).variables || []
+    );
   }
 
   private resolveBaseFormula(entry: Chapter99PreviewInput): string | null {
@@ -716,7 +744,8 @@ export class HtsChapter99FormulaService {
       return null;
     }
 
-    const generated = this.formulaGenerationService.generateFormulaByPattern(rateText);
+    const generated =
+      this.formulaGenerationService.generateFormulaByPattern(rateText);
     return generated?.formula || null;
   }
 
@@ -775,7 +804,7 @@ export class HtsChapter99FormulaService {
       const chunks = payload
         .map((item) => {
           if (typeof item === 'string') return item;
-          if (item && typeof (item as any).value === 'string') return (item as any).value;
+          if (item && typeof item.value === 'string') return item.value;
           return '';
         })
         .map((item) => item.trim())
@@ -835,7 +864,9 @@ export class HtsChapter99FormulaService {
     return mutated;
   }
 
-  private toHtsEntity(value: Partial<HtsEntity> | Record<string, any>): HtsEntity {
+  private toHtsEntity(
+    value: Partial<HtsEntity> | Record<string, any>,
+  ): HtsEntity {
     return value as HtsEntity;
   }
 

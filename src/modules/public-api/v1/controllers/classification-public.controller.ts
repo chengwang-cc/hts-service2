@@ -18,10 +18,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import {
-  ApiPermissions,
-  CurrentApiKey,
-} from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { ClassificationService } from '@hts/lookup';
 import { SearchService } from '@hts/lookup';

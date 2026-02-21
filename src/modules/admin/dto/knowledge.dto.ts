@@ -66,7 +66,8 @@ export class UploadDocumentDto {
   title?: string;
 
   @ApiPropertyOptional({
-    description: '[DEPRECATED] Document type. Use version="latest" or year+revision instead',
+    description:
+      '[DEPRECATED] Document type. Use version="latest" or year+revision instead',
     enum: ['PDF', 'URL', 'TEXT'],
   })
   @IsOptional()
@@ -74,7 +75,8 @@ export class UploadDocumentDto {
   documentType?: string;
 
   @ApiPropertyOptional({
-    description: '[DEPRECATED] Source URL. Use version="latest" or year+revision instead',
+    description:
+      '[DEPRECATED] Source URL. Use version="latest" or year+revision instead',
   })
   @IsOptional()
   @IsString()
@@ -192,7 +194,8 @@ const toChapterList = ({ value }: { value: unknown }): string[] | undefined => {
 
 export class NoteBackfillOptionsDto {
   @ApiPropertyOptional({
-    description: 'HTS year to target. Defaults to latest active HTS year when omitted.',
+    description:
+      'HTS year to target. Defaults to latest active HTS year when omitted.',
     example: 2026,
   })
   @IsOptional()
@@ -201,7 +204,8 @@ export class NoteBackfillOptionsDto {
   year?: number;
 
   @ApiPropertyOptional({
-    description: 'Optional chapter list. Supports array or comma-separated input.',
+    description:
+      'Optional chapter list. Supports array or comma-separated input.',
     example: ['58', '99'],
   })
   @IsOptional()
@@ -211,7 +215,8 @@ export class NoteBackfillOptionsDto {
   chapters?: string[];
 
   @ApiPropertyOptional({
-    description: 'Force chapter import even when notes already exist for year/chapter.',
+    description:
+      'Force chapter import even when notes already exist for year/chapter.',
     default: false,
   })
   @IsOptional()

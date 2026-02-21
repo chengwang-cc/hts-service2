@@ -172,11 +172,9 @@ export class SubscriptionController {
   /**
    * Get Stripe price ID based on plan and interval
    */
-  private getPriceId(
-    plan: string,
-    interval: 'month' | 'year',
-  ): string | null {
-    const key = `${plan}_${interval === 'month' ? 'MONTHLY' : 'YEARLY'}` as keyof typeof this.PRICE_IDS;
+  private getPriceId(plan: string, interval: 'month' | 'year'): string | null {
+    const key =
+      `${plan}_${interval === 'month' ? 'MONTHLY' : 'YEARLY'}` as keyof typeof this.PRICE_IDS;
     return this.PRICE_IDS[key] || null;
   }
 }
