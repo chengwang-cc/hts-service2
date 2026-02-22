@@ -218,3 +218,73 @@ Primary file:
 
 - `src/modules/admin/jobs/embedding-generation.job-handler.ts`
 
+## 11. Admin Step-by-Step: Use Notes for HTS Lookup and Calculation in `hts-ui`
+
+### 11.1 Load and process note documents
+
+1. Open admin knowledge library and import official HTS PDF notes for the target year.
+2. Choose scope:
+   - Use chapter `00` for full schedule import.
+   - Use specific chapters when you want higher extraction precision or targeted backfill.
+3. Wait until document processing status is `COMPLETED`.
+4. Confirm extraction produced notes (non-zero `notesExtracted` in document metadata).
+
+### 11.2 Fill unresolved note references (recommended)
+
+1. Run note backfill preview:
+   - `POST /admin/knowledge/notes/backfill/preview`
+2. Review target chapters and unresolved counts.
+3. Run note backfill apply:
+   - `POST /admin/knowledge/notes/backfill/apply`
+4. Confirm imported chapters completed without failures.
+
+### 11.3 Enrich HTS formulas from notes
+
+1. Run HTS import/promotion for the same year so note references in `general`/`other` are resolved into formulas.
+2. Verify sampled HTS rows now contain:
+   - `rateFormula` (general) and/or
+   - `otherRateFormula` (other)
+3. If formulas are still missing, inspect the corresponding note reference text and chapter/year context.
+
+### 11.4 Validate lookup note usage (backend)
+
+1. Call:
+   - `GET /lookup/hts/:htsNumber/notes?year=YYYY`
+2. Confirm response has:
+   - `count > 0` for HTS entries with note-based rates
+   - `notes[]` entries with `noteNumber`, `noteContent`, `formula`, `sourceColumn`, and confidence.
+
+### 11.5 Validate lookup note usage (`hts-ui` detail page)
+
+1. In `hts-ui` website, search an HTS code that has note references in `general` or `other`.
+2. Open the HTS detail page.
+3. Confirm the **Knowledge Library Notes** section appears with internal resolved notes.
+4. Confirm each note card includes reference text and resolved formula (when available).
+
+### 11.6 Validate calculation note usage (`hts-ui` calculator)
+
+1. From HTS detail, click **Open in Calculator**.
+2. Run a calculation scenario for that same HTS code.
+3. Confirm calculation succeeds for note-based rate text.
+4. For spot checks, compare result behavior with and without note-enriched formulas to ensure note resolution contributes as expected.
+
+### 11.7 Operational cadence for admins
+
+1. On each new HTS release/year:
+   - import latest notes,
+   - run backfill preview/apply,
+   - run HTS import/promotion,
+   - smoke-test lookup + detail + calculator on a fixed sample list.
+2. Keep a small regression sample of HTS numbers with known note-based rates for repeated validation.
+
+### 11.8 Fast troubleshooting checklist
+
+1. HTS detail page shows no internal notes:
+   - check `GET /lookup/hts/:htsNumber/notes` output first.
+2. Endpoint returns `count=0` unexpectedly:
+   - verify rate text contains a parseable `note` reference,
+   - verify year context,
+   - verify notes exist for chapter or fallback chapter `00`.
+3. Calculation still fails on note-based text:
+   - verify note has a stored formula in `hts_note_rates`,
+   - verify HTS import enrichment was run for the same dataset/year.
