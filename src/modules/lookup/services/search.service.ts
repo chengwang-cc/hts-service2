@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { HtsEntity, HtsEmbeddingEntity, EmbeddingService } from '@hts/core';
+import { HtsEntity, EmbeddingService } from '@hts/core';
 
 @Injectable()
 export class SearchService {
@@ -11,8 +11,6 @@ export class SearchService {
   constructor(
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
-    @InjectRepository(HtsEmbeddingEntity)
-    private readonly embeddingRepository: Repository<HtsEmbeddingEntity>,
     private readonly embeddingService: EmbeddingService,
   ) {}
 
@@ -32,17 +30,12 @@ export class SearchService {
       try {
         const embedding =
           await this.embeddingService.generateEmbedding(normalizedQuery);
-        const semanticRaw = await this.embeddingRepository
-          .createQueryBuilder('emb')
-          .innerJoin(
-            HtsEntity,
-            'hts',
-            'hts.htsNumber = emb.htsNumber AND hts.isActive = :active',
-            { active: true },
-          )
-          .select('emb.htsNumber', 'htsNumber')
-          .addSelect('1 - (emb.embedding <=> :embedding)', 'similarity')
-          .where('emb.isCurrent = :isCurrent', { isCurrent: true })
+        const semanticRaw = await this.htsRepository
+          .createQueryBuilder('hts')
+          .select('hts.htsNumber', 'htsNumber')
+          .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
+          .where('hts.isActive = :active', { active: true })
+          .andWhere('hts.embedding IS NOT NULL')
           .setParameter('embedding', JSON.stringify(embedding))
           .orderBy('similarity', 'DESC')
           .limit(safeLimit)
@@ -188,15 +181,37 @@ export class SearchService {
 
   /**
    * Autocomplete by full-text search
+   * Uses AND logic with progressive word-dropping fallback:
+   * "transformer comic books" → tries "transformer & comic & books" first,
+   * then "comic & books", then "books" — so relevant combos like "comic books"
+   * are found even when leading brand/context words don't match HTS descriptions.
    */
   private async autocompleteByFullText(
     query: string,
     limit: number,
   ): Promise<any[]> {
-    // Prepare tsquery - use prefix matching for autocomplete
     const words = query.split(/\s+/).filter((w) => w.length > 0);
-    const tsquery = words.map((w) => `${w}:*`).join(' | '); // OR logic for better autocomplete
+    if (words.length === 0) return [];
 
+    // Try AND logic, progressively dropping words from the front
+    for (let startIdx = 0; startIdx < words.length; startIdx++) {
+      const currentWords = words.slice(startIdx);
+      const tsquery = currentWords.map((w) => `${w}:*`).join(' & ');
+      try {
+        const rows = await this.executeFullTextQuery(tsquery, limit);
+        if (rows.length > 0) return rows;
+      } catch {
+        // Invalid tsquery (e.g., stopword-only query), try next relaxation
+      }
+    }
+
+    return [];
+  }
+
+  private async executeFullTextQuery(
+    tsquery: string,
+    limit: number,
+  ): Promise<any[]> {
     const rows = await this.htsRepository
       .createQueryBuilder('hts')
       .select('hts.htsNumber', 'htsNumber')
@@ -209,7 +224,6 @@ export class SearchService {
       )
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
-
       .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
       .setParameters({ tsquery })
       .orderBy('score', 'DESC')
@@ -302,37 +316,49 @@ export class SearchService {
   }
 
   /**
-   * Search by full-text search with ranking
+   * Search by full-text search with ranking.
+   * Uses AND logic with progressive word-dropping fallback for better precision.
    */
   private async searchByFullText(
     query: string,
     limit: number,
   ): Promise<Array<{ htsNumber: string; score: number }>> {
-    // Prepare tsquery - convert query to tsquery format
     const words = query.split(/\s+/).filter((w) => w.length > 0);
-    const tsquery = words.map((w) => `${w}:*`).join(' | '); // OR logic for better autocomplete
+    if (words.length === 0) return [];
 
-    const rows = await this.htsRepository
-      .createQueryBuilder('hts')
-      .select('hts.htsNumber', 'htsNumber')
-      .addSelect(
-        `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
-        'score',
-      )
-      .where('hts.isActive = :active', { active: true })
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+    // Try AND logic, progressively dropping words from the front
+    for (let startIdx = 0; startIdx < words.length; startIdx++) {
+      const currentWords = words.slice(startIdx);
+      const tsquery = currentWords.map((w) => `${w}:*`).join(' & ');
+      try {
+        const rows = await this.htsRepository
+          .createQueryBuilder('hts')
+          .select('hts.htsNumber', 'htsNumber')
+          .addSelect(
+            `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
+            'score',
+          )
+          .where('hts.isActive = :active', { active: true })
+          .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+          .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
+          .setParameters({ tsquery })
+          .orderBy('score', 'DESC')
+          .addOrderBy('hts.htsNumber', 'ASC')
+          .limit(limit)
+          .getRawMany();
 
-      .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
-      .setParameters({ tsquery })
-      .orderBy('score', 'DESC')
-      .addOrderBy('hts.htsNumber', 'ASC')
-      .limit(limit)
-      .getRawMany();
+        if (rows.length > 0) {
+          return rows.map((row) => ({
+            htsNumber: row.htsNumber,
+            score: Number(row.score) || 0,
+          }));
+        }
+      } catch {
+        // Invalid tsquery, try next relaxation
+      }
+    }
 
-    return rows.map((row) => ({
-      htsNumber: row.htsNumber,
-      score: Number(row.score) || 0,
-    }));
+    return [];
   }
 
   private normalizeQuery(query: string): string {

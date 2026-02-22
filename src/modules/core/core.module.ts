@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   HtsEntity,
-  HtsEmbeddingEntity,
   HtsFormulaUpdateEntity,
   HtsFormulaCandidateEntity,
   HtsTestCaseEntity,
@@ -30,7 +29,6 @@ import {
   imports: [
     TypeOrmModule.forFeature([
       HtsEntity,
-      HtsEmbeddingEntity,
       HtsFormulaUpdateEntity,
       HtsFormulaCandidateEntity,
       HtsTestCaseEntity,

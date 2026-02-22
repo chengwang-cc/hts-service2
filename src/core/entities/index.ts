@@ -1,6 +1,5 @@
 // Core HTS Entities
 export * from './hts.entity';
-export * from './hts-embedding.entity';
 export * from './hts-formula-update.entity';
 export * from './hts-formula-candidate.entity';
 export * from './hts-test-case.entity';

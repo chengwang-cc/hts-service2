@@ -88,23 +88,4 @@ export class HtsEmbeddingAdminController {
     };
   }
 
-  /**
-   * POST /admin/hts-embeddings/cleanup
-   * Clean up outdated embeddings
-   */
-  @Post('cleanup')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Clean up outdated embeddings' })
-  @ApiResponse({ status: 200, description: 'Cleanup completed successfully' })
-  async cleanupOutdatedEmbeddings() {
-    const deleted = await this.embeddingService.cleanupOutdatedEmbeddings();
-
-    return {
-      success: true,
-      data: {
-        deleted,
-      },
-      message: `Deleted ${deleted} outdated embedding(s)`,
-    };
-  }
 }

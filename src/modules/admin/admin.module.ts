@@ -14,7 +14,6 @@ import { OrganizationEntity } from '../auth/entities/organization.entity';
 // Entities - Phase 2
 import {
   HtsEntity,
-  HtsEmbeddingEntity,
   HtsImportHistoryEntity,
   HtsSettingEntity,
   HtsStageEntryEntity,
@@ -100,7 +99,6 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
       OrganizationEntity,
       // Phase 2 entities
       HtsEntity,
-      HtsEmbeddingEntity,
       HtsImportHistoryEntity,
       HtsSettingEntity,
       HtsStageEntryEntity,

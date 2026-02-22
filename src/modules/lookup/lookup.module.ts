@@ -11,7 +11,7 @@ import {
   RateLimitGuard,
   LookupController,
 } from '@hts/lookup';
-import { HtsEntity, HtsEmbeddingEntity, CoreModule } from '@hts/core';
+import { HtsEntity, CoreModule } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
 
 /**
@@ -30,7 +30,6 @@ import { AuthModule } from '../auth/auth.module';
       ProductClassificationEntity,
       ApiUsageEntity,
       HtsEntity,
-      HtsEmbeddingEntity,
     ]),
   ],
   controllers: [LookupController],

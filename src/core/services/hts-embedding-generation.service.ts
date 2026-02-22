@@ -2,12 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HtsEntity } from '../entities/hts.entity';
-import { HtsEmbeddingEntity } from '../entities/hts-embedding.entity';
 import { EmbeddingService } from './embedding.service';
 
 /**
  * HTS Embedding Generation Service
- * Generates and manages embeddings for HTS codes to enable semantic search
+ * Generates and stores embeddings directly on HtsEntity for semantic search.
+ * Embeddings live on the hts table — no separate hts_embeddings table needed.
  */
 @Injectable()
 export class HtsEmbeddingGenerationService {
@@ -16,8 +16,6 @@ export class HtsEmbeddingGenerationService {
   constructor(
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
-    @InjectRepository(HtsEmbeddingEntity)
-    private readonly embeddingRepository: Repository<HtsEmbeddingEntity>,
     private readonly embeddingService: EmbeddingService,
   ) {}
 
@@ -45,7 +43,6 @@ export class HtsEmbeddingGenerationService {
       errors: [] as string[],
     };
 
-    // Get all active HTS entries
     const allHts = await this.htsRepository.find({
       where: { isActive: true },
       order: { htsNumber: 'ASC' },
@@ -54,7 +51,6 @@ export class HtsEmbeddingGenerationService {
     result.total = allHts.length;
     this.logger.log(`Found ${result.total} active HTS entries`);
 
-    // Process in batches
     for (let i = 0; i < allHts.length; i += batchSize) {
       const batch = allHts.slice(i, i + batchSize);
       this.logger.log(
@@ -69,7 +65,6 @@ export class HtsEmbeddingGenerationService {
         result.generated += generated;
         result.failed += batch.length - generated;
 
-        // Rate limiting - wait 1 second between batches
         if (i + batchSize < allHts.length) {
           await this.sleep(1000);
         }
@@ -89,9 +84,6 @@ export class HtsEmbeddingGenerationService {
     return result;
   }
 
-  /**
-   * Generate embeddings for a batch of HTS entries
-   */
   private async generateBatchEmbeddings(
     htsEntries: HtsEntity[],
     modelVersion: string,
@@ -100,22 +92,19 @@ export class HtsEmbeddingGenerationService {
 
     for (const hts of htsEntries) {
       try {
-        // Build search text
         const searchText = this.buildSearchText(hts);
-
-        // Generate embedding
         const embeddingVector =
           await this.embeddingService.generateEmbedding(searchText);
 
-        await this.upsertEmbedding({
-          htsNumber: hts.htsNumber,
-          embedding: embeddingVector,
-          searchText: searchText,
-          model: modelVersion,
-          modelVersion: modelVersion,
-          isCurrent: true,
-          generatedAt: new Date(),
-        });
+        await this.htsRepository.update(
+          { htsNumber: hts.htsNumber },
+          {
+            embedding: embeddingVector,
+            embeddingSearchText: searchText,
+            embeddingModel: modelVersion,
+            embeddingGeneratedAt: new Date(),
+          },
+        );
         generated++;
       } catch (error) {
         this.logger.error(
@@ -133,7 +122,7 @@ export class HtsEmbeddingGenerationService {
   async generateSingleEmbedding(
     htsNumber: string,
     modelVersion: string = 'text-embedding-3-small',
-  ): Promise<HtsEmbeddingEntity> {
+  ): Promise<HtsEntity> {
     const hts = await this.htsRepository.findOne({
       where: { htsNumber, isActive: true },
     });
@@ -142,28 +131,23 @@ export class HtsEmbeddingGenerationService {
       throw new Error(`HTS entry ${htsNumber} not found or inactive`);
     }
 
-    // Build search text
     const searchText = this.buildSearchText(hts);
-
-    // Generate embedding
     const embeddingVector =
       await this.embeddingService.generateEmbedding(searchText);
 
-    await this.upsertEmbedding({
-      htsNumber: hts.htsNumber,
-      embedding: embeddingVector,
-      searchText: searchText,
-      model: modelVersion,
-      modelVersion: modelVersion,
-      isCurrent: true,
-      generatedAt: new Date(),
-    });
+    await this.htsRepository.update(
+      { htsNumber },
+      {
+        embedding: embeddingVector,
+        embeddingSearchText: searchText,
+        embeddingModel: modelVersion,
+        embeddingGeneratedAt: new Date(),
+      },
+    );
 
-    const saved = await this.embeddingRepository.findOne({
-      where: { htsNumber: hts.htsNumber },
-    });
+    const saved = await this.htsRepository.findOne({ where: { htsNumber } });
     if (!saved) {
-      throw new Error(`Failed to persist embedding for ${hts.htsNumber}`);
+      throw new Error(`Failed to persist embedding for ${htsNumber}`);
     }
     return saved;
   }
@@ -217,7 +201,7 @@ export class HtsEmbeddingGenerationService {
   }
 
   /**
-   * Update embeddings for modified HTS entries
+   * Update embeddings for HTS entries modified since a given date
    */
   async updateModifiedEmbeddings(
     since: Date,
@@ -227,7 +211,6 @@ export class HtsEmbeddingGenerationService {
       where: { isActive: true },
     });
 
-    // Filter by modification date (compare importDate)
     const toUpdate = modifiedHts.filter(
       (hts) => hts.importDate && hts.importDate > since,
     );
@@ -252,31 +235,63 @@ export class HtsEmbeddingGenerationService {
   }
 
   /**
-   * Build search text from HTS entry
-   * Combines HTS number, description, and unit for comprehensive search
+   * Get embedding generation statistics
+   */
+  async getStatistics(): Promise<{
+    totalHts: number;
+    totalEmbeddings: number;
+    missingEmbeddings: number;
+    modelVersions: Record<string, number>;
+  }> {
+    const totalHts = await this.htsRepository.count({
+      where: { isActive: true },
+    });
+
+    const byModel = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.embeddingModel', 'model')
+      .addSelect('COUNT(*)', 'count')
+      .where('hts.isActive = :active', { active: true })
+      .andWhere('hts.embedding IS NOT NULL')
+      .groupBy('hts.embeddingModel')
+      .getRawMany();
+
+    const modelVersions: Record<string, number> = {};
+    let totalEmbeddings = 0;
+    byModel.forEach((row) => {
+      const count = parseInt(row.count, 10);
+      modelVersions[row.model ?? 'unknown'] = count;
+      totalEmbeddings += count;
+    });
+
+    return {
+      totalHts,
+      totalEmbeddings,
+      missingEmbeddings: totalHts - totalEmbeddings,
+      modelVersions,
+    };
+  }
+
+  /**
+   * Build search text from HTS entry for embedding generation
    */
   private buildSearchText(hts: HtsEntity): string {
     const parts: string[] = [];
 
-    // HTS number (essential)
     parts.push(hts.htsNumber);
 
-    // Description (primary search field)
     if (hts.description) {
       parts.push(hts.description);
     }
 
-    // Unit of quantity (helps with product type matching)
     if (hts.unitOfQuantity) {
       parts.push(hts.unitOfQuantity);
     }
 
-    // Chapter context (helps with categorization)
     if (hts.chapter) {
       parts.push(`Chapter ${hts.chapter}`);
     }
 
-    // Heading context
     if (hts.heading && hts.heading !== hts.htsNumber) {
       parts.push(`Heading ${hts.heading}`);
     }
@@ -284,76 +299,6 @@ export class HtsEmbeddingGenerationService {
     return parts.join(' ');
   }
 
-  private async upsertEmbedding(
-    payload: Pick<
-      HtsEmbeddingEntity,
-      | 'htsNumber'
-      | 'embedding'
-      | 'searchText'
-      | 'model'
-      | 'modelVersion'
-      | 'isCurrent'
-      | 'generatedAt'
-    >,
-  ): Promise<void> {
-    await this.embeddingRepository.upsert(payload, ['htsNumber']);
-  }
-
-  /**
-   * Get embedding generation statistics
-   */
-  async getStatistics(): Promise<{
-    totalHts: number;
-    totalEmbeddings: number;
-    currentEmbeddings: number;
-    outdatedEmbeddings: number;
-    missingEmbeddings: number;
-    modelVersions: Record<string, number>;
-  }> {
-    const totalHts = await this.htsRepository.count({
-      where: { isActive: true },
-    });
-    const totalEmbeddings = await this.embeddingRepository.count();
-    const currentEmbeddings = await this.embeddingRepository.count({
-      where: { isCurrent: true },
-    });
-
-    // Count by model version
-    const byModel = await this.embeddingRepository
-      .createQueryBuilder('emb')
-      .select('emb.modelVersion', 'model')
-      .addSelect('COUNT(*)', 'count')
-      .where('emb.isCurrent = :current', { current: true })
-      .groupBy('emb.modelVersion')
-      .getRawMany();
-
-    const modelVersions: Record<string, number> = {};
-    byModel.forEach((row) => {
-      modelVersions[row.model] = parseInt(row.count, 10);
-    });
-
-    return {
-      totalHts,
-      totalEmbeddings,
-      currentEmbeddings,
-      outdatedEmbeddings: totalEmbeddings - currentEmbeddings,
-      missingEmbeddings: totalHts - currentEmbeddings,
-      modelVersions,
-    };
-  }
-
-  /**
-   * Delete outdated embeddings (cleanup)
-   */
-  async cleanupOutdatedEmbeddings(): Promise<number> {
-    const result = await this.embeddingRepository.delete({ isCurrent: false });
-    this.logger.log(`Deleted ${result.affected} outdated embeddings`);
-    return result.affected || 0;
-  }
-
-  /**
-   * Sleep helper
-   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
