@@ -5,6 +5,11 @@ import { LookupModule } from '../lookup/lookup.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
+import {
+  HtsDocumentEntity,
+  HtsNoteEntity,
+  KnowledgeChunkEntity,
+} from '@hts/knowledgebase';
 
 // V1 Controllers
 import { HtsPublicController } from './v1/controllers/hts-public.controller';
@@ -24,7 +29,13 @@ import { ClassificationPublicController } from './v1/controllers/classification-
     LookupModule, // Import wrapper module that exports services
     CalculatorModule, // Import wrapper module that exports services
     KnowledgebaseModule, // Import wrapper module that exports services
-    TypeOrmModule.forFeature([HtsEntity, CalculationHistoryEntity]),
+    TypeOrmModule.forFeature([
+      HtsEntity,
+      CalculationHistoryEntity,
+      HtsDocumentEntity,
+      HtsNoteEntity,
+      KnowledgeChunkEntity,
+    ]),
   ],
   controllers: [
     // V1 Controllers

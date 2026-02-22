@@ -1,4 +1,12 @@
-import { Controller, Post, Get, Body, Query, Param, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  Param,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   SearchService,
   ClassificationService,
@@ -6,6 +14,7 @@ import {
 } from '../services';
 import { SearchDto, ClassifyProductDto, ClassifyUrlRequestDto } from '../dto';
 import { RateLimit, Public } from '../decorators';
+import { NoteResolutionService } from '@hts/knowledgebase';
 
 @Controller('lookup')
 export class LookupController {
@@ -13,6 +22,7 @@ export class LookupController {
     private readonly searchService: SearchService,
     private readonly classificationService: ClassificationService,
     private readonly urlClassifierService: UrlClassifierService,
+    private readonly noteResolutionService: NoteResolutionService,
   ) {}
 
   @Public()
@@ -94,8 +104,87 @@ export class LookupController {
   }
 
   @Public()
+  @Get('hts/:htsNumber/notes')
+  async getHtsNotes(
+    @Param('htsNumber') htsNumber: string,
+    @Query('year') year?: string,
+  ) {
+    const entry = await this.searchService.findByHtsNumber(htsNumber);
+    if (!entry) {
+      throw new NotFoundException(`HTS ${htsNumber} not found`);
+    }
+
+    const resolvedYear = this.resolveYear(year, entry.sourceVersion ?? null);
+    const candidates: Array<{
+      sourceColumn: 'general' | 'other';
+      referenceText: string | null;
+    }> = [
+      { sourceColumn: 'general', referenceText: entry.general ?? null },
+      { sourceColumn: 'other', referenceText: entry.other ?? null },
+    ];
+
+    const notes: Array<Record<string, any>> = [];
+    for (const candidate of candidates) {
+      if (!this.hasLikelyNoteReference(candidate.referenceText)) {
+        continue;
+      }
+
+      const resolved = await this.noteResolutionService.resolveNoteReference(
+        entry.htsNumber,
+        candidate.referenceText || '',
+        candidate.sourceColumn,
+        resolvedYear,
+        { persistResolution: false },
+      );
+
+      if (resolved) {
+        notes.push({
+          sourceColumn: candidate.sourceColumn,
+          referenceText: candidate.referenceText,
+          ...resolved,
+        });
+      }
+    }
+
+    return {
+      htsNumber: entry.htsNumber,
+      chapter: entry.chapter,
+      year: resolvedYear,
+      count: notes.length,
+      notes,
+    };
+  }
+
+  @Public()
   @Get('health')
   health() {
     return { status: 'ok', service: 'lookup' };
+  }
+
+  private hasLikelyNoteReference(value: string | null | undefined): boolean {
+    if (!value) {
+      return false;
+    }
+
+    return /note\s+[0-9]/i.test(value);
+  }
+
+  private resolveYear(
+    year: string | undefined,
+    sourceVersion: string | null,
+  ): number {
+    const parsedYear = year ? parseInt(year, 10) : NaN;
+    if (Number.isInteger(parsedYear) && parsedYear >= 1900 && parsedYear <= 9999) {
+      return parsedYear;
+    }
+
+    if (sourceVersion) {
+      const match = sourceVersion.match(/(19|20)\d{2}/);
+      if (match) {
+        return parseInt(match[0], 10);
+      }
+    }
+
+    return new Date().getFullYear();
   }
 }

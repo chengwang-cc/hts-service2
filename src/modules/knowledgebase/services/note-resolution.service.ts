@@ -36,7 +36,7 @@ export class NoteResolutionService {
     referenceText?: string,
     sourceColumn: 'general' | 'other' | 'special' = 'general',
     year?: number,
-    options?: { exactOnly?: boolean },
+    options?: { exactOnly?: boolean; persistResolution?: boolean },
   ): Promise<any> {
     const parsedReference = this.parseNoteReference(
       referenceText || '',
@@ -57,16 +57,18 @@ export class NoteResolutionService {
       );
 
       // Persist resolution attempt
-      await this.saveResolutionReference(
-        htsNumber,
-        referenceText || '',
-        exactMatch.id,
-        'exact',
-        1.0,
-        sourceColumn,
-        year ?? exactMatch.year,
-        result.formula,
-      );
+      if (options?.persistResolution !== false) {
+        await this.saveResolutionReference(
+          htsNumber,
+          referenceText || '',
+          exactMatch.id,
+          'exact',
+          1.0,
+          sourceColumn,
+          year ?? exactMatch.year,
+          result.formula,
+        );
+      }
 
       return result;
     }
@@ -87,16 +89,18 @@ export class NoteResolutionService {
         );
 
         // Persist resolution attempt
-        await this.saveResolutionReference(
-          htsNumber,
-          referenceText,
-          semanticMatch.note.id,
-          'semantic',
-          semanticMatch.confidence,
-          sourceColumn,
-          year ?? semanticMatch.note.year,
-          result.formula,
-        );
+        if (options?.persistResolution !== false) {
+          await this.saveResolutionReference(
+            htsNumber,
+            referenceText,
+            semanticMatch.note.id,
+            'semantic',
+            semanticMatch.confidence,
+            sourceColumn,
+            year ?? semanticMatch.note.year,
+            result.formula,
+          );
+        }
 
         return result;
       }
@@ -190,13 +194,20 @@ export class NoteResolutionService {
     year?: number,
     noteType?: string | null,
   ): Promise<HtsNoteEntity | null> {
+    const chapterCandidates = this.getChapterCandidates(chapter);
     const query = this.noteRepository
       .createQueryBuilder('note')
       .leftJoin('note.document', 'document')
       .where('note.note_number = :noteNumber', { noteNumber });
 
-    if (chapter) {
-      query.andWhere('note.chapter = :chapter', { chapter });
+    if (chapterCandidates.length === 1) {
+      query.andWhere('note.chapter = :chapter', {
+        chapter: chapterCandidates[0],
+      });
+    } else if (chapterCandidates.length > 1) {
+      query.andWhere('note.chapter IN (:...chapters)', {
+        chapters: chapterCandidates,
+      });
     }
 
     if (year) {
@@ -207,8 +218,20 @@ export class NoteResolutionService {
       query.andWhere('note.type = :noteType', { noteType });
     }
 
+    if (chapter && chapter !== '00') {
+      query
+        .addSelect(
+          'CASE WHEN note.chapter = :primaryChapter THEN 0 ELSE 1 END',
+          'chapter_rank',
+        )
+        .setParameter('primaryChapter', chapter)
+        .orderBy('chapter_rank', 'ASC')
+        .addOrderBy('note.year', 'DESC');
+    } else {
+      query.orderBy('note.year', 'DESC');
+    }
+
     query
-      .orderBy('note.year', 'DESC')
       .addOrderBy('document.processed_at', 'DESC', 'NULLS LAST')
       .addOrderBy('note.updated_at', 'DESC')
       .addOrderBy('note.created_at', 'DESC')
@@ -223,31 +246,58 @@ export class NoteResolutionService {
     chapter: string | null,
     year?: number,
   ): Promise<{ note: HtsNoteEntity; confidence: number } | null> {
-    const embedding =
-      await this.embeddingService.generateEmbedding(referenceText);
+    const chapterCandidates = this.getChapterCandidates(chapter);
+    const embedding = await this.embeddingService.generateEmbedding(referenceText);
 
-    const results = await this.embeddingRepository
+    const query = this.embeddingRepository
       .createQueryBuilder('embedding')
+      .innerJoin(HtsNoteEntity, 'note', 'note.id = embedding.noteId')
       .select('embedding.noteId', 'noteId')
       .addSelect('1 - (embedding.embedding <=> :embedding)', 'similarity')
-      .setParameter('embedding', JSON.stringify(embedding))
-      .andWhere('embedding.isCurrent = true')
-      .orderBy('similarity', 'DESC')
-      .limit(1)
-      .getRawOne();
+      .where('embedding.isCurrent = true')
+      .setParameter('embedding', JSON.stringify(embedding));
 
-    const similarity = results ? parseFloat(results.similarity) : 0;
-    if (!results || Number.isNaN(similarity) || similarity < 0.8) return null;
+    if (year) {
+      query.andWhere('note.year = :year', { year });
+    }
 
-    const note = await this.noteRepository.findOne({
-      where: {
-        id: results.noteId,
-        ...(chapter ? { chapter } : {}),
-        ...(year ? { year } : {}),
-      },
-    });
+    if (chapterCandidates.length) {
+      query.andWhere('note.chapter IN (:...chapters)', {
+        chapters: chapterCandidates,
+      });
+    }
 
-    return note ? { note, confidence: similarity } : null;
+    if (chapter && chapter !== '00') {
+      query
+        .addSelect(
+          'CASE WHEN note.chapter = :primaryChapter THEN 0 ELSE 1 END',
+          'chapterRank',
+        )
+        .setParameter('primaryChapter', chapter)
+        .orderBy('chapterRank', 'ASC')
+        .addOrderBy('similarity', 'DESC');
+    } else {
+      query.orderBy('similarity', 'DESC');
+    }
+
+    const results = await query.limit(10).getRawMany();
+
+    for (const row of results) {
+      const similarity = parseFloat(row.similarity);
+      if (Number.isNaN(similarity) || similarity < 0.8) {
+        continue;
+      }
+
+      const note = await this.noteRepository.findOne({
+        where: { id: row.noteId },
+      });
+
+      if (note) {
+        return { note, confidence: similarity };
+      }
+    }
+
+    return null;
   }
 
   private async buildResult(
@@ -352,5 +402,18 @@ export class NoteResolutionService {
     if (text.includes('section')) return 'SECTION_NOTE';
     if (text.includes('chapter')) return 'CHAPTER_NOTE';
     return null;
+  }
+
+  private getChapterCandidates(chapter: string | null): string[] {
+    if (!chapter) {
+      return [];
+    }
+
+    const normalized = chapter.padStart(2, '0');
+    if (normalized === '00') {
+      return ['00'];
+    }
+
+    return [normalized, '00'];
   }
 }

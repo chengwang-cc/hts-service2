@@ -110,24 +110,21 @@ export class EmbeddingGenerationJobHandler {
    */
   private async generateEmbedding(text: string): Promise<number[]> {
     try {
-      // TODO: OpenAiService.embedding method needs to be implemented
-      // Temporarily return empty embedding to allow compilation
-      this.logger.warn(
-        'OpenAiService.embedding not yet implemented, returning empty embedding',
+      const normalizedText = (text || '').trim();
+      if (!normalizedText) {
+        throw new Error('Chunk text is empty');
+      }
+
+      const embedding = await this.openAiService.generateEmbedding(
+        normalizedText,
+        'text-embedding-3-small',
       );
-      return new Array(1536).fill(0); // text-embedding-ada-002 returns 1536 dimensions
 
-      // Use OpenAI embedding API (commented out until method is implemented)
-      // const response = await this.openAiService.embedding({
-      //   model: 'text-embedding-ada-002',
-      //   input: text,
-      // });
+      if (!Array.isArray(embedding) || embedding.length === 0) {
+        throw new Error('Invalid embedding returned by OpenAI');
+      }
 
-      // if (!response || !response.data || !response.data[0]?.embedding) {
-      //   throw new Error('Invalid embedding response from OpenAI');
-      // }
-
-      // return response.data[0].embedding;
+      return embedding;
     } catch (error) {
       this.logger.error(`OpenAI embedding generation failed: ${error.message}`);
       throw new Error(`Embedding generation failed: ${error.message}`);

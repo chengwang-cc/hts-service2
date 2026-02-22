@@ -4,6 +4,10 @@ export class SearchNotesDto {
   @IsString()
   query: string;
 
+  @IsString()
+  @IsOptional()
+  htsNumber?: string;
+
   @IsNumber()
   @IsOptional()
   @Min(1)

@@ -207,7 +207,8 @@ export class DocumentProcessingJobHandler {
 
     // Generate S3 key
     const s3Bucket = this.s3StorageService.getDefaultBucket();
-    const fileExtension = document.documentType === 'PDF' ? 'pdf' : 'txt';
+    const isPdfLike = this.isPdfLikeDocumentType(document.documentType);
+    const fileExtension = isPdfLike ? 'pdf' : 'txt';
     const s3Key = `documents/${document.year}/${document.chapter}/${documentId}.${fileExtension}`;
 
     this.logger.log(
@@ -219,8 +220,7 @@ export class DocumentProcessingJobHandler {
       bucket: s3Bucket,
       key: s3Key,
       stream: downloadStream,
-      contentType:
-        document.documentType === 'PDF' ? 'application/pdf' : 'text/plain',
+      contentType: isPdfLike ? 'application/pdf' : 'text/plain',
       metadata: {
         documentId: documentId,
         year: document.year.toString(),
@@ -284,7 +284,7 @@ export class DocumentProcessingJobHandler {
     // Download and parse
     let parsedText: string;
 
-    if (document.documentType === 'PDF') {
+    if (this.isPdfLikeDocumentType(document.documentType)) {
       // Download PDF and parse
       const pdfStream = await this.s3StorageService.downloadStream(
         s3Bucket,
@@ -490,7 +490,7 @@ export class DocumentProcessingJobHandler {
     url: string,
     documentType: string,
   ): Promise<Readable> {
-    if (documentType === 'PDF') {
+    if (this.isPdfLikeDocumentType(documentType)) {
       const response = await axios.get(url, {
         responseType: 'stream',
         timeout: 600000, // 10 minutes timeout for large PDFs
@@ -595,5 +595,14 @@ export class DocumentProcessingJobHandler {
    */
   private estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
+  }
+
+  private isPdfLikeDocumentType(documentType: string | null | undefined): boolean {
+    const normalized = (documentType || '').toUpperCase();
+    return (
+      normalized === 'PDF' ||
+      normalized === 'CHAPTER' ||
+      normalized === 'GENERAL'
+    );
   }
 }

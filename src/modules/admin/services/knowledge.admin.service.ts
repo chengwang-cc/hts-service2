@@ -637,8 +637,11 @@ export class KnowledgeAdminService {
             SELECT n.id
             FROM hts_notes n
             WHERE n.note_number = r.note_number
-              AND n.chapter = r.target_chapter
-            ORDER BY n.year DESC, n.updated_at DESC
+              AND n.year = r.inferred_year
+              AND n.chapter IN (r.target_chapter, '00')
+            ORDER BY
+              CASE WHEN n.chapter = r.target_chapter THEN 0 ELSE 1 END,
+              n.updated_at DESC
             LIMIT 1
           ) n ON true
           WHERE r.note_number IS NOT NULL

@@ -79,14 +79,21 @@ export class KnowledgebaseController {
 
   @Post('notes/search')
   async searchNotes(@Body() searchDto: SearchNotesDto) {
+    const htsNumber =
+      searchDto.htsNumber?.trim() || this.buildHtsContext(searchDto.chapter);
+
     // Simple search by resolving the query text
     const result = await this.noteResolutionService.resolveNoteReference(
-      searchDto.chapter || '',
+      htsNumber,
       searchDto.query,
+      'general',
+      undefined,
+      { persistResolution: false },
     );
 
     return {
       query: searchDto.query,
+      htsNumber,
       result,
     };
   }
@@ -104,5 +111,15 @@ export class KnowledgebaseController {
   @Get('health')
   health() {
     return { status: 'ok', service: 'knowledgebase' };
+  }
+
+  private buildHtsContext(chapter?: string): string {
+    const raw = (chapter || '').trim();
+    if (!/^\d{1,2}$/.test(raw)) {
+      return '';
+    }
+
+    const normalized = raw.padStart(2, '0');
+    return `${normalized}00.00.0000`;
   }
 }

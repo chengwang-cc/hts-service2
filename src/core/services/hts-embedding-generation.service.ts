@@ -280,7 +280,11 @@ export class HtsEmbeddingGenerationService {
 
     parts.push(hts.htsNumber);
 
-    if (hts.description) {
+    // Include full ancestor description chain so children inherit parent context.
+    // e.g. "9620.00.50.00 Of plastics" also captures "Monopods bipods tripods..."
+    if (Array.isArray(hts.fullDescription) && hts.fullDescription.length > 0) {
+      parts.push(...hts.fullDescription);
+    } else if (hts.description) {
       parts.push(hts.description);
     }
 

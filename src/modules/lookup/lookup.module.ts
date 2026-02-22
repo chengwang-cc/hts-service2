@@ -13,6 +13,7 @@ import {
 } from '@hts/lookup';
 import { HtsEntity, CoreModule } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
+import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 
 /**
  * Lookup Wrapper Module
@@ -25,6 +26,7 @@ import { AuthModule } from '../auth/auth.module';
   imports: [
     HttpModule,
     AuthModule, // Provides JWT authentication components
+    KnowledgebaseModule,
     CoreModule.forFeature(),
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
