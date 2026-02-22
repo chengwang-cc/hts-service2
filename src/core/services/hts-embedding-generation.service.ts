@@ -92,19 +92,7 @@ export class HtsEmbeddingGenerationService {
 
     for (const hts of htsEntries) {
       try {
-        const searchText = this.buildSearchText(hts);
-        const embeddingVector =
-          await this.embeddingService.generateEmbedding(searchText);
-
-        await this.htsRepository.update(
-          { htsNumber: hts.htsNumber },
-          {
-            embedding: embeddingVector,
-            embeddingSearchText: searchText,
-            embeddingModel: modelVersion,
-            embeddingGeneratedAt: new Date(),
-          },
-        );
+        await this.generateEmbeddingForEntry(hts, modelVersion);
         generated++;
       } catch (error) {
         this.logger.error(
@@ -131,21 +119,9 @@ export class HtsEmbeddingGenerationService {
       throw new Error(`HTS entry ${htsNumber} not found or inactive`);
     }
 
-    const searchText = this.buildSearchText(hts);
-    const embeddingVector =
-      await this.embeddingService.generateEmbedding(searchText);
+    await this.generateEmbeddingForEntry(hts, modelVersion);
 
-    await this.htsRepository.update(
-      { htsNumber },
-      {
-        embedding: embeddingVector,
-        embeddingSearchText: searchText,
-        embeddingModel: modelVersion,
-        embeddingGeneratedAt: new Date(),
-      },
-    );
-
-    const saved = await this.htsRepository.findOne({ where: { htsNumber } });
+    const saved = await this.htsRepository.findOne({ where: { id: hts.id } });
     if (!saved) {
       throw new Error(`Failed to persist embedding for ${htsNumber}`);
     }
@@ -181,7 +157,7 @@ export class HtsEmbeddingGenerationService {
       const batch = rows.slice(i, i + batchSize);
       for (const hts of batch) {
         try {
-          await this.generateSingleEmbedding(hts.htsNumber, modelVersion);
+          await this.generateEmbeddingForEntry(hts, modelVersion);
           result.generated++;
         } catch (error) {
           result.failed++;
@@ -222,7 +198,7 @@ export class HtsEmbeddingGenerationService {
     let updated = 0;
     for (const hts of toUpdate) {
       try {
-        await this.generateSingleEmbedding(hts.htsNumber, modelVersion);
+        await this.generateEmbeddingForEntry(hts, modelVersion);
         updated++;
       } catch (error) {
         this.logger.error(
@@ -276,31 +252,125 @@ export class HtsEmbeddingGenerationService {
    * Build search text from HTS entry for embedding generation
    */
   private buildSearchText(hts: HtsEntity): string {
+    const parts = this.dedupeTextParts([
+      this.normalizeTextPart(hts.htsNumber),
+      ...this.buildEmbeddingDescriptionParts(hts),
+      this.normalizeTextPart(hts.unitOfQuantity),
+    ]);
+
+    return parts.join(' ');
+  }
+
+  private async generateEmbeddingForEntry(
+    hts: HtsEntity,
+    modelVersion: string,
+  ): Promise<void> {
+    const searchText = this.buildSearchText(hts);
+    const embeddingVector =
+      await this.embeddingService.generateEmbedding(searchText);
+
+    const updatePayload: Partial<HtsEntity> = {
+      embedding: embeddingVector,
+      embeddingSearchText: searchText,
+      embeddingModel: modelVersion,
+      embeddingGeneratedAt: new Date(),
+    };
+
+    if (
+      !Array.isArray(hts.fullDescription) ||
+      hts.fullDescription.length === 0
+    ) {
+      const fallbackFullDescription = this.buildFallbackFullDescription(hts);
+      if (fallbackFullDescription.length > 0) {
+        updatePayload.fullDescription = fallbackFullDescription;
+      }
+    }
+
+    await this.htsRepository.update({ id: hts.id }, updatePayload);
+  }
+
+  /**
+   * Canonical full description used for embedding indexing:
+   * chapter + heading + subheading + description.
+   * If ancestor description breadcrumbs exist, keep them as additional context.
+   */
+  private buildEmbeddingDescriptionParts(hts: HtsEntity): string[] {
     const parts: string[] = [];
-
-    parts.push(hts.htsNumber);
-
-    // Include full ancestor description chain so children inherit parent context.
-    // e.g. "9620.00.50.00 Of plastics" also captures "Monopods bipods tripods..."
-    if (Array.isArray(hts.fullDescription) && hts.fullDescription.length > 0) {
-      parts.push(...hts.fullDescription);
-    } else if (hts.description) {
-      parts.push(hts.description);
-    }
-
-    if (hts.unitOfQuantity) {
-      parts.push(hts.unitOfQuantity);
-    }
 
     if (hts.chapter) {
       parts.push(`Chapter ${hts.chapter}`);
     }
-
-    if (hts.heading && hts.heading !== hts.htsNumber) {
+    if (hts.heading) {
       parts.push(`Heading ${hts.heading}`);
     }
+    if (hts.subheading) {
+      parts.push(`Subheading ${hts.subheading}`);
+    }
 
-    return parts.join(' ');
+    const hierarchyDescriptions = this.normalizeDescriptionArray(
+      hts.fullDescription,
+    );
+    if (hierarchyDescriptions.length > 0) {
+      parts.push(...hierarchyDescriptions);
+    } else {
+      const description = this.normalizeTextPart(hts.description);
+      if (description) {
+        parts.push(description);
+      }
+    }
+
+    return parts;
+  }
+
+  private buildFallbackFullDescription(hts: HtsEntity): string[] {
+    const description = this.normalizeTextPart(hts.description);
+    const parts = this.dedupeTextParts([
+      hts.chapter ? `Chapter ${hts.chapter}` : '',
+      hts.heading ? `Heading ${hts.heading}` : '',
+      hts.subheading ? `Subheading ${hts.subheading}` : '',
+      description,
+    ]);
+
+    return parts;
+  }
+
+  private normalizeDescriptionArray(
+    value: string[] | null | undefined,
+  ): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((entry) => this.normalizeTextPart(entry))
+      .filter((entry): entry is string => entry.length > 0);
+  }
+
+  private normalizeTextPart(value: string | null | undefined): string {
+    if (!value) {
+      return '';
+    }
+    return value.replace(/\s+/g, ' ').trim();
+  }
+
+  private dedupeTextParts(parts: string[]): string[] {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+
+    for (const part of parts) {
+      const clean = this.normalizeTextPart(part);
+      if (!clean) {
+        continue;
+      }
+      const key = clean.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      normalized.push(clean);
+    }
+
+    return normalized;
   }
 
   private sleep(ms: number): Promise<void> {
