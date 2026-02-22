@@ -13,6 +13,15 @@ function parseArg(name: string): string | undefined {
   return value ? value.slice(prefix.length) : undefined;
 }
 
+function parseNumberArg(name: string): number | undefined {
+  const raw = parseArg(name);
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function toPct(numerator: number, denominator: number): string {
   if (denominator <= 0) {
     return 'n/a';
@@ -60,11 +69,29 @@ function printSummary(summary: LookupSmokeEvaluationSummary): void {
 
 async function main(): Promise<void> {
   const datasetPath = parseArg('set');
-  const sampleSize = parseArg('sample');
-  const classifySample = parseArg('classify-sample');
-  const resultLimit = parseArg('limit');
+  const sampleSize = parseNumberArg('sample');
+  const classifySample = parseNumberArg('classify-sample');
+  const resultLimit = parseNumberArg('limit');
   const json = parseArg('json') === 'true';
   const sourceVersion = parseArg('source-version');
+  const prevalidate = (parseArg('prevalidate') ?? 'true') !== 'false';
+  const allowLargeClassify =
+    (parseArg('allow-large-classify') ?? 'false') === 'true';
+  const maxClassifyWithoutConfirm = parseInt(
+    process.env.HTS_LOOKUP_MAX_CLASSIFY_SAMPLE_NO_CONFIRM || '25',
+    10,
+  );
+
+  if (
+    Number.isFinite(classifySample) &&
+    (classifySample as number) > maxClassifyWithoutConfirm &&
+    !allowLargeClassify
+  ) {
+    throw new Error(
+      `classify-sample=${classifySample} exceeds safe limit ${maxClassifyWithoutConfirm}. ` +
+        `Re-run with --allow-large-classify=true after preflight validation.`,
+    );
+  }
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['log', 'warn', 'error'],
@@ -74,13 +101,32 @@ async function main(): Promise<void> {
     const service = app.get(LookupAccuracySmokeService, {
       strict: false,
     });
+
+    if (prevalidate) {
+      const preflightSample = Math.max(
+        10,
+        Math.min(sampleSize ?? 200, 50),
+      );
+      const preflight = await service.runSmokeEvaluation({
+        datasetPath,
+        sampleSize: preflightSample,
+        classifySampleSize: 0,
+        resultLimit: resultLimit ?? 10,
+        sourceVersion,
+      });
+
+      console.log(
+        `Preflight passed: sampled=${preflight.sampledRecords}, ` +
+          `autocomplete_exact@10=${toPct(preflight.endpointMetrics.autocomplete.exactTop10, preflight.endpointMetrics.autocomplete.evaluated)}, ` +
+          `search_exact@10=${toPct(preflight.endpointMetrics.search.exactTop10, preflight.endpointMetrics.search.evaluated)}`,
+      );
+    }
+
     const summary = await service.runSmokeEvaluation({
       datasetPath,
-      sampleSize: sampleSize ? parseInt(sampleSize, 10) : undefined,
-      classifySampleSize: classifySample
-        ? parseInt(classifySample, 10)
-        : undefined,
-      resultLimit: resultLimit ? parseInt(resultLimit, 10) : undefined,
+      sampleSize,
+      classifySampleSize: classifySample,
+      resultLimit,
       sourceVersion,
     });
 
