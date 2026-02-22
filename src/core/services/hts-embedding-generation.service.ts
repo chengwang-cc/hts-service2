@@ -58,12 +58,15 @@ export class HtsEmbeddingGenerationService {
       );
 
       try {
-        const generated = await this.generateBatchEmbeddings(
+        const batchResult = await this.generateBatchEmbeddings(
           batch,
           modelVersion,
         );
-        result.generated += generated;
-        result.failed += batch.length - generated;
+        result.generated += batchResult.generated;
+        result.failed += batchResult.failed;
+        if (batchResult.errors.length > 0) {
+          result.errors.push(...batchResult.errors.slice(0, 20));
+        }
 
         if (i + batchSize < allHts.length) {
           await this.sleep(1000);
@@ -87,21 +90,97 @@ export class HtsEmbeddingGenerationService {
   private async generateBatchEmbeddings(
     htsEntries: HtsEntity[],
     modelVersion: string,
-  ): Promise<number> {
-    let generated = 0;
+  ): Promise<{ generated: number; failed: number; errors: string[] }> {
+    if (htsEntries.length === 0) {
+      return { generated: 0, failed: 0, errors: [] };
+    }
 
-    for (const hts of htsEntries) {
-      try {
-        await this.generateEmbeddingForEntry(hts, modelVersion);
-        generated++;
-      } catch (error) {
+    const searchTexts = htsEntries.map((hts) => this.buildSearchText(hts));
+    let embeddings: number[][];
+
+    try {
+      embeddings = await this.embeddingService.generateBatch(searchTexts);
+    } catch (error) {
+      const batchError = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Batch embedding API failed for ${htsEntries.length} rows, falling back to one-by-one generation: ${batchError}`,
+      );
+
+      let generated = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (const hts of htsEntries) {
+        try {
+          await this.generateEmbeddingForEntry(hts, modelVersion);
+          generated++;
+        } catch (singleError) {
+          failed++;
+          const message =
+            singleError instanceof Error
+              ? singleError.message
+              : String(singleError);
+          errors.push(`${hts.htsNumber}: ${message}`);
+          this.logger.error(
+            `Failed to generate embedding for ${hts.htsNumber}: ${message}`,
+          );
+        }
+      }
+
+      return { generated, failed, errors };
+    }
+
+    let generated = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (let index = 0; index < htsEntries.length; index++) {
+      const hts = htsEntries[index];
+      const embeddingVector = embeddings[index];
+
+      if (!Array.isArray(embeddingVector) || embeddingVector.length === 0) {
+        failed++;
+        errors.push(`${hts.htsNumber}: empty embedding vector`);
         this.logger.error(
-          `Failed to generate embedding for ${hts.htsNumber}: ${error.message}`,
+          `Failed to generate embedding for ${hts.htsNumber}: empty embedding vector`,
+        );
+        continue;
+      }
+
+      try {
+        const updatePayload: Partial<HtsEntity> = {
+          embedding: embeddingVector,
+          embeddingSearchText: searchTexts[index],
+          embeddingModel: modelVersion,
+          embeddingGeneratedAt: new Date(),
+        };
+
+        if (
+          !Array.isArray(hts.fullDescription) ||
+          hts.fullDescription.length === 0
+        ) {
+          const fallbackFullDescription = this.buildFallbackFullDescription(hts);
+          if (fallbackFullDescription.length > 0) {
+            updatePayload.fullDescription = fallbackFullDescription;
+          }
+        }
+
+        await this.htsRepository.update({ id: hts.id }, updatePayload);
+        generated++;
+      } catch (persistError) {
+        failed++;
+        const message =
+          persistError instanceof Error
+            ? persistError.message
+            : String(persistError);
+        errors.push(`${hts.htsNumber}: ${message}`);
+        this.logger.error(
+          `Failed to persist embedding for ${hts.htsNumber}: ${message}`,
         );
       }
     }
 
-    return generated;
+    return { generated, failed, errors };
   }
 
   /**
@@ -155,18 +234,22 @@ export class HtsEmbeddingGenerationService {
 
     for (let i = 0; i < rows.length; i += batchSize) {
       const batch = rows.slice(i, i + batchSize);
-      for (const hts of batch) {
-        try {
-          await this.generateEmbeddingForEntry(hts, modelVersion);
-          result.generated++;
-        } catch (error) {
-          result.failed++;
-          result.errors.push(`${hts.htsNumber}: ${error.message}`);
-          this.logger.error(
-            `Failed to generate embedding for ${hts.htsNumber}: ${error.message}`,
-          );
-        }
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(rows.length / batchSize);
+      this.logger.log(
+        `Refreshing embeddings batch ${batchNumber}/${totalBatches} (${batch.length} entries)`,
+      );
+
+      const batchResult = await this.generateBatchEmbeddings(batch, modelVersion);
+      result.generated += batchResult.generated;
+      result.failed += batchResult.failed;
+      if (batchResult.errors.length > 0) {
+        result.errors.push(...batchResult.errors.slice(0, 20));
       }
+
+      this.logger.log(
+        `Batch ${batchNumber}/${totalBatches} complete: generated=${batchResult.generated}, failed=${batchResult.failed}, progress=${result.generated + result.failed}/${result.total}`,
+      );
 
       if (i + batchSize < rows.length) {
         await this.sleep(1000);
