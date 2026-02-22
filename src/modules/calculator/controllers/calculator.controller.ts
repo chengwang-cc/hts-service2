@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { CalculationService } from '../services';
 import { CalculateDto } from '../dto';
 import { CalculationScenarioEntity } from '../entities';
+import { Public } from '../../auth/decorators/public.decorator';
 
 @Controller('calculator')
 export class CalculatorController {
@@ -22,6 +23,7 @@ export class CalculatorController {
     private readonly scenarioRepository: Repository<CalculationScenarioEntity>,
   ) {}
 
+  @Public()
   @Post('calculate')
   async calculate(
     @Body() calculateDto: CalculateDto,
