@@ -17,6 +17,10 @@ export interface SendJobOptions {
   startAfter?: number | string | Date;
 }
 
+export interface ScheduleJobOptions {
+  tz?: string;
+}
+
 export interface JobHandler {
   (job: Job): Promise<void>;
 }
@@ -305,6 +309,52 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       }
       throw error;
     }
+  }
+
+  /**
+   * Schedule (or upsert) a recurring cron job for a queue.
+   */
+  async scheduleJob(
+    queueName: string,
+    cronExpression: string,
+    data: Record<string, any> = {},
+    options?: ScheduleJobOptions,
+  ): Promise<void> {
+    if (this.queueDisabled) {
+      this.logger.warn(
+        `Schedule skipped for ${queueName}: queue is disabled in this environment`,
+      );
+      return;
+    }
+
+    if (!this.boss || !this.isStarted) {
+      throw new Error('Queue service not available');
+    }
+
+    await this.boss.createQueue(queueName);
+    await this.boss.schedule(queueName, cronExpression, data, {
+      tz: options?.tz,
+    });
+
+    this.logger.log(
+      `Recurring schedule upserted for ${queueName}: cron="${cronExpression}"${options?.tz ? ` tz=${options.tz}` : ''}`,
+    );
+  }
+
+  /**
+   * Remove a recurring cron schedule for a queue.
+   */
+  async unscheduleJob(queueName: string): Promise<void> {
+    if (this.queueDisabled) {
+      return;
+    }
+
+    if (!this.boss || !this.isStarted) {
+      throw new Error('Queue service not available');
+    }
+
+    await this.boss.unschedule(queueName);
+    this.logger.log(`Recurring schedule removed for ${queueName}`);
   }
 
   private triggerInlineFallback(

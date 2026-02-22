@@ -81,6 +81,7 @@ import { KnowledgeAdminService } from './services/knowledge.admin.service';
 import { ExternalProviderFormulaAdminService } from './services/external-provider-formula.admin.service';
 import { ReciprocalTariffAdminService } from './services/reciprocal-tariff.admin.service';
 import { LookupAccuracySmokeService } from './services/lookup-accuracy-smoke.service';
+import { LookupAccuracyReportService } from './services/lookup-accuracy-report.service';
 
 // Job Handlers - Phase 2
 import { HtsImportJobHandler } from './jobs/hts-import.job-handler';
@@ -91,6 +92,7 @@ import { AdminPermissionsGuard } from './guards/admin-permissions.guard';
 // Job Handlers - Phase 3
 import { DocumentProcessingJobHandler } from './jobs/document-processing.job-handler';
 import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-handler';
+import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.job-handler';
 
 @Module({
   imports: [
@@ -155,6 +157,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     ExternalProviderFormulaAdminService,
     ReciprocalTariffAdminService,
     LookupAccuracySmokeService,
+    LookupAccuracyReportService,
     // Job handlers - Phase 2
     HtsImportJobHandler,
     FormulaGenerationJobHandler,
@@ -162,6 +165,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     // Job handlers - Phase 3
     DocumentProcessingJobHandler,
     EmbeddingGenerationJobHandler,
+    LookupAccuracyReportJobHandler,
     AdminPermissionsGuard,
     // Core services (imported from wrapper modules, not provided here)
     // HtsProcessorService, FormulaGenerationService, HtsEmbeddingGenerationService, FormulaEvaluationService, OpenAiService - from CoreWrapperModule
@@ -189,6 +193,7 @@ export class AdminModule implements OnModuleInit {
     private testBatchHandler: TestBatchExecutionJobHandler,
     private documentProcessingHandler: DocumentProcessingJobHandler,
     private embeddingGenerationHandler: EmbeddingGenerationJobHandler,
+    private lookupAccuracyReportHandler: LookupAccuracyReportJobHandler,
   ) {}
 
   async onModuleInit() {
@@ -215,6 +220,43 @@ export class AdminModule implements OnModuleInit {
       this.embeddingGenerationHandler.execute(job),
     );
 
-    this.logger.log('Job handlers registered successfully (5 handlers)');
+    await this.queueService.registerHandler('lookup-accuracy-report', (job) =>
+      this.lookupAccuracyReportHandler.execute(job),
+    );
+
+    this.logger.log('Job handlers registered successfully (6 handlers)');
+
+    await this.configureNightlyLookupAccuracySchedule();
+  }
+
+  private async configureNightlyLookupAccuracySchedule(): Promise<void> {
+    const enabledRaw = process.env.HTS_LOOKUP_NIGHTLY_ENABLED;
+    const enabled =
+      enabledRaw !== undefined
+        ? enabledRaw === 'true'
+        : process.env.NODE_ENV === 'production';
+
+    if (!enabled) {
+      this.logger.log(
+        'Nightly lookup accuracy schedule disabled (HTS_LOOKUP_NIGHTLY_ENABLED=false).',
+      );
+      return;
+    }
+
+    const cronExpression = process.env.HTS_LOOKUP_NIGHTLY_CRON || '0 6 * * *';
+    const timezone = process.env.HTS_LOOKUP_NIGHTLY_TZ || 'UTC';
+
+    await this.queueService.scheduleJob(
+      'lookup-accuracy-report',
+      cronExpression,
+      {
+        triggeredBy: 'nightly-schedule',
+      },
+      { tz: timezone },
+    );
+
+    this.logger.log(
+      `Nightly lookup accuracy schedule active: cron="${cronExpression}" tz=${timezone}`,
+    );
   }
 }

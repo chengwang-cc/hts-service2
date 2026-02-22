@@ -1,0 +1,6 @@
+dataset: /Users/cheng/projects/cc/hts/hts-service/docs/evaluation/lookup-evaluation-set-v1.jsonl
+loaded: 700
+sampled: 1
+autocomplete exact@10: 100.00%
+search exact@10: 100.00%
+classify top1 exact: n/a

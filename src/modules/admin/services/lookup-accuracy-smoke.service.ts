@@ -442,13 +442,13 @@ export class LookupAccuracySmokeService {
     envValue: string | undefined,
     fallback: number,
   ): number {
-    if (Number.isFinite(optionValue) && optionValue && optionValue > 0) {
-      return Math.floor(optionValue);
+    if (Number.isFinite(optionValue)) {
+      return Math.max(0, Math.floor(optionValue as number));
     }
 
     const parsed = envValue ? parseInt(envValue, 10) : NaN;
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed);
     }
 
     return fallback;

@@ -351,8 +351,16 @@ Completed:
    - script: `npm run lookup:plans:check`
    - checks GIN/ANN index presence and EXPLAIN usage signals
 
+6. Continuous regression automation:
+   - nightly queue job `lookup-accuracy-report` (cron-scheduled via pg-boss)
+   - persisted reports to `docs/reports/lookup-eval/nightly` with `latest.json` snapshot
+   - env controls: `HTS_LOOKUP_NIGHTLY_ENABLED`, `HTS_LOOKUP_NIGHTLY_CRON`, `HTS_LOOKUP_NIGHTLY_TZ`
+
+7. Accuracy bug fixes discovered during eval hardening:
+   - fixed SQL precedence in classify prefix filters (`(exact OR prefix)` correctly bracketed)
+   - smoke/report runner now supports `--classify-sample=0` to disable classify pass intentionally
+
 Remaining:
 
 1. Run DB migrations and verify plans in staging/prod.
 2. Tune thresholds and synonyms with smoke/eval outputs after real traffic sampling.
-3. Add scheduled/nightly regression reporting for endpoint accuracy trends.

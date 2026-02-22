@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { OpenAiService, EmbeddingService, HtsEntity } from '@hts/core';
 import { ProductClassificationEntity } from '../entities/product-classification.entity';
 
@@ -575,8 +575,12 @@ Examples (correct classifications):
         .andWhere(lengthFilter)
         .andWhere("hts.chapter NOT IN ('98', '99')")
         .andWhere(
-          'hts.htsNumber = :code OR hts.htsNumber LIKE :pattern',
-          { code, pattern: `${code}.%` },
+          new Brackets((qb) => {
+            qb.where('hts.htsNumber = :code', { code }).orWhere(
+              'hts.htsNumber LIKE :pattern',
+              { pattern: `${code}.%` },
+            );
+          }),
         )
         .limit(30) // cap per prediction to avoid context explosion
         .getMany();
@@ -864,10 +868,14 @@ Return JSON: { htsCode, confidence, reasoning }.`;
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
       .andWhere("hts.chapter NOT IN ('98', '99')")
-      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
-        prefix,
-        pattern: `${prefix}.%`,
-      })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('hts.htsNumber = :prefix', { prefix }).orWhere(
+            'hts.htsNumber LIKE :pattern',
+            { pattern: `${prefix}.%` },
+          );
+        }),
+      )
       .orderBy('hts.htsNumber', 'ASC')
       .limit(10)
       .getMany();
@@ -903,10 +911,14 @@ Return JSON: { htsCode, confidence, reasoning }.`;
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
       .andWhere("hts.chapter NOT IN ('98', '99')")
-      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
-        prefix,
-        pattern: `${prefix}.%`,
-      })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('hts.htsNumber = :prefix', { prefix }).orWhere(
+            'hts.htsNumber LIKE :pattern',
+            { pattern: `${prefix}.%` },
+          );
+        }),
+      )
       .andWhere('hts.searchVector @@ to_tsquery(\'english\', :tsquery)')
       .setParameters({ tsquery })
       .orderBy('score', 'DESC')
@@ -938,10 +950,14 @@ Return JSON: { htsCode, confidence, reasoning }.`;
       .andWhere('hts.embedding IS NOT NULL')
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
       .andWhere("hts.chapter NOT IN ('98', '99')")
-      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
-        prefix,
-        pattern: `${prefix}.%`,
-      })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('hts.htsNumber = :prefix', { prefix }).orWhere(
+            'hts.htsNumber LIKE :pattern',
+            { pattern: `${prefix}.%` },
+          );
+        }),
+      )
       .setParameter('embedding', JSON.stringify(embedding))
       .orderBy('score', 'DESC')
       .addOrderBy('hts.htsNumber', 'ASC')
