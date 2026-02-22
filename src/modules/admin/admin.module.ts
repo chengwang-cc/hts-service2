@@ -43,6 +43,7 @@ import { FormulaEvaluationService } from '@hts/calculator';
 import { CoreWrapperModule } from '../core/core.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { LookupModule } from '../lookup/lookup.module';
 
 // Queue Module (provides QueueService with ConfigService)
 import { QueueModule } from '../queue/queue.module';
@@ -79,6 +80,7 @@ import { TestCaseService } from './services/test-case.service';
 import { KnowledgeAdminService } from './services/knowledge.admin.service';
 import { ExternalProviderFormulaAdminService } from './services/external-provider-formula.admin.service';
 import { ReciprocalTariffAdminService } from './services/reciprocal-tariff.admin.service';
+import { LookupAccuracySmokeService } from './services/lookup-accuracy-smoke.service';
 
 // Job Handlers - Phase 2
 import { HtsImportJobHandler } from './jobs/hts-import.job-handler';
@@ -119,6 +121,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     CoreWrapperModule,
     CalculatorModule,
     KnowledgebaseModule,
+    LookupModule,
     // Import QueueModule to access QueueService with ConfigService
     QueueModule,
   ],
@@ -151,6 +154,7 @@ import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-h
     KnowledgeAdminService,
     ExternalProviderFormulaAdminService,
     ReciprocalTariffAdminService,
+    LookupAccuracySmokeService,
     // Job handlers - Phase 2
     HtsImportJobHandler,
     FormulaGenerationJobHandler,

@@ -29,6 +29,7 @@ import {
 } from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { HtsImportService } from '../services/hts-import.service';
+import { LookupAccuracySmokeService } from '../services/lookup-accuracy-smoke.service';
 import axios from 'axios';
 import { Readable } from 'stream';
 import { createHash } from 'crypto';
@@ -88,6 +89,7 @@ export class HtsImportJobHandler {
     @Optional()
     private htsEmbeddingGenerationService?: HtsEmbeddingGenerationService,
     @Optional() private noteResolutionService?: NoteResolutionService,
+    @Optional() private lookupAccuracySmokeService?: LookupAccuracySmokeService,
   ) {
     this.S3_BUCKET = this.s3Storage.getDefaultBucket();
   }
@@ -419,6 +421,72 @@ export class HtsImportJobHandler {
       await this.htsImportService.appendLog(
         importHistory.id,
         `✓ HTS embedding refresh complete: total=${embeddingResult.total}, generated=${embeddingResult.generated}, failed=${embeddingResult.failed}`,
+      );
+    }
+
+    await this.runLookupAccuracySmoke(importHistory, sourceVersion);
+  }
+
+  private async runLookupAccuracySmoke(
+    importHistory: HtsImportHistoryEntity,
+    sourceVersion: string,
+  ): Promise<void> {
+    const enabled =
+      (process.env.HTS_LOOKUP_SMOKE_ON_PROMOTION ?? 'true') === 'true';
+
+    if (!enabled) {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Lookup smoke evaluation disabled by HTS_LOOKUP_SMOKE_ON_PROMOTION=false.',
+      );
+      return;
+    }
+
+    if (!this.lookupAccuracySmokeService) {
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        'Lookup smoke evaluation service unavailable; skipped post-promotion evaluation.',
+      );
+      return;
+    }
+
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Running lookup/search/classify smoke evaluation set...',
+    );
+
+    try {
+      const summary = await this.lookupAccuracySmokeService.runSmokeEvaluation({
+        sourceVersion,
+      });
+
+      const auto = summary.endpointMetrics.autocomplete;
+      const search = summary.endpointMetrics.search;
+      const classify = summary.classificationTop1;
+
+      const autoHit10 =
+        auto.evaluated > 0
+          ? ((auto.exactTop10 / auto.evaluated) * 100).toFixed(2)
+          : 'n/a';
+      const searchHit10 =
+        search.evaluated > 0
+          ? ((search.exactTop10 / search.evaluated) * 100).toFixed(2)
+          : 'n/a';
+      const classifyTop1 =
+        classify.evaluated > 0
+          ? ((classify.exactTop1 / classify.evaluated) * 100).toFixed(2)
+          : 'n/a';
+
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        `✓ Lookup smoke evaluation complete: dataset=${summary.datasetPath}, loaded=${summary.totalRecordsLoaded}, sampled=${summary.sampledRecords}, autocomplete_hit@10=${autoHit10}%, search_hit@10=${searchHit10}%, classify_top1=${classifyTop1}%`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Lookup smoke evaluation failed: ${message}`);
+      await this.htsImportService.appendLog(
+        importHistory.id,
+        `⚠ Lookup smoke evaluation failed: ${message}`,
       );
     }
   }

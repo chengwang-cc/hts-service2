@@ -46,6 +46,9 @@
     "notes:audit:fix-all": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-audit.ts --fix-indexes --dedupe-notes",
     "notes:backfill": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts",
     "notes:backfill:dry": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/knowledge-note-backfill.ts --dry-run",
+    "lookup:eval:generate": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/generate-lookup-evaluation-set.ts",
+    "lookup:eval:validate": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/validate-lookup-evaluation-set.ts",
+    "lookup:eval:smoke": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-accuracy-smoke.ts",
     "kill-port": "./scripts/kill-port.sh"
   },
   "dependencies": {
