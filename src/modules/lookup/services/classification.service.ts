@@ -92,7 +92,13 @@ export class ClassificationService {
         description,
       );
 
-      const bestMatch = candidates[0];
+      // Step 5: Use AI to pick the best leaf entry (avoids FTS scoring artifacts
+      // where word repetition in a description causes wrong entry to rank #1,
+      // e.g. "Bibles, prayer books and other religious books" winning for "comic books"
+      // because "books" appears twice).
+      const bestMatch = candidates.length > 1
+        ? await this.pickBestLeafEntry(description, candidates, aiResult.reasoning)
+        : candidates[0];
       const result: ClassificationResult = {
         htsCode: bestMatch?.htsCode ?? aiResult.htsCode,
         description: bestMatch?.description ?? '',
@@ -387,5 +393,69 @@ You MUST pick a code from the list. Return JSON: { htsCode, confidence, reasonin
       description: r.description ?? '',
       score: Number(r.score) || 0,
     }));
+  }
+
+  /**
+   * When FTS leaf resolution returns multiple candidates, use a cheap AI call
+   * to pick the most semantically appropriate one.
+   * This avoids artifacts where word-repetition in a description (e.g. "prayer books
+   * and other religious books") scores higher than the actually correct entry.
+   */
+  private async pickBestLeafEntry(
+    productDescription: string,
+    candidates: Array<{ htsCode: string; description: string; score: number }>,
+    headingReasoning: string,
+  ): Promise<{ htsCode: string; description: string; score: number } | undefined> {
+    if (candidates.length === 0) return undefined;
+
+    const list = candidates
+      .map((c, i) => `  ${i + 1}. ${c.htsCode} — ${c.description}`)
+      .join('\n');
+
+    try {
+      const response = await this.openAiService.response(
+        `Product: "${productDescription}"
+Classification reasoning: ${headingReasoning}
+
+Choose the single best HTS code from these options:
+${list}
+
+Return JSON: { "index": <1-based number> }`,
+        {
+          model: 'gpt-4o-mini',
+          instructions:
+            'You are an HTS tariff expert. Pick the most accurate leaf-level HTS code for the given product. ' +
+            'Return only the 1-based index of the best option as JSON.',
+          temperature: 0,
+          store: false,
+          text: {
+            format: {
+              type: 'json_schema',
+              json_schema: {
+                name: 'leaf_pick',
+                schema: {
+                  type: 'object',
+                  properties: { index: { type: 'number' } },
+                  required: ['index'],
+                  additionalProperties: false,
+                },
+                strict: true,
+              },
+            },
+          },
+        },
+      );
+
+      const outputText = (response as any).output_text || '';
+      const parsed = JSON.parse(outputText) as { index: number };
+      const idx = Math.round(parsed.index) - 1;
+      if (idx >= 0 && idx < candidates.length) {
+        return candidates[idx];
+      }
+    } catch (err) {
+      this.logger.warn(`Leaf picker fallback to FTS top: ${err.message}`);
+    }
+
+    return candidates[0];
   }
 }
