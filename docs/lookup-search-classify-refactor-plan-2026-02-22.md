@@ -317,3 +317,42 @@ For advanced/power users, a conversation-style experience is designed separately
    - Read-only lookup tools, tool allowlist, prompt-injection hardening, confidence/clarification gating.
 5. Evaluation:
    - Dedicated conversation eval set with ambiguity and adversarial cases.
+
+## 13. Implementation Status Update (2026-02-22)
+
+Completed:
+
+1. `autocomplete` + `search` relevance improvements:
+   - query intent (`code`/`text`/`mixed`)
+   - lexical + semantic fusion (RRF)
+   - token coverage rerank, generic "Other" penalties
+   - chapter diversity guard for broad text queries
+
+2. `classify` hardening:
+   - scoped leaf retrieval with lexical + semantic fusion
+   - low-confidence model routing escalation (`gpt-5-nano` -> `gpt-5-mini`)
+   - alternatives + `needsReview` surfaced in output
+
+3. Advanced conversation mode (first production implementation):
+   - API endpoints under `/lookup/conversations`
+   - OpenAI Agents SDK orchestration with lookup tools:
+     - `hts_autocomplete`
+     - `hts_search_hybrid`
+     - `hts_lookup_exact`
+     - `hts_compare_candidates`
+     - `hts_classify`
+     - `hts_get_notes`
+
+4. Persistence for conversation workflow:
+   - entities and migration for sessions/messages/feedback
+   - feedback endpoint for accuracy learning loop
+
+5. Retrieval infrastructure verification helper:
+   - script: `npm run lookup:plans:check`
+   - checks GIN/ANN index presence and EXPLAIN usage signals
+
+Remaining:
+
+1. Run DB migrations and verify plans in staging/prod.
+2. Tune thresholds and synonyms with smoke/eval outputs after real traffic sampling.
+3. Add scheduled/nightly regression reporting for endpoint accuracy trends.

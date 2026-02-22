@@ -1,0 +1,37 @@
+{
+  "datasetPath": "/Users/cheng/projects/cc/hts/hts-service/docs/evaluation/lookup-evaluation-set-v1.jsonl",
+  "totalRecordsLoaded": 700,
+  "sampledRecords": 10,
+  "endpointMetrics": {
+    "autocomplete": {
+      "evaluated": 10,
+      "exactTop1": 4,
+      "exactTop3": 6,
+      "exactTop10": 7,
+      "chapterTop10": 10,
+      "errors": 0
+    },
+    "search": {
+      "evaluated": 10,
+      "exactTop1": 4,
+      "exactTop3": 6,
+      "exactTop10": 6,
+      "chapterTop10": 10,
+      "errors": 0
+    },
+    "classify": {
+      "evaluated": 2,
+      "exactTop1": 1,
+      "exactTop3": 1,
+      "exactTop10": 1,
+      "chapterTop10": 2,
+      "errors": 0
+    }
+  },
+  "classificationTop1": {
+    "evaluated": 2,
+    "exactTop1": 1,
+    "chapterTop1": 2,
+    "errors": 0
+  }
+}

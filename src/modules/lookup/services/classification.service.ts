@@ -11,6 +11,8 @@ export interface ClassificationResult {
   reasoning: string;
   chapter: string | null;
   candidates: Array<{ htsCode: string; description: string; score: number }>;
+  alternatives?: Array<{ htsCode: string; description: string; score: number }>;
+  needsReview?: boolean;
 }
 
 interface HeadingCandidate {
@@ -28,6 +30,18 @@ interface HeadingCandidate {
 @Injectable()
 export class ClassificationService {
   private readonly logger = new Logger(ClassificationService.name);
+  private readonly REVIEW_CONFIDENCE_THRESHOLD = 0.62;
+  private readonly ESCALATE_CONFIDENCE_THRESHOLD = 0.45;
+  private readonly RRF_K = 40;
+  private readonly GENERIC_LEAF_LABELS = new Set([
+    'other',
+    'other:',
+    'other.',
+    'nesoi',
+    'n.e.s.o.i.',
+    'n.e.s.i.',
+    'not elsewhere specified',
+  ]);
 
   constructor(
     @InjectRepository(ProductClassificationEntity)
@@ -54,42 +68,22 @@ export class ClassificationService {
         aiPredictions,
       );
 
-      // Step 3: Call AI to pick the best heading from DB candidates
-      const response = await this.openAiService.response(input, {
-        model: 'gpt-5-nano',
+      // Step 3: Pick heading with model routing (nano first, escalate to mini when low confidence)
+      let aiResult = await this.requestHeadingSelection(
+        input,
         instructions,
-        store: false,
-        text: {
-          format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'classification_response',
-              schema: {
-                type: 'object',
-                properties: {
-                  htsCode: { type: 'string' },
-                  confidence: { type: 'number' },
-                  reasoning: { type: 'string' },
-                },
-                required: ['htsCode', 'confidence', 'reasoning'],
-                additionalProperties: false,
-              },
-              strict: true,
-            },
-          },
-        },
-      });
-
-      const outputText = (response as any).output_text || '';
-      if (!outputText) {
-        throw new Error('OpenAI returned empty response');
+        'gpt-5-nano',
+      );
+      if (aiResult.confidence < this.ESCALATE_CONFIDENCE_THRESHOLD) {
+        const escalated = await this.requestHeadingSelection(
+          input,
+          instructions,
+          'gpt-5-mini',
+        );
+        if (escalated.confidence >= aiResult.confidence) {
+          aiResult = escalated;
+        }
       }
-
-      const aiResult = JSON.parse(outputText) as {
-        htsCode: string;
-        confidence: number;
-        reasoning: string;
-      };
 
       // Step 4: Resolve the AI-picked code to actual 8/10-digit DB entries
       const candidates = await this.resolveToLeafEntries(
@@ -101,16 +95,35 @@ export class ClassificationService {
       // where word repetition in a description causes wrong entry to rank #1,
       // e.g. "Bibles, prayer books and other religious books" winning for "comic books"
       // because "books" appears twice).
+      const shouldEscalateLeafPicker =
+        aiResult.confidence < this.REVIEW_CONFIDENCE_THRESHOLD ||
+        candidates.length >= 5;
+      const leafPickerModel = shouldEscalateLeafPicker
+        ? 'gpt-5-mini'
+        : 'gpt-5-nano';
       const bestMatch = candidates.length > 1
-        ? await this.pickBestLeafEntry(description, candidates, aiResult.reasoning)
+        ? await this.pickBestLeafEntry(
+            description,
+            candidates,
+            aiResult.reasoning,
+            leafPickerModel,
+          )
         : candidates[0];
+
+      const resolvedHts = bestMatch?.htsCode ?? aiResult.htsCode;
+      const needsReview =
+        aiResult.confidence < this.REVIEW_CONFIDENCE_THRESHOLD ||
+        candidates.length === 0 ||
+        this.isGenericLeafDescription(bestMatch?.description || '');
       const result: ClassificationResult = {
-        htsCode: bestMatch?.htsCode ?? aiResult.htsCode,
+        htsCode: resolvedHts,
         description: bestMatch?.description ?? '',
         confidence: aiResult.confidence,
         reasoning: aiResult.reasoning,
-        chapter: (bestMatch?.htsCode ?? aiResult.htsCode).substring(0, 2) || null,
+        chapter: resolvedHts.substring(0, 2) || null,
         candidates,
+        alternatives: candidates.slice(0, 3),
+        needsReview,
       };
 
       // Persist for authenticated organizations only
@@ -132,6 +145,48 @@ export class ClassificationService {
       this.logger.error(`Classification failed: ${error.message}`);
       throw error;
     }
+  }
+
+  private async requestHeadingSelection(
+    input: string,
+    instructions: string,
+    model: 'gpt-5-nano' | 'gpt-5-mini',
+  ): Promise<{ htsCode: string; confidence: number; reasoning: string }> {
+    const response = await this.openAiService.response(input, {
+      model,
+      instructions,
+      store: false,
+      text: {
+        format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'classification_response',
+            schema: {
+              type: 'object',
+              properties: {
+                htsCode: { type: 'string' },
+                confidence: { type: 'number' },
+                reasoning: { type: 'string' },
+              },
+              required: ['htsCode', 'confidence', 'reasoning'],
+              additionalProperties: false,
+            },
+            strict: true,
+          },
+        },
+      },
+    });
+
+    const outputText = (response as any).output_text || '';
+    if (!outputText) {
+      throw new Error(`OpenAI returned empty response for model ${model}`);
+    }
+
+    return JSON.parse(outputText) as {
+      htsCode: string;
+      confidence: number;
+      reasoning: string;
+    };
   }
 
   /**
@@ -708,9 +763,14 @@ Return JSON: { htsCode, confidence, reasoning }.`;
     description: string,
   ): Promise<Array<{ htsCode: string; description: string; score: number }>> {
     const prefixes = this.buildPrefixCandidates(aiCode);
+    const embedding = await this.generateOptionalEmbedding(description);
 
     for (const prefix of prefixes) {
-      const candidates = await this.findLeafEntriesByPrefix(prefix, description);
+      const candidates = await this.findLeafEntriesByPrefix(
+        prefix,
+        description,
+        embedding,
+      );
       if (candidates.length > 0) {
         return candidates;
       }
@@ -720,71 +780,268 @@ Return JSON: { htsCode, confidence, reasoning }.`;
   }
 
   private buildPrefixCandidates(aiCode: string): string[] {
-    const code = aiCode.trim();
-    const candidates: string[] = [];
+    const code = aiCode.trim().replace(/[^\d.]/g, '');
+    if (!code) {
+      return [];
+    }
 
-    if (code.length >= 10) candidates.push(code.substring(0, 10));
-    if (code.length >= 7) candidates.push(code.substring(0, 7));
-    if (code.length >= 4) candidates.push(code.substring(0, 4));
+    const dotParts = code.split('.').filter((part) => /^\d+$/.test(part));
+    const normalized =
+      dotParts.length > 0 ? dotParts.join('.') : code.replace(/[^\d]/g, '');
+
+    const candidates: string[] = [];
+    const compact = normalized.replace(/[^\d]/g, '');
+
+    if (dotParts.length >= 3) {
+      candidates.push(dotParts.slice(0, 3).join('.'));
+    }
+    if (dotParts.length >= 2) {
+      candidates.push(dotParts.slice(0, 2).join('.'));
+    }
+    if (dotParts.length >= 1) {
+      candidates.push(dotParts[0]);
+    }
+
+    if (compact.length >= 8) {
+      candidates.push(
+        `${compact.substring(0, 4)}.${compact.substring(4, 6)}.${compact.substring(6, 8)}`,
+      );
+    }
+    if (compact.length >= 6) {
+      candidates.push(`${compact.substring(0, 4)}.${compact.substring(4, 6)}`);
+    }
+    if (compact.length >= 4) {
+      candidates.push(compact.substring(0, 4));
+    }
 
     return [...new Set(candidates)];
+  }
+
+  private async generateOptionalEmbedding(
+    description: string,
+  ): Promise<number[] | null> {
+    const text = description.trim();
+    if (text.length < 4) {
+      return null;
+    }
+    try {
+      return await this.embeddingService.generateEmbedding(text);
+    } catch (err) {
+      this.logger.warn(
+        `Leaf semantic embedding failed, falling back to lexical-only: ${err.message}`,
+      );
+      return null;
+    }
   }
 
   private async findLeafEntriesByPrefix(
     prefix: string,
     description: string,
+    embedding: number[] | null,
   ): Promise<Array<{ htsCode: string; description: string; score: number }>> {
     if (!prefix || prefix.length < 4) return [];
 
-    const words = description
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 2);
+    const words = this.tokenizeText(description);
+    const [lexicalRows, semanticRows] = await Promise.all([
+      this.lexicalLeafCandidatesByPrefix(prefix, words),
+      this.semanticLeafCandidatesByPrefix(prefix, embedding),
+    ]);
 
-    if (words.length === 0) {
-      const rows = await this.htsRepository
-        .createQueryBuilder('hts')
-        .select(['hts.htsNumber', 'hts.description'])
-        .where('hts.isActive = :active', { active: true })
-        .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
-        .andWhere("hts.chapter NOT IN ('98', '99')")
-        .andWhere('hts.htsNumber LIKE :pattern', { pattern: `${prefix}.%` })
-        .orderBy('hts.htsNumber', 'ASC')
-        .limit(10)
-        .getMany();
-
-      return rows.map((r, i) => ({
-        htsCode: r.htsNumber,
-        description: r.description ?? '',
-        score: 1 - i * 0.05,
-      }));
+    const fused = this.fuseLeafCandidates(
+      prefix,
+      words,
+      lexicalRows,
+      semanticRows,
+    );
+    if (fused.length > 0) {
+      return fused;
     }
 
-    const tsquery = words.map((w) => `${w}:*`).join(' | ');
+    // Fallback when both lexical and semantic evidence are sparse
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select(['hts.htsNumber', 'hts.description'])
+      .where('hts.isActive = :active', { active: true })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
+      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
+        prefix,
+        pattern: `${prefix}.%`,
+      })
+      .orderBy('hts.htsNumber', 'ASC')
+      .limit(10)
+      .getMany();
+
+    return rows.map((row, index) => ({
+      htsCode: row.htsNumber,
+      description: row.description ?? '',
+      score: 1 / (this.RRF_K + index + 1),
+    }));
+  }
+
+  private async lexicalLeafCandidatesByPrefix(
+    prefix: string,
+    words: string[],
+  ): Promise<Array<{ htsCode: string; description: string; score: number }>> {
+    if (words.length === 0) {
+      return [];
+    }
+
+    const tsquery = this.buildTsQuery(words, '|');
+    if (!tsquery) {
+      return [];
+    }
 
     const rows = await this.htsRepository
       .createQueryBuilder('hts')
       .select('hts.htsNumber', 'htsNumber')
       .addSelect('hts.description', 'description')
       .addSelect(
-        `ts_rank(hts.searchVector, to_tsquery('english', :tsquery))`,
+        `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
         'score',
       )
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
       .andWhere("hts.chapter NOT IN ('98', '99')")
-      .andWhere('hts.htsNumber LIKE :pattern', { pattern: `${prefix}.%` })
+      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
+        prefix,
+        pattern: `${prefix}.%`,
+      })
+      .andWhere('hts.searchVector @@ to_tsquery(\'english\', :tsquery)')
       .setParameters({ tsquery })
       .orderBy('score', 'DESC')
       .addOrderBy('hts.htsNumber', 'ASC')
-      .limit(10)
+      .limit(20)
       .getRawMany();
 
-    return rows.map((r) => ({
-      htsCode: r.htsNumber,
-      description: r.description ?? '',
-      score: Number(r.score) || 0,
+    return rows.map((row) => ({
+      htsCode: row.htsNumber,
+      description: row.description ?? '',
+      score: Number(row.score) || 0,
     }));
+  }
+
+  private async semanticLeafCandidatesByPrefix(
+    prefix: string,
+    embedding: number[] | null,
+  ): Promise<Array<{ htsCode: string; description: string; score: number }>> {
+    if (!embedding) {
+      return [];
+    }
+
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.htsNumber', 'htsNumber')
+      .addSelect('hts.description', 'description')
+      .addSelect('1 - (hts.embedding <=> :embedding)', 'score')
+      .where('hts.isActive = :active', { active: true })
+      .andWhere('hts.embedding IS NOT NULL')
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
+      .andWhere('hts.htsNumber = :prefix OR hts.htsNumber LIKE :pattern', {
+        prefix,
+        pattern: `${prefix}.%`,
+      })
+      .setParameter('embedding', JSON.stringify(embedding))
+      .orderBy('score', 'DESC')
+      .addOrderBy('hts.htsNumber', 'ASC')
+      .limit(20)
+      .getRawMany();
+
+    return rows.map((row) => ({
+      htsCode: row.htsNumber,
+      description: row.description ?? '',
+      score: Number(row.score) || 0,
+    }));
+  }
+
+  private fuseLeafCandidates(
+    prefix: string,
+    words: string[],
+    lexical: Array<{ htsCode: string; description: string; score: number }>,
+    semantic: Array<{ htsCode: string; description: string; score: number }>,
+  ): Array<{ htsCode: string; description: string; score: number }> {
+    const fused = new Map<
+      string,
+      {
+        htsCode: string;
+        description: string;
+        score: number;
+        lexicalRank?: number;
+        semanticRank?: number;
+      }
+    >();
+
+    lexical.forEach((row, index) => {
+      const existing = fused.get(row.htsCode);
+      if (existing) {
+        existing.score += 1 / (this.RRF_K + index + 1);
+        existing.lexicalRank = index;
+      } else {
+        fused.set(row.htsCode, {
+          ...row,
+          score: 1 / (this.RRF_K + index + 1),
+          lexicalRank: index,
+        });
+      }
+    });
+
+    semantic.forEach((row, index) => {
+      const existing = fused.get(row.htsCode);
+      if (existing) {
+        existing.score += 1 / (this.RRF_K + index + 1);
+        existing.semanticRank = index;
+      } else {
+        fused.set(row.htsCode, {
+          ...row,
+          score: 1 / (this.RRF_K + index + 1),
+          semanticRank: index,
+        });
+      }
+    });
+
+    return [...fused.values()]
+      .map((row) => {
+        const finalScore = this.scoreLeafCandidate(
+          prefix,
+          words,
+          row.htsCode,
+          row.description,
+          row.score,
+          row.lexicalRank !== undefined && row.semanticRank !== undefined,
+        );
+        return {
+          htsCode: row.htsCode,
+          description: row.description,
+          score: finalScore,
+        };
+      })
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsCode.localeCompare(b.htsCode)
+          : b.score - a.score,
+      )
+      .slice(0, 10);
+  }
+
+  private scoreLeafCandidate(
+    prefix: string,
+    words: string[],
+    htsCode: string,
+    description: string,
+    baseScore: number,
+    hasBothSignals: boolean,
+  ): number {
+    const text = (description || '').toLowerCase();
+    const coverage =
+      words.length === 0
+        ? 0
+        : words.filter((word) => text.includes(word)).length / words.length;
+    const genericPenalty =
+      this.isGenericLeafDescription(description) && coverage < 0.7 ? 0.2 : 0;
+    const prefixBoost = htsCode.startsWith(prefix) ? 0.05 : 0;
+    const signalBoost = hasBothSignals ? 0.06 : 0;
+    return baseScore + coverage * 0.6 + prefixBoost + signalBoost - genericPenalty;
   }
 
   /**
@@ -797,6 +1054,7 @@ Return JSON: { htsCode, confidence, reasoning }.`;
     productDescription: string,
     candidates: Array<{ htsCode: string; description: string; score: number }>,
     headingReasoning: string,
+    model: 'gpt-5-nano' | 'gpt-5-mini' = 'gpt-5-nano',
   ): Promise<{ htsCode: string; description: string; score: number } | undefined> {
     if (candidates.length === 0) return undefined;
 
@@ -814,7 +1072,7 @@ ${list}
 
 Return JSON: { "index": <1-based number> }`,
         {
-          model: 'gpt-5-nano',
+          model,
           instructions:
             'You are an HTS tariff expert. Pick the most accurate leaf-level HTS code for the given product. ' +
             'Return only the 1-based index of the best option as JSON.',
@@ -838,15 +1096,61 @@ Return JSON: { "index": <1-based number> }`,
       );
 
       const outputText = (response as any).output_text || '';
+      if (!outputText) {
+        return candidates[0];
+      }
       const parsed = JSON.parse(outputText) as { index: number };
       const idx = Math.round(parsed.index) - 1;
       if (idx >= 0 && idx < candidates.length) {
         return candidates[idx];
       }
     } catch (err) {
-      this.logger.warn(`Leaf picker fallback to FTS top: ${err.message}`);
+      this.logger.warn(`Leaf picker fallback to top candidate: ${err.message}`);
     }
 
     return candidates[0];
+  }
+
+  private tokenizeText(input: string): string[] {
+    const stopWords = new Set([
+      'a',
+      'an',
+      'the',
+      'for',
+      'and',
+      'with',
+      'to',
+      'of',
+      'in',
+      'on',
+      'by',
+      'or',
+      'at',
+      'from',
+    ]);
+
+    const matches = (input || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+    return [...new Set(matches.filter((token) => token.length > 1 && !stopWords.has(token)))];
+  }
+
+  private sanitizeTsToken(token: string): string {
+    return token.replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  private buildTsQuery(tokens: string[], operator: '&' | '|'): string {
+    const safeTokens = tokens
+      .map((token) => this.sanitizeTsToken(token))
+      .filter((token) => token.length > 0);
+    if (safeTokens.length === 0) {
+      return '';
+    }
+    return safeTokens.map((token) => `${token}:*`).join(` ${operator} `);
+  }
+
+  private isGenericLeafDescription(description: string): boolean {
+    const normalized = (description || '').trim().toLowerCase();
+    return (
+      this.GENERIC_LEAF_LABELS.has(normalized) || normalized.startsWith('other')
+    );
   }
 }

@@ -3,10 +3,50 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
 import { HtsEntity, EmbeddingService } from '@hts/core';
 
+type QueryIntent = 'code' | 'text' | 'mixed';
+
+interface SemanticCandidate {
+  htsNumber: string;
+  similarity: number;
+}
+
+interface KeywordCandidate {
+  htsNumber: string;
+  score: number;
+}
+
+interface CandidateEntry {
+  htsNumber: string;
+  description: string;
+  chapter: string;
+  indent: number;
+  fullDescription?: string[] | null;
+}
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
   private readonly MAX_LIMIT = 100;
+  private readonly RRF_K = 50;
+  private readonly GENERIC_LABELS = new Set([
+    'other',
+    'other:',
+    'other.',
+    'nesoi',
+    'n.e.s.o.i.',
+    'n.e.s.i.',
+    'not elsewhere specified',
+  ]);
+
+  private readonly QUERY_SYNONYMS: Record<string, string[]> = {
+    comic: ['comics', 'manga', 'graphic', 'periodical'],
+    comics: ['comic', 'manga', 'graphic', 'periodical'],
+    manga: ['comic', 'comics', 'graphic', 'periodical'],
+    periodical: ['journal', 'magazine', 'serial'],
+    journal: ['periodical', 'magazine'],
+    magazine: ['periodical', 'journal'],
+    transformer: ['transformers', 'toy'],
+  };
 
   constructor(
     @InjectRepository(HtsEntity)
@@ -21,31 +61,20 @@ export class SearchService {
       return [];
     }
 
-    let semanticResults: Array<{ htsNumber: string; similarity: number }> = [];
+    const queryTokens = this.tokenizeQuery(normalizedQuery);
+    const expandedTokens = this.expandQueryTokens(queryTokens);
+    let semanticResults: SemanticCandidate[] = [];
     const shouldRunSemantic =
+      queryTokens.length > 0 &&
       normalizedQuery.length >= 4 &&
       !this.isLikelyHtsCodeQuery(normalizedQuery);
 
     if (shouldRunSemantic) {
       try {
-        const embedding =
-          await this.embeddingService.generateEmbedding(normalizedQuery);
-        const semanticRaw = await this.htsRepository
-          .createQueryBuilder('hts')
-          .select('hts.htsNumber', 'htsNumber')
-          .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
-          .where('hts.isActive = :active', { active: true })
-          .andWhere('hts.embedding IS NOT NULL')
-          .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
-          .andWhere("hts.chapter NOT IN ('98', '99')")
-          .setParameter('embedding', JSON.stringify(embedding))
-          .orderBy('similarity', 'DESC')
-          .limit(safeLimit)
-          .getRawMany();
-        semanticResults = semanticRaw.map((row) => ({
-          htsNumber: row.htsNumber,
-          similarity: Number(row.similarity) || 0,
-        }));
+        semanticResults = await this.semanticTextSearch(
+          normalizedQuery,
+          Math.min(this.MAX_LIMIT, safeLimit * 4),
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(
@@ -56,12 +85,13 @@ export class SearchService {
 
     const keywordResults = await this.searchByKeyword(
       normalizedQuery,
-      safeLimit,
+      Math.min(this.MAX_LIMIT, safeLimit * 4),
+      expandedTokens,
     );
     const combined = this.combineResults(
       semanticResults,
       keywordResults,
-      safeLimit,
+      Math.min(this.MAX_LIMIT, safeLimit * 4),
     );
     if (combined.length === 0) {
       return [];
@@ -73,26 +103,62 @@ export class SearchService {
         htsNumber: In(htsNumbers),
         isActive: true,
       },
-      select: ['htsNumber', 'description', 'chapter', 'indent'],
+      select: ['htsNumber', 'description', 'chapter', 'indent', 'fullDescription'],
     });
     const entryByHts = new Map(
       entries.map((entry) => [entry.htsNumber, entry]),
     );
 
-    return combined
+    const reranked = combined
       .map((result) => {
         const entry = entryByHts.get(result.htsNumber);
         if (!entry) {
           return null;
         }
+
+        const coverage = this.computeCoverageScore(
+          expandedTokens,
+          this.buildEntryText(entry),
+        );
+        const phraseBoost = this.computePhraseBoost(
+          normalizedQuery,
+          this.buildEntryText(entry),
+        );
+        const specificityBoost = this.computeSpecificityBoost(entry.htsNumber);
+        const genericPenalty = this.computeGenericPenalty(
+          entry.description,
+          coverage,
+        );
+
+        const score =
+          result.score +
+          coverage * 0.7 +
+          phraseBoost +
+          specificityBoost -
+          genericPenalty;
+
         return {
-          ...result,
+          htsNumber: entry.htsNumber,
           description: entry.description ?? '',
           chapter: entry.chapter,
           indent: entry.indent,
+          score,
         };
       })
-      .filter((row): row is NonNullable<typeof row> => row !== null);
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.score - a.score,
+      );
+
+    const finalRows = this.applyChapterDiversity(
+      reranked,
+      safeLimit,
+      expandedTokens.length >= 3,
+    );
+
+    return finalRows.slice(0, safeLimit);
   }
 
   async autocomplete(query: string, limit: number = 10): Promise<any[]> {
@@ -102,16 +168,17 @@ export class SearchService {
       return [];
     }
 
-    // Check if query is likely an HTS code (numbers and dots)
-    const isHtsCodeQuery = this.isLikelyHtsCodeQuery(normalizedQuery);
-
-    if (isHtsCodeQuery) {
+    const intent = this.classifyQueryIntent(normalizedQuery);
+    if (intent === 'code') {
       // Use pattern matching for HTS code queries
       return this.autocompleteByCode(normalizedQuery, safeLimit);
     }
 
-    // Use full-text search for description queries
-    return this.autocompleteByFullText(normalizedQuery, safeLimit);
+    return this.autocompleteByTextHybrid(
+      normalizedQuery,
+      safeLimit,
+      intent === 'mixed',
+    );
   }
 
   /**
@@ -182,6 +249,101 @@ export class SearchService {
     }));
   }
 
+  private async autocompleteByTextHybrid(
+    query: string,
+    limit: number,
+    includeCodeCandidates: boolean,
+  ): Promise<any[]> {
+    const baseTokens = this.tokenizeQuery(query);
+    const expandedTokens = this.expandQueryTokens(baseTokens);
+    const candidateLimit = Math.min(this.MAX_LIMIT, Math.max(limit * 5, 30));
+
+    const lexicalPromise = this.autocompleteByFullText(
+      query,
+      candidateLimit,
+      expandedTokens,
+    );
+    const semanticPromise =
+      query.length >= 4
+        ? this.semanticAutocompleteSearch(query, candidateLimit)
+        : Promise.resolve([] as SemanticCandidate[]);
+    const codePromise = includeCodeCandidates
+      ? this.autocompleteByCode(query, Math.min(candidateLimit, 20))
+      : Promise.resolve([] as any[]);
+
+    const [lexicalRows, semanticRows, codeRows] = await Promise.all([
+      lexicalPromise,
+      semanticPromise,
+      codePromise,
+    ]);
+
+    const fused = new Map<string, number>();
+    lexicalRows.forEach((row, index) => {
+      fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
+    });
+    semanticRows.forEach((row, index) => {
+      fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
+    });
+    codeRows.forEach((row, index) => {
+      fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
+    });
+
+    if (fused.size === 0) {
+      return [];
+    }
+
+    const htsNumbers = [...fused.keys()];
+    const entries = await this.htsRepository.find({
+      where: { htsNumber: In(htsNumbers), isActive: true },
+      select: ['htsNumber', 'description', 'chapter', 'indent', 'fullDescription'],
+    });
+    const entryByHts = new Map(entries.map((entry) => [entry.htsNumber, entry]));
+
+    const ranked = htsNumbers
+      .map((htsNumber) => {
+        const entry = entryByHts.get(htsNumber);
+        if (!entry) {
+          return null;
+        }
+        const base = fused.get(htsNumber) || 0;
+        const text = this.buildEntryText(entry);
+        const coverage = this.computeCoverageScore(expandedTokens, text);
+        const phraseBoost = this.computePhraseBoost(query, text);
+        const specificityBoost = this.computeSpecificityBoost(htsNumber);
+        const genericPenalty = this.computeGenericPenalty(
+          entry.description,
+          coverage,
+        );
+
+        return {
+          htsNumber: entry.htsNumber,
+          description: entry.description ?? '',
+          chapter: entry.chapter,
+          indent: Number(entry.indent) || 0,
+          score:
+            base +
+            coverage * 0.85 +
+            phraseBoost +
+            specificityBoost -
+            genericPenalty,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.score - a.score,
+      );
+
+    const diversified = this.applyChapterDiversity(
+      ranked,
+      limit,
+      expandedTokens.length >= 3,
+    );
+
+    return diversified.slice(0, limit);
+  }
+
   /**
    * Autocomplete by full-text search.
    * Strategy:
@@ -194,32 +356,50 @@ export class SearchService {
   private async autocompleteByFullText(
     query: string,
     limit: number,
+    expandedTokens?: string[],
   ): Promise<any[]> {
-    const words = query.split(/\s+/).filter((w) => w.length > 0);
+    const words =
+      expandedTokens && expandedTokens.length > 0
+        ? expandedTokens
+        : this.expandQueryTokens(this.tokenizeQuery(query));
     if (words.length === 0) return [];
 
-    // 1. Try AND of all words first
-    const andQuery = words.map((w) => `${w}:*`).join(' & ');
-    try {
-      const rows = await this.executeFullTextQuery(andQuery, limit);
-      if (rows.length > 0) return rows;
-    } catch {
-      // Invalid tsquery (stop words only), fall through
-    }
+    const andQuery = this.buildTsQuery(words, '&');
+    const orQuery = this.buildTsQuery(words, '|');
+    const results = new Map<string, any>();
 
-    // 2. Fallback: OR of all words — ts_rank naturally ranks entries that
-    //    match more query words higher, preserving multi-word context.
-    if (words.length > 1) {
-      const orQuery = words.map((w) => `${w}:*`).join(' | ');
+    if (andQuery) {
       try {
-        const rows = await this.executeFullTextQuery(orQuery, limit);
-        if (rows.length > 0) return rows;
+        const rows = await this.executeFullTextQuery(andQuery, limit);
+        for (const row of rows) {
+          results.set(row.htsNumber, row);
+        }
       } catch {
-        // ignore
+        // ignore invalid tsquery
       }
     }
 
-    return [];
+    if (orQuery) {
+      try {
+        const rows = await this.executeFullTextQuery(orQuery, limit);
+        for (const row of rows) {
+          const existing = results.get(row.htsNumber);
+          if (!existing || row.score > existing.score) {
+            results.set(row.htsNumber, row);
+          }
+        }
+      } catch {
+        // ignore invalid tsquery
+      }
+    }
+
+    return [...results.values()]
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.score - a.score,
+      )
+      .slice(0, limit);
   }
 
   private async executeFullTextQuery(
@@ -255,10 +435,42 @@ export class SearchService {
     }));
   }
 
+  private async semanticAutocompleteSearch(
+    query: string,
+    limit: number,
+  ): Promise<SemanticCandidate[]> {
+    return this.semanticTextSearch(query, limit);
+  }
+
+  private async semanticTextSearch(
+    query: string,
+    limit: number,
+  ): Promise<SemanticCandidate[]> {
+    const embedding = await this.embeddingService.generateEmbedding(query);
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.htsNumber', 'htsNumber')
+      .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
+      .where('hts.isActive = :active', { active: true })
+      .andWhere('hts.embedding IS NOT NULL')
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
+      .setParameter('embedding', JSON.stringify(embedding))
+      .orderBy('similarity', 'DESC')
+      .limit(limit)
+      .getRawMany();
+
+    return rows.map((row) => ({
+      htsNumber: row.htsNumber,
+      similarity: Number(row.similarity) || 0,
+    }));
+  }
+
   private async searchByKeyword(
     query: string,
     limit: number,
-  ): Promise<Array<{ htsNumber: string; score: number }>> {
+    expandedTokens?: string[],
+  ): Promise<KeywordCandidate[]> {
     // Check if query is HTS code or description search
     const isHtsCodeQuery = this.isLikelyHtsCodeQuery(query);
 
@@ -266,7 +478,7 @@ export class SearchService {
       return this.searchByCode(query, limit);
     }
 
-    return this.searchByFullText(query, limit);
+    return this.searchByFullText(query, limit, expandedTokens);
   }
 
   /**
@@ -275,7 +487,7 @@ export class SearchService {
   private async searchByCode(
     query: string,
     limit: number,
-  ): Promise<Array<{ htsNumber: string; score: number }>> {
+  ): Promise<KeywordCandidate[]> {
     const normalizedCode = query.replace(/[^\d]/g, '');
     const containsQuery = `%${query}%`;
     const prefixQuery = `${query}%`;
@@ -341,13 +553,17 @@ export class SearchService {
   private async searchByFullText(
     query: string,
     limit: number,
-  ): Promise<Array<{ htsNumber: string; score: number }>> {
-    const words = query.split(/\s+/).filter((w) => w.length > 0);
+    expandedTokens?: string[],
+  ): Promise<KeywordCandidate[]> {
+    const words =
+      expandedTokens && expandedTokens.length > 0
+        ? expandedTokens
+        : this.expandQueryTokens(this.tokenizeQuery(query));
     if (words.length === 0) return [];
 
     const runQuery = async (
       tsquery: string,
-    ): Promise<Array<{ htsNumber: string; score: number }>> => {
+    ): Promise<KeywordCandidate[]> => {
       const rows = await this.htsRepository
         .createQueryBuilder('hts')
         .select('hts.htsNumber', 'htsNumber')
@@ -370,28 +586,42 @@ export class SearchService {
       }));
     };
 
-    // 1. Try AND of all words first
-    const andQuery = words.map((w) => `${w}:*`).join(' & ');
-    try {
-      const rows = await runQuery(andQuery);
-      if (rows.length > 0) return rows;
-    } catch {
-      // Invalid tsquery (stop words only), fall through
-    }
+    const results = new Map<string, KeywordCandidate>();
+    const andQuery = this.buildTsQuery(words, '&');
+    const orQuery = this.buildTsQuery(words, '|');
 
-    // 2. Fallback: OR of all words — ts_rank_cd naturally ranks entries that
-    //    match more query words higher, preserving multi-word context.
-    if (words.length > 1) {
-      const orQuery = words.map((w) => `${w}:*`).join(' | ');
+    if (andQuery) {
       try {
-        const rows = await runQuery(orQuery);
-        if (rows.length > 0) return rows;
+        const rows = await runQuery(andQuery);
+        for (const row of rows) {
+          results.set(row.htsNumber, row);
+        }
       } catch {
-        // ignore
+        // ignore invalid tsquery
       }
     }
 
-    return [];
+    if (orQuery) {
+      try {
+        const rows = await runQuery(orQuery);
+        for (const row of rows) {
+          const existing = results.get(row.htsNumber);
+          if (!existing || row.score > existing.score) {
+            results.set(row.htsNumber, row);
+          }
+        }
+      } catch {
+        // ignore invalid tsquery
+      }
+    }
+
+    return [...results.values()]
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.score - a.score,
+      )
+      .slice(0, limit);
   }
 
   async findByHtsNumber(htsNumber: string): Promise<HtsEntity | null> {
@@ -431,38 +661,199 @@ export class SearchService {
     );
   }
 
+  private classifyQueryIntent(query: string): QueryIntent {
+    const compact = query.replace(/\s+/g, '');
+    if (this.isLikelyHtsCodeQuery(compact)) {
+      return 'code';
+    }
+
+    const hasAlpha = /[a-z]/i.test(query);
+    const hasDigit = /\d/.test(query);
+    if (hasAlpha && hasDigit) {
+      return 'mixed';
+    }
+    return 'text';
+  }
+
+  private tokenizeQuery(query: string): string[] {
+    const raw = (query || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+    const stopWords = new Set([
+      'a',
+      'an',
+      'the',
+      'for',
+      'and',
+      'with',
+      'to',
+      'of',
+      'in',
+      'on',
+      'by',
+      'or',
+      'at',
+      'from',
+    ]);
+
+    return [...new Set(raw.filter((token) => token.length > 1 && !stopWords.has(token)))];
+  }
+
+  private expandQueryTokens(tokens: string[]): string[] {
+    const expanded = new Set<string>();
+    for (const token of tokens) {
+      expanded.add(token);
+      for (const synonym of this.QUERY_SYNONYMS[token] || []) {
+        expanded.add(synonym);
+      }
+    }
+    return [...expanded];
+  }
+
+  private sanitizeTsToken(token: string): string {
+    return token.replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  private buildTsQuery(tokens: string[], operator: '&' | '|'): string {
+    const safeTokens = tokens
+      .map((token) => this.sanitizeTsToken(token))
+      .filter((token) => token.length > 0);
+    if (safeTokens.length === 0) {
+      return '';
+    }
+
+    return safeTokens.map((token) => `${token}:*`).join(` ${operator} `);
+  }
+
+  private buildEntryText(entry: CandidateEntry): string {
+    const hierarchy = (entry.fullDescription || []).join(' ');
+    return `${entry.description || ''} ${hierarchy}`.trim().toLowerCase();
+  }
+
+  private computeCoverageScore(tokens: string[], text: string): number {
+    if (tokens.length === 0 || !text) {
+      return 0;
+    }
+
+    let covered = 0;
+    for (const token of tokens) {
+      if (token.length < 2) {
+        continue;
+      }
+      if (text.includes(token)) {
+        covered += 1;
+      }
+    }
+
+    return covered / tokens.length;
+  }
+
+  private computePhraseBoost(query: string, text: string): number {
+    const needle = query.trim().toLowerCase();
+    if (!needle || needle.length < 4) {
+      return 0;
+    }
+
+    return text.includes(needle) ? 0.2 : 0;
+  }
+
+  private computeSpecificityBoost(htsNumber: string): number {
+    const digits = htsNumber.replace(/[^\d]/g, '').length;
+    if (digits >= 10) {
+      return 0.08;
+    }
+    if (digits >= 8) {
+      return 0.04;
+    }
+    return 0;
+  }
+
+  private computeGenericPenalty(description: string, coverage: number): number {
+    const normalized = (description || '').trim().toLowerCase();
+    const isGeneric =
+      this.GENERIC_LABELS.has(normalized) || normalized.startsWith('other');
+    if (!isGeneric) {
+      return 0;
+    }
+
+    return coverage >= 0.66 ? 0.05 : 0.28;
+  }
+
+  private rrf(rankIndex: number): number {
+    return 1 / (this.RRF_K + rankIndex + 1);
+  }
+
+  private applyChapterDiversity<T extends { chapter?: string }>(
+    rows: T[],
+    limit: number,
+    enabled: boolean,
+  ): T[] {
+    if (!enabled || rows.length <= limit) {
+      return rows;
+    }
+
+    const perChapterCap = 3;
+    const counts = new Map<string, number>();
+    const selected: T[] = [];
+    const deferred: T[] = [];
+
+    for (const row of rows) {
+      const chapter = row.chapter || 'unknown';
+      const current = counts.get(chapter) || 0;
+      if (current < perChapterCap) {
+        selected.push(row);
+        counts.set(chapter, current + 1);
+      } else {
+        deferred.push(row);
+      }
+    }
+
+    const merged = [...selected, ...deferred];
+    return merged.slice(0, limit);
+  }
+
   private combineResults(
-    semantic: Array<{ htsNumber: string; similarity: number }>,
-    keyword: Array<{ htsNumber: string; score: number }>,
+    semantic: SemanticCandidate[],
+    keyword: KeywordCandidate[],
     limit: number,
   ): Array<{ htsNumber: string; score: number }> {
-    const combined = new Map<string, { htsNumber: string; score: number }>();
+    const combined = new Map<
+      string,
+      {
+        htsNumber: string;
+        score: number;
+        inSemantic: boolean;
+        inKeyword: boolean;
+      }
+    >();
 
     semantic.forEach((result, index) => {
       combined.set(result.htsNumber, {
         htsNumber: result.htsNumber,
-        score:
-          result.similarity * 0.7 +
-          (1 - index / Math.max(semantic.length, 1)) * 0.3,
+        score: this.rrf(index),
+        inSemantic: true,
+        inKeyword: false,
       });
     });
 
-    keyword.forEach((result) => {
+    keyword.forEach((result, index) => {
       const existing = combined.get(result.htsNumber);
       if (existing) {
-        // Already found semantically — keyword match is a strong signal, boost it
-        existing.score += 0.3 + result.score * 0.35;
+        existing.score += this.rrf(index);
+        existing.inKeyword = true;
       } else {
-        // Keyword-only match: the entry literally contains the search term.
-        // Give it a meaningful base score so it competes with mid-ranked semantic results.
         combined.set(result.htsNumber, {
           htsNumber: result.htsNumber,
-          score: 0.5 + result.score * 0.35,
+          score: this.rrf(index),
+          inSemantic: false,
+          inKeyword: true,
         });
       }
     });
 
     return Array.from(combined.values())
+      .map((row) => ({
+        htsNumber: row.htsNumber,
+        score: row.score + (row.inKeyword && row.inSemantic ? 0.06 : 0),
+      }))
       .sort((a, b) => {
         if (b.score === a.score) {
           return a.htsNumber.localeCompare(b.htsNumber);

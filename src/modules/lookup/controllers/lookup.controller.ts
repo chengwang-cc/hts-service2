@@ -11,8 +11,16 @@ import {
   SearchService,
   ClassificationService,
   UrlClassifierService,
+  LookupConversationAgentService,
 } from '../services';
-import { SearchDto, ClassifyProductDto, ClassifyUrlRequestDto } from '../dto';
+import {
+  SearchDto,
+  ClassifyProductDto,
+  ClassifyUrlRequestDto,
+  CreateLookupConversationDto,
+  LookupConversationMessageDto,
+  LookupConversationFeedbackDto,
+} from '../dto';
 import { RateLimit, Public } from '../decorators';
 import { NoteResolutionService } from '@hts/knowledgebase';
 
@@ -23,6 +31,7 @@ export class LookupController {
     private readonly classificationService: ClassificationService,
     private readonly urlClassifierService: UrlClassifierService,
     private readonly noteResolutionService: NoteResolutionService,
+    private readonly lookupConversationAgentService: LookupConversationAgentService,
   ) {}
 
   @Public()
@@ -151,6 +160,86 @@ export class LookupController {
   @Get('health')
   health() {
     return { status: 'ok', service: 'lookup' };
+  }
+
+  @Public()
+  @Post('conversations')
+  async createConversation(@Body() dto: CreateLookupConversationDto) {
+    const session = await this.lookupConversationAgentService.createConversation({
+      organizationId: dto.organizationId,
+      userProfile: dto.userProfile,
+    });
+    return {
+      success: true,
+      data: {
+        conversationId: session.id,
+        status: session.status,
+        createdAt: session.createdAt,
+      },
+    };
+  }
+
+  @Public()
+  @Get('conversations/:conversationId')
+  async getConversation(@Param('conversationId') conversationId: string) {
+    const session =
+      await this.lookupConversationAgentService.getConversation(conversationId);
+    return {
+      success: true,
+      data: session,
+    };
+  }
+
+  @Public()
+  @Get('conversations/:conversationId/messages')
+  async getConversationMessages(
+    @Param('conversationId') conversationId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const safeLimit = Math.min(
+      Math.max(parseInt(limit || '100', 10) || 100, 1),
+      500,
+    );
+    const data = await this.lookupConversationAgentService.getMessages(
+      conversationId,
+      safeLimit,
+    );
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Public()
+  @Post('conversations/:conversationId/messages')
+  async sendConversationMessage(
+    @Param('conversationId') conversationId: string,
+    @Body() dto: LookupConversationMessageDto,
+  ) {
+    const result = await this.lookupConversationAgentService.sendMessage(
+      conversationId,
+      dto.message,
+    );
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  @Public()
+  @Post('conversations/:conversationId/feedback')
+  async submitConversationFeedback(
+    @Param('conversationId') conversationId: string,
+    @Body() dto: LookupConversationFeedbackDto,
+  ) {
+    const result = await this.lookupConversationAgentService.recordFeedback(
+      conversationId,
+      dto,
+    );
+    return {
+      success: true,
+      data: result,
+    };
   }
 
   private hasLikelyNoteReference(value: string | null | undefined): boolean {
