@@ -51,6 +51,7 @@
     "lookup:eval:smoke": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-accuracy-smoke.ts",
     "lookup:eval:report": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-accuracy-report.ts",
     "lookup:plans:check": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-query-plan-check.ts",
+    "lookup:embeddings:refresh": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/refresh-hts-embeddings.ts",
     "kill-port": "./scripts/kill-port.sh"
   },
   "dependencies": {
