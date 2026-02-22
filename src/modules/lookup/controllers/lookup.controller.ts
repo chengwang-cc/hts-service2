@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, NotFoundException } from '@nestjs/common';
 import {
   SearchService,
   ClassificationService,
@@ -56,6 +56,7 @@ export class LookupController {
     };
   }
 
+  @Public()
   @Post('classify')
   @RateLimit({ endpoint: 'classify' })
   async classifyProduct(
@@ -76,9 +77,20 @@ export class LookupController {
     };
   }
 
+  @Public()
   @Post('classify-url')
   async classifyUrl(@Body() dto: ClassifyUrlRequestDto) {
     return this.urlClassifierService.classifyUrl(dto.url);
+  }
+
+  @Public()
+  @Get('hts/:htsNumber')
+  async getHtsDetail(@Param('htsNumber') htsNumber: string) {
+    const entry = await this.searchService.findByHtsNumber(htsNumber);
+    if (!entry) {
+      throw new NotFoundException(`HTS ${htsNumber} not found`);
+    }
+    return entry;
   }
 
   @Public()

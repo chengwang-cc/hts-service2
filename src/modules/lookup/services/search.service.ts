@@ -36,6 +36,7 @@ export class SearchService {
           .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
           .where('hts.isActive = :active', { active: true })
           .andWhere('hts.embedding IS NOT NULL')
+          .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
           .setParameter('embedding', JSON.stringify(embedding))
           .orderBy('similarity', 'DESC')
           .limit(safeLimit)
@@ -359,6 +360,24 @@ export class SearchService {
     }
 
     return [];
+  }
+
+  async findByHtsNumber(htsNumber: string): Promise<HtsEntity | null> {
+    return this.htsRepository.findOne({
+      where: { htsNumber, isActive: true },
+      select: [
+        'htsNumber', 'chapter', 'heading', 'subheading', 'statisticalSuffix',
+        'indent', 'description', 'parentHtsNumber', 'parentHtses', 'fullDescription',
+        'hasChildren', 'isActive', 'unitOfQuantity',
+        'general', 'generalRate', 'rateFormula', 'rateVariables',
+        'other', 'otherRate', 'otherRateFormula', 'otherRateVariables',
+        'specialRates', 'chapter99', 'chapter99Links', 'chapter99ApplicableCountries',
+        'adjustedFormula', 'adjustedFormulaVariables',
+        'effectiveDate', 'expirationDate', 'sourceVersion', 'importDate',
+        'confirmed', 'requiredReview', 'requiredReviewComment',
+        'metadata', 'createdAt', 'updatedAt',
+      ],
+    });
   }
 
   private normalizeQuery(query: string): string {
