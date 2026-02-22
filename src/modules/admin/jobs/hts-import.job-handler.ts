@@ -326,6 +326,19 @@ export class HtsImportJobHandler {
     importHistory: HtsImportHistoryEntity,
   ): Promise<void> {
     const sourceVersion = importHistory.sourceVersion;
+
+    // Build hierarchy fields (parentHtsNumber, parentHtses, fullDescription, searchVector)
+    // The staging pipeline does not populate these, so we rebuild them after promotion.
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      'Building HTS hierarchy descriptions for promoted entries...',
+    );
+    await this.buildHierarchyDescriptions(importHistory.id, sourceVersion);
+    await this.htsImportService.appendLog(
+      importHistory.id,
+      '✓ HTS hierarchy descriptions built.',
+    );
+
     await this.htsImportService.appendLog(
       importHistory.id,
       'Running post-promotion formula generation...',
@@ -408,6 +421,121 @@ export class HtsImportJobHandler {
         `✓ HTS embedding refresh complete: total=${embeddingResult.total}, generated=${embeddingResult.generated}, failed=${embeddingResult.failed}`,
       );
     }
+  }
+
+  /**
+   * Rebuild parentHtsNumber, parentHtses, fullDescription, and searchVector
+   * for all entries of the promoted source version.
+   *
+   * HTS codes follow a strict prefix hierarchy (4 / 7 / 10 / 13 chars),
+   * so we use exact substring lookups — O(n log n) — instead of LIKE joins.
+   */
+  private async buildHierarchyDescriptions(
+    importId: string,
+    sourceVersion: string,
+  ): Promise<void> {
+    const em = this.htsRepo.manager;
+
+    // 1. parent_hts_number
+    await em.query(`
+      UPDATE hts child
+      SET parent_hts_number = COALESCE(
+        CASE WHEN length(child.hts_number) = 13 THEN (
+          SELECT p.hts_number FROM hts p
+          WHERE p.hts_number = substring(child.hts_number, 1, 10)
+            AND p.source_version = $1 AND p.is_active = true LIMIT 1
+        ) END,
+        CASE WHEN length(child.hts_number) >= 10 THEN (
+          SELECT p.hts_number FROM hts p
+          WHERE p.hts_number = substring(child.hts_number, 1, 7)
+            AND p.source_version = $1 AND p.is_active = true LIMIT 1
+        ) END,
+        CASE WHEN length(child.hts_number) >= 7 THEN (
+          SELECT p.hts_number FROM hts p
+          WHERE p.hts_number = substring(child.hts_number, 1, 4)
+            AND p.source_version = $1 AND p.is_active = true LIMIT 1
+        ) END
+      )
+      WHERE child.source_version = $1
+        AND child.is_active = true
+        AND length(child.hts_number) > 4
+    `, [sourceVersion]);
+
+    // 2. parent_htses
+    await em.query(`
+      UPDATE hts child
+      SET parent_htses = (
+        SELECT jsonb_agg(anc ORDER BY ord)
+        FROM (
+          SELECT 1 AS ord, p1.hts_number AS anc FROM hts p1
+          WHERE p1.hts_number = substring(child.hts_number, 1, 4)
+            AND p1.source_version = $1 AND p1.is_active = true
+            AND length(child.hts_number) > 4
+          UNION ALL
+          SELECT 2, p2.hts_number FROM hts p2
+          WHERE p2.hts_number = substring(child.hts_number, 1, 7)
+            AND p2.source_version = $1 AND p2.is_active = true
+            AND length(child.hts_number) > 7
+          UNION ALL
+          SELECT 3, p3.hts_number FROM hts p3
+          WHERE p3.hts_number = substring(child.hts_number, 1, 10)
+            AND p3.source_version = $1 AND p3.is_active = true
+            AND length(child.hts_number) > 10
+        ) ancestors
+      )
+      WHERE child.source_version = $1
+        AND child.is_active = true
+        AND length(child.hts_number) > 4
+    `, [sourceVersion]);
+
+    // 3. full_description (ancestor descs + own desc)
+    await em.query(`
+      UPDATE hts child
+      SET full_description = (
+        SELECT jsonb_agg(d ORDER BY ord)
+        FROM (
+          SELECT 1 AS ord, p1.description AS d FROM hts p1
+          WHERE p1.hts_number = substring(child.hts_number, 1, 4)
+            AND p1.source_version = $1 AND p1.is_active = true
+            AND length(child.hts_number) > 4
+          UNION ALL
+          SELECT 2, p2.description FROM hts p2
+          WHERE p2.hts_number = substring(child.hts_number, 1, 7)
+            AND p2.source_version = $1 AND p2.is_active = true
+            AND length(child.hts_number) > 7
+          UNION ALL
+          SELECT 3, p3.description FROM hts p3
+          WHERE p3.hts_number = substring(child.hts_number, 1, 10)
+            AND p3.source_version = $1 AND p3.is_active = true
+            AND length(child.hts_number) > 10
+          UNION ALL
+          SELECT 4, child.description
+        ) desc_chain
+      )
+      WHERE child.source_version = $1 AND child.is_active = true
+    `, [sourceVersion]);
+
+    // For top-level headings (4-char), full_description = own description only
+    await em.query(`
+      UPDATE hts
+      SET full_description = jsonb_build_array(description)
+      WHERE source_version = $1 AND is_active = true AND length(hts_number) = 4
+        AND (full_description IS NULL OR jsonb_array_length(COALESCE(full_description, '[]'::jsonb)) = 0)
+    `, [sourceVersion]);
+
+    // 4. Rebuild search_vector to include ancestor descriptions
+    await em.query(`
+      UPDATE hts
+      SET search_vector = to_tsvector('english',
+        COALESCE(hts_number, '') || ' ' ||
+        COALESCE(description, '') || ' ' ||
+        COALESCE((
+          SELECT string_agg(elem, ' ')
+          FROM jsonb_array_elements_text(COALESCE(full_description, '[]'::jsonb)) AS elem
+        ), '')
+      )
+      WHERE source_version = $1 AND is_active = true
+    `, [sourceVersion]);
   }
 
   private async applyCarryoverFormulaOverrides(

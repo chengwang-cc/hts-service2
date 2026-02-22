@@ -73,18 +73,10 @@ export class LookupController {
     @Body() classifyDto: ClassifyProductDto,
     @Query('organizationId') organizationId: string,
   ) {
-    const classification = await this.classificationService.classifyProduct(
+    return this.classificationService.classifyProduct(
       classifyDto.description,
       organizationId,
     );
-
-    // Transform entity to simple classification result for API response
-    return {
-      htsCode: classification.suggestedHts,
-      confidence: classification.confidence,
-      reasoning:
-        classification.aiSuggestions?.[0]?.reasoning || 'AI classification',
-    };
   }
 
   @Public()

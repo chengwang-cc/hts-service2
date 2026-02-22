@@ -183,11 +183,13 @@ export class SearchService {
   }
 
   /**
-   * Autocomplete by full-text search
-   * Uses AND logic with progressive word-dropping fallback:
-   * "transformer comic books" → tries "transformer & comic & books" first,
-   * then "comic & books", then "books" — so relevant combos like "comic books"
-   * are found even when leading brand/context words don't match HTS descriptions.
+   * Autocomplete by full-text search.
+   * Strategy:
+   *  1. Try AND of all words (most precise).
+   *  2. Fallback: OR of all words — ts_rank scores by how many words match,
+   *     so "comic books" entries outrank "transformer"-only entries.
+   *     This avoids the progressive-drop pitfall where "transformer comic books"
+   *     degenerates to just "books" or "transformer" alone.
    */
   private async autocompleteByFullText(
     query: string,
@@ -196,15 +198,24 @@ export class SearchService {
     const words = query.split(/\s+/).filter((w) => w.length > 0);
     if (words.length === 0) return [];
 
-    // Try AND logic, progressively dropping words from the front
-    for (let startIdx = 0; startIdx < words.length; startIdx++) {
-      const currentWords = words.slice(startIdx);
-      const tsquery = currentWords.map((w) => `${w}:*`).join(' & ');
+    // 1. Try AND of all words first
+    const andQuery = words.map((w) => `${w}:*`).join(' & ');
+    try {
+      const rows = await this.executeFullTextQuery(andQuery, limit);
+      if (rows.length > 0) return rows;
+    } catch {
+      // Invalid tsquery (stop words only), fall through
+    }
+
+    // 2. Fallback: OR of all words — ts_rank naturally ranks entries that
+    //    match more query words higher, preserving multi-word context.
+    if (words.length > 1) {
+      const orQuery = words.map((w) => `${w}:*`).join(' | ');
       try {
-        const rows = await this.executeFullTextQuery(tsquery, limit);
+        const rows = await this.executeFullTextQuery(orQuery, limit);
         if (rows.length > 0) return rows;
       } catch {
-        // Invalid tsquery (e.g., stopword-only query), try next relaxation
+        // ignore
       }
     }
 
@@ -222,7 +233,7 @@ export class SearchService {
       .addSelect('hts.chapter', 'chapter')
       .addSelect('hts.indent', 'indent')
       .addSelect(
-        `ts_rank(hts.searchVector, to_tsquery('english', :tsquery))`,
+        `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
         'score',
       )
       .where('hts.isActive = :active', { active: true })
@@ -322,7 +333,10 @@ export class SearchService {
 
   /**
    * Search by full-text search with ranking.
-   * Uses AND logic with progressive word-dropping fallback for better precision.
+   * Strategy:
+   *  1. Try AND of all words (most precise).
+   *  2. Fallback: OR of all words — ts_rank_cd scores by how many words match,
+   *     preserving multi-word context over single-word degeneration.
    */
   private async searchByFullText(
     query: string,
@@ -331,36 +345,49 @@ export class SearchService {
     const words = query.split(/\s+/).filter((w) => w.length > 0);
     if (words.length === 0) return [];
 
-    // Try AND logic, progressively dropping words from the front
-    for (let startIdx = 0; startIdx < words.length; startIdx++) {
-      const currentWords = words.slice(startIdx);
-      const tsquery = currentWords.map((w) => `${w}:*`).join(' & ');
-      try {
-        const rows = await this.htsRepository
-          .createQueryBuilder('hts')
-          .select('hts.htsNumber', 'htsNumber')
-          .addSelect(
-            `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
-            'score',
-          )
-          .where('hts.isActive = :active', { active: true })
-          .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
-          .andWhere("hts.chapter NOT IN ('98', '99')")
-          .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
-          .setParameters({ tsquery })
-          .orderBy('score', 'DESC')
-          .addOrderBy('hts.htsNumber', 'ASC')
-          .limit(limit)
-          .getRawMany();
+    const runQuery = async (
+      tsquery: string,
+    ): Promise<Array<{ htsNumber: string; score: number }>> => {
+      const rows = await this.htsRepository
+        .createQueryBuilder('hts')
+        .select('hts.htsNumber', 'htsNumber')
+        .addSelect(
+          `ts_rank_cd(hts.searchVector, to_tsquery('english', :tsquery))`,
+          'score',
+        )
+        .where('hts.isActive = :active', { active: true })
+        .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+        .andWhere("hts.chapter NOT IN ('98', '99')")
+        .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
+        .setParameters({ tsquery })
+        .orderBy('score', 'DESC')
+        .addOrderBy('hts.htsNumber', 'ASC')
+        .limit(limit)
+        .getRawMany();
+      return rows.map((row) => ({
+        htsNumber: row.htsNumber,
+        score: Number(row.score) || 0,
+      }));
+    };
 
-        if (rows.length > 0) {
-          return rows.map((row) => ({
-            htsNumber: row.htsNumber,
-            score: Number(row.score) || 0,
-          }));
-        }
+    // 1. Try AND of all words first
+    const andQuery = words.map((w) => `${w}:*`).join(' & ');
+    try {
+      const rows = await runQuery(andQuery);
+      if (rows.length > 0) return rows;
+    } catch {
+      // Invalid tsquery (stop words only), fall through
+    }
+
+    // 2. Fallback: OR of all words — ts_rank_cd naturally ranks entries that
+    //    match more query words higher, preserving multi-word context.
+    if (words.length > 1) {
+      const orQuery = words.map((w) => `${w}:*`).join(' | ');
+      try {
+        const rows = await runQuery(orQuery);
+        if (rows.length > 0) return rows;
       } catch {
-        // Invalid tsquery, try next relaxation
+        // ignore
       }
     }
 
@@ -423,11 +450,14 @@ export class SearchService {
     keyword.forEach((result) => {
       const existing = combined.get(result.htsNumber);
       if (existing) {
-        existing.score += result.score * 0.35;
+        // Already found semantically — keyword match is a strong signal, boost it
+        existing.score += 0.3 + result.score * 0.35;
       } else {
+        // Keyword-only match: the entry literally contains the search term.
+        // Give it a meaningful base score so it competes with mid-ranked semantic results.
         combined.set(result.htsNumber, {
           htsNumber: result.htsNumber,
-          score: result.score,
+          score: 0.5 + result.score * 0.35,
         });
       }
     });
