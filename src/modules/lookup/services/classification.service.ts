@@ -56,17 +56,26 @@ Return JSON with: { htsCode, confidence, reasoning }.`;
 
       const result = JSON.parse(outputText);
 
-      const classification = this.classificationRepository.create({
-        organizationId,
-        productName: description.substring(0, 500),
-        description,
+      // Only persist classification history for authenticated organizations
+      if (organizationId) {
+        const classification = this.classificationRepository.create({
+          organizationId,
+          productName: description.substring(0, 500),
+          description,
+          suggestedHts: result.htsCode,
+          confidence: result.confidence,
+          status: 'PENDING_CONFIRMATION',
+          aiSuggestions: [result],
+        });
+        return this.classificationRepository.save(classification);
+      }
+
+      // Guest usage: return result without persisting
+      return {
         suggestedHts: result.htsCode,
         confidence: result.confidence,
-        status: 'PENDING_CONFIRMATION',
         aiSuggestions: [result],
-      });
-
-      return this.classificationRepository.save(classification);
+      };
     } catch (error) {
       this.logger.error(`Classification failed: ${error.message}`);
       throw error;

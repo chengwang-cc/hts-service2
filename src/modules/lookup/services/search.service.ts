@@ -37,6 +37,7 @@ export class SearchService {
           .where('hts.isActive = :active', { active: true })
           .andWhere('hts.embedding IS NOT NULL')
           .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+          .andWhere("hts.chapter NOT IN ('98', '99')")
           .setParameter('embedding', JSON.stringify(embedding))
           .orderBy('similarity', 'DESC')
           .limit(safeLimit)
@@ -145,6 +146,7 @@ export class SearchService {
       )
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
 
       .andWhere(
         new Brackets((qb) => {
@@ -225,6 +227,7 @@ export class SearchService {
       )
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
       .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
       .setParameters({ tsquery })
       .orderBy('score', 'DESC')
@@ -284,6 +287,7 @@ export class SearchService {
       )
       .where('hts.isActive = :active', { active: true })
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
 
       .andWhere(
         new Brackets((qb) => {
@@ -341,6 +345,7 @@ export class SearchService {
           )
           .where('hts.isActive = :active', { active: true })
           .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+          .andWhere("hts.chapter NOT IN ('98', '99')")
           .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
           .setParameters({ tsquery })
           .orderBy('score', 'DESC')
