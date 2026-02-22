@@ -18,6 +18,7 @@ import {
 import { HtsEntity, CoreModule } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { BillingModule } from '../billing/billing.module';
 
 /**
  * Lookup Wrapper Module
@@ -31,6 +32,7 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
     HttpModule,
     AuthModule, // Provides JWT authentication components
     KnowledgebaseModule,
+    BillingModule,
     CoreModule.forFeature(),
     TypeOrmModule.forFeature([
       ProductClassificationEntity,

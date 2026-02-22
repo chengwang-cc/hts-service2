@@ -23,6 +23,16 @@ interface CandidateEntry {
   fullDescription?: string[] | null;
 }
 
+interface QuerySignals {
+  hasMediaIntent: boolean;
+  hasComicIntent: boolean;
+  hasTransformerToken: boolean;
+  hasManufacturingToken: boolean;
+  hasApparelIntent: boolean;
+  hasTshirtIntent: boolean;
+  hasCottonToken: boolean;
+}
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
@@ -39,14 +49,158 @@ export class SearchService {
   ]);
 
   private readonly QUERY_SYNONYMS: Record<string, string[]> = {
-    comic: ['comics', 'manga', 'graphic', 'periodical'],
-    comics: ['comic', 'manga', 'graphic', 'periodical'],
-    manga: ['comic', 'comics', 'graphic', 'periodical'],
+    comic: ['comics', 'manga', 'graphic', 'periodical', 'book', 'books'],
+    comics: ['comic', 'manga', 'graphic', 'periodical', 'book', 'books'],
+    manga: ['comic', 'comics', 'graphic', 'periodical', 'book', 'books'],
     periodical: ['journal', 'magazine', 'serial'],
     journal: ['periodical', 'magazine'],
     magazine: ['periodical', 'journal'],
-    transformer: ['transformers', 'toy'],
+    book: ['books', 'comic', 'comics', 'periodical', 'journal'],
+    books: ['book', 'comic', 'comics', 'periodical', 'journal'],
+    transformer: ['transformers'],
+    transformers: ['transformer'],
+    transfomer: ['transformer', 'transformers'],
+    tshirt: ['tshirts', 'shirt', 'shirts', 'tee', 'apparel'],
+    tshirts: ['tshirt', 'shirt', 'shirts', 'tee', 'apparel'],
+    shirt: ['shirts', 'tshirt', 'tshirts', 'apparel'],
+    shirts: ['shirt', 'tshirt', 'tshirts', 'apparel'],
   };
+
+  private readonly MEDIA_INTENT_TOKENS = new Set([
+    'comic',
+    'comics',
+    'manga',
+    'book',
+    'books',
+    'periodical',
+    'periodicals',
+    'journal',
+    'magazine',
+    'newspaper',
+    'graphic',
+  ]);
+
+  private readonly COMIC_INTENT_TOKENS = new Set([
+    'comic',
+    'comics',
+    'manga',
+    'graphic',
+  ]);
+
+  private readonly MEDIA_RESULT_HINTS = new Set([
+    'comic',
+    'comics',
+    'manga',
+    'book',
+    'books',
+    'periodical',
+    'periodicals',
+    'journal',
+    'magazine',
+    'newspaper',
+    'paperbound',
+    'hardbound',
+  ]);
+
+  private readonly COMIC_RESULT_HINTS = new Set([
+    'comic',
+    'comics',
+    'manga',
+    'graphic',
+    'pages',
+    'covers',
+    'periodical',
+    'periodicals',
+  ]);
+
+  private readonly COMIC_PAGE_HINTS = new Set([
+    'page',
+    'pages',
+    'excluding',
+    'covers',
+  ]);
+
+  private readonly STATIONERY_HINTS = new Set([
+    'diaries',
+    'diary',
+    'address',
+    'exercise',
+    'composition',
+    'notebook',
+    'notebooks',
+  ]);
+
+  private readonly MACHINERY_HINTS = new Set([
+    'machinery',
+    'machine',
+    'parts',
+    'printing',
+    'binding',
+    'bind',
+  ]);
+
+  private readonly ELECTRICAL_TRANSFORMER_HINTS = new Set([
+    'transformer',
+    'transformers',
+    'electrical',
+    'voltage',
+    'coil',
+    'core',
+    'wound',
+    'stacked',
+  ]);
+
+  private readonly APPAREL_INTENT_TOKENS = new Set([
+    'tshirt',
+    'tshirts',
+    'shirt',
+    'shirts',
+    'tee',
+    'apparel',
+    'garment',
+    'clothing',
+  ]);
+
+  private readonly MANUFACTURING_TOKENS = new Set([
+    'machine',
+    'machinery',
+    'printer',
+    'printing',
+    'equipment',
+    'industrial',
+  ]);
+
+  private readonly APPAREL_RESULT_HINTS = new Set([
+    'tshirt',
+    'tshirts',
+    'shirt',
+    'shirts',
+    'tee',
+    'apparel',
+    'garment',
+    'pullover',
+    'jersey',
+    'undershirt',
+    'singlet',
+  ]);
+
+  private readonly TSHIRT_RESULT_HINTS = new Set([
+    'tshirt',
+    'tshirts',
+    'tee',
+    'crew',
+    'neckline',
+    'undershirt',
+  ]);
+
+  private readonly YARN_RESULT_HINTS = new Set([
+    'yarn',
+    'spun',
+    'thread',
+    'fiber',
+    'fibers',
+    'filament',
+  ]);
 
   constructor(
     @InjectRepository(HtsEntity)
@@ -62,7 +216,10 @@ export class SearchService {
     }
 
     const queryTokens = this.tokenizeQuery(normalizedQuery);
-    const expandedTokens = this.expandQueryTokens(queryTokens);
+    const signals = this.buildQuerySignals(queryTokens);
+    const lexicalTokens = this.buildLexicalTokens(queryTokens, signals);
+    const expandedTokens = this.expandQueryTokens(lexicalTokens);
+    const semanticQuery = this.buildSemanticQuery(normalizedQuery, queryTokens, signals);
     let semanticResults: SemanticCandidate[] = [];
     const shouldRunSemantic =
       queryTokens.length > 0 &&
@@ -72,7 +229,7 @@ export class SearchService {
     if (shouldRunSemantic) {
       try {
         semanticResults = await this.semanticTextSearch(
-          normalizedQuery,
+          semanticQuery,
           Math.min(this.MAX_LIMIT, safeLimit * 4),
         );
       } catch (error) {
@@ -117,7 +274,7 @@ export class SearchService {
         }
 
         const coverage = this.computeCoverageScore(
-          expandedTokens,
+          queryTokens,
           this.buildEntryText(entry),
         );
         const phraseBoost = this.computePhraseBoost(
@@ -129,13 +286,58 @@ export class SearchService {
           entry.description,
           coverage,
         );
+        const tokenSet = this.buildEntryTokenSet(entry);
+        if (
+          signals.hasComicIntent &&
+          !signals.hasManufacturingToken &&
+          entry.chapter === '84'
+        ) {
+          return null;
+        }
+        if (
+          signals.hasComicIntent &&
+          entry.chapter !== '49' &&
+          !this.hasTokenOverlap(tokenSet, this.MEDIA_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasComicIntent &&
+          entry.chapter === '48' &&
+          this.hasTokenOverlap(tokenSet, this.STATIONERY_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasTshirtIntent &&
+          entry.chapter === '62' &&
+          !this.hasTokenOverlap(tokenSet, this.TSHIRT_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasTshirtIntent &&
+          entry.chapter !== '61' &&
+          entry.chapter !== '62' &&
+          !this.hasTokenOverlap(tokenSet, this.TSHIRT_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        const intentBoost = this.computeIntentBoost(signals, entry, tokenSet);
+        const intentPenalty = this.computeIntentPenalty(
+          signals,
+          entry,
+          tokenSet,
+        );
 
         const score =
           result.score +
           coverage * 0.7 +
           phraseBoost +
           specificityBoost -
-          genericPenalty;
+          genericPenalty +
+          intentBoost -
+          intentPenalty;
 
         return {
           htsNumber: entry.htsNumber,
@@ -255,7 +457,10 @@ export class SearchService {
     includeCodeCandidates: boolean,
   ): Promise<any[]> {
     const baseTokens = this.tokenizeQuery(query);
-    const expandedTokens = this.expandQueryTokens(baseTokens);
+    const signals = this.buildQuerySignals(baseTokens);
+    const lexicalTokens = this.buildLexicalTokens(baseTokens, signals);
+    const expandedTokens = this.expandQueryTokens(lexicalTokens);
+    const semanticQuery = this.buildSemanticQuery(query, baseTokens, signals);
     const candidateLimit = Math.min(this.MAX_LIMIT, Math.max(limit * 5, 30));
 
     const lexicalPromise = this.autocompleteByFullText(
@@ -265,7 +470,7 @@ export class SearchService {
     );
     const semanticPromise =
       query.length >= 4
-        ? this.semanticAutocompleteSearch(query, candidateLimit)
+        ? this.semanticAutocompleteSearch(semanticQuery, candidateLimit)
         : Promise.resolve([] as SemanticCandidate[]);
     const codePromise = includeCodeCandidates
       ? this.autocompleteByCode(query, Math.min(candidateLimit, 20))
@@ -307,13 +512,52 @@ export class SearchService {
         }
         const base = fused.get(htsNumber) || 0;
         const text = this.buildEntryText(entry);
-        const coverage = this.computeCoverageScore(expandedTokens, text);
+        const coverage = this.computeCoverageScore(baseTokens, text);
         const phraseBoost = this.computePhraseBoost(query, text);
         const specificityBoost = this.computeSpecificityBoost(htsNumber);
         const genericPenalty = this.computeGenericPenalty(
           entry.description,
           coverage,
         );
+        const tokenSet = this.buildEntryTokenSet(entry);
+        if (
+          signals.hasComicIntent &&
+          !signals.hasManufacturingToken &&
+          entry.chapter === '84'
+        ) {
+          return null;
+        }
+        if (
+          signals.hasComicIntent &&
+          entry.chapter !== '49' &&
+          !this.hasTokenOverlap(tokenSet, this.MEDIA_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasComicIntent &&
+          entry.chapter === '48' &&
+          this.hasTokenOverlap(tokenSet, this.STATIONERY_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasTshirtIntent &&
+          entry.chapter === '62' &&
+          !this.hasTokenOverlap(tokenSet, this.TSHIRT_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        if (
+          signals.hasTshirtIntent &&
+          entry.chapter !== '61' &&
+          entry.chapter !== '62' &&
+          !this.hasTokenOverlap(tokenSet, this.TSHIRT_RESULT_HINTS)
+        ) {
+          return null;
+        }
+        const intentBoost = this.computeIntentBoost(signals, entry, tokenSet);
+        const intentPenalty = this.computeIntentPenalty(signals, entry, tokenSet);
 
         return {
           htsNumber: entry.htsNumber,
@@ -325,7 +569,9 @@ export class SearchService {
             coverage * 0.85 +
             phraseBoost +
             specificityBoost -
-            genericPenalty,
+            genericPenalty +
+            intentBoost -
+            intentPenalty,
         };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null)
@@ -643,7 +889,14 @@ export class SearchService {
   }
 
   private normalizeQuery(query: string): string {
-    return (query ?? '').trim().replace(/\s+/g, ' ');
+    const normalized = (query ?? '').trim().replace(/\s+/g, ' ');
+    return normalized
+      .replace(/\btransfomer\b/gi, 'transformer')
+      .replace(/\btranformer\b/gi, 'transformer')
+      .replace(/\bcomic[\s-]?books?\b/gi, 'comic book')
+      .replace(/\bt[\s-]?shirts?\b/gi, 'tshirt')
+      .trim()
+      .replace(/\s+/g, ' ');
   }
 
   private clampLimit(limit: number, fallback: number): number {
@@ -694,7 +947,18 @@ export class SearchService {
       'from',
     ]);
 
-    return [...new Set(raw.filter((token) => token.length > 1 && !stopWords.has(token)))];
+    const corrected = raw.map((token) => {
+      if (token === 'transfomer' || token === 'tranformer') {
+        return 'transformer';
+      }
+      return token;
+    });
+
+    return [
+      ...new Set(
+        corrected.filter((token) => token.length > 1 && !stopWords.has(token)),
+      ),
+    ];
   }
 
   private expandQueryTokens(tokens: string[]): string[] {
@@ -726,6 +990,11 @@ export class SearchService {
   private buildEntryText(entry: CandidateEntry): string {
     const hierarchy = (entry.fullDescription || []).join(' ');
     return `${entry.description || ''} ${hierarchy}`.trim().toLowerCase();
+  }
+
+  private buildEntryTokenSet(entry: CandidateEntry): Set<string> {
+    const text = this.buildEntryText(entry);
+    return new Set(text.match(/[a-z0-9]+/g) || []);
   }
 
   private computeCoverageScore(tokens: string[], text: string): number {
@@ -808,6 +1077,184 @@ export class SearchService {
 
     const merged = [...selected, ...deferred];
     return merged.slice(0, limit);
+  }
+
+  private buildQuerySignals(tokens: string[]): QuerySignals {
+    const tokenSet = new Set(tokens);
+
+    const hasAny = (source: Set<string>): boolean => {
+      for (const token of source) {
+        if (tokenSet.has(token)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    return {
+      hasMediaIntent: hasAny(this.MEDIA_INTENT_TOKENS),
+      hasComicIntent: hasAny(this.COMIC_INTENT_TOKENS),
+      hasTransformerToken:
+        tokenSet.has('transformer') || tokenSet.has('transformers'),
+      hasManufacturingToken: hasAny(this.MANUFACTURING_TOKENS),
+      hasApparelIntent: hasAny(this.APPAREL_INTENT_TOKENS),
+      hasTshirtIntent: tokenSet.has('tshirt') || tokenSet.has('tshirts'),
+      hasCottonToken: tokenSet.has('cotton'),
+    };
+  }
+
+  private buildLexicalTokens(
+    queryTokens: string[],
+    signals: QuerySignals,
+  ): string[] {
+    if (!signals.hasMediaIntent || !signals.hasTransformerToken) {
+      return queryTokens;
+    }
+
+    const filtered = queryTokens.filter(
+      (token) => token !== 'transformer' && token !== 'transformers',
+    );
+    return filtered.length > 0 ? filtered : queryTokens;
+  }
+
+  private buildSemanticQuery(
+    fallbackQuery: string,
+    queryTokens: string[],
+    signals: QuerySignals,
+  ): string {
+    if (!signals.hasMediaIntent || !signals.hasTransformerToken) {
+      return fallbackQuery;
+    }
+
+    const reduced = queryTokens.filter(
+      (token) => token !== 'transformer' && token !== 'transformers',
+    );
+
+    if (reduced.length === 0) {
+      return fallbackQuery;
+    }
+    return reduced.join(' ');
+  }
+
+  private computeIntentBoost(
+    signals: QuerySignals,
+    entry: CandidateEntry,
+    entryTokens: Set<string>,
+  ): number {
+    let boost = 0;
+
+    if (signals.hasMediaIntent) {
+      if (entry.chapter === '49') {
+        boost += 0.38;
+      }
+      if (this.hasTokenOverlap(entryTokens, this.MEDIA_RESULT_HINTS)) {
+        boost += 0.42;
+      }
+    }
+
+    if (signals.hasComicIntent) {
+      if (
+        entry.htsNumber.startsWith('4901.99.00.9') ||
+        entry.htsNumber.startsWith('4902.')
+      ) {
+        boost += 0.48;
+      }
+      if (this.hasTokenOverlap(entryTokens, this.COMIC_RESULT_HINTS)) {
+        boost += 0.35;
+      }
+      if (this.hasTokenOverlap(entryTokens, this.COMIC_PAGE_HINTS)) {
+        boost += 0.18;
+      }
+    }
+
+    if (signals.hasApparelIntent) {
+      if (entry.chapter === '61' || entry.chapter === '62') {
+        boost += 0.35;
+      }
+      if (this.hasTokenOverlap(entryTokens, this.APPAREL_RESULT_HINTS)) {
+        boost += 0.3;
+      }
+      if (signals.hasCottonToken && (entry.chapter === '61' || entry.chapter === '62')) {
+        boost += 0.08;
+      }
+    }
+
+    if (signals.hasTshirtIntent) {
+      if (entry.htsNumber.startsWith('6109.')) {
+        boost += 0.55;
+      }
+      if (this.hasTokenOverlap(entryTokens, this.TSHIRT_RESULT_HINTS)) {
+        boost += 0.3;
+      }
+    }
+
+    return boost;
+  }
+
+  private computeIntentPenalty(
+    signals: QuerySignals,
+    entry: CandidateEntry,
+    entryTokens: Set<string>,
+  ): number {
+    let penalty = 0;
+
+    if (signals.hasMediaIntent && signals.hasTransformerToken) {
+      if (entry.chapter === '85' && this.hasTokenOverlap(entryTokens, this.ELECTRICAL_TRANSFORMER_HINTS)) {
+        penalty += 1.05;
+      }
+    }
+
+    if (signals.hasComicIntent) {
+      if (
+        entry.chapter === '48' &&
+        this.hasTokenOverlap(entryTokens, this.STATIONERY_HINTS)
+      ) {
+        penalty += 0.7;
+      }
+      if (
+        entry.chapter === '84' &&
+        this.hasTokenOverlap(entryTokens, this.MACHINERY_HINTS)
+      ) {
+        penalty += 0.8;
+      }
+
+      if (
+        entry.chapter !== '49' &&
+        !this.hasTokenOverlap(entryTokens, this.MEDIA_RESULT_HINTS)
+      ) {
+        penalty += 0.35;
+      }
+    }
+
+    if (signals.hasApparelIntent) {
+      if (entry.chapter === '52' && this.hasTokenOverlap(entryTokens, this.YARN_RESULT_HINTS)) {
+        penalty += 0.45;
+      }
+    }
+
+    if (signals.hasTshirtIntent) {
+      const description = (entry.description || '').toLowerCase();
+      if (description.includes('subject to cotton restraints')) {
+        penalty += 0.55;
+      }
+      if (
+        entry.chapter === '62' &&
+        !this.hasTokenOverlap(entryTokens, this.TSHIRT_RESULT_HINTS)
+      ) {
+        penalty += 0.75;
+      }
+    }
+
+    return penalty;
+  }
+
+  private hasTokenOverlap(tokenSet: Set<string>, reference: Set<string>): boolean {
+    for (const token of reference) {
+      if (tokenSet.has(token)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private combineResults(

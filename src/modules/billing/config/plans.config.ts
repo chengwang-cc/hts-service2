@@ -267,6 +267,7 @@ export const OVERAGE_RATES: Record<string, number> = {
   'calculations.monthly': 0.1, // $0.10 per calculation
   'widget.calculationsPerMonth': 0.15, // $0.15 per widget calculation
   'api.requestsPerMonth': 0.001, // $0.001 per API request
+  'advancedSearch.overageSessions': 0.1, // $0.10 per advanced conversation session over daily quota
 };
 
 // Helper function to get plan by ID

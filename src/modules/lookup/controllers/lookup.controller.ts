@@ -6,29 +6,29 @@ import {
   Query,
   Param,
   NotFoundException,
+  GoneException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   SearchService,
-  ClassificationService,
   UrlClassifierService,
   LookupConversationAgentService,
 } from '../services';
 import {
   SearchDto,
-  ClassifyProductDto,
   ClassifyUrlRequestDto,
   CreateLookupConversationDto,
   LookupConversationMessageDto,
   LookupConversationFeedbackDto,
 } from '../dto';
-import { RateLimit, Public } from '../decorators';
+import { Public } from '../decorators';
 import { NoteResolutionService } from '@hts/knowledgebase';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 
 @Controller('lookup')
 export class LookupController {
   constructor(
     private readonly searchService: SearchService,
-    private readonly classificationService: ClassificationService,
     private readonly urlClassifierService: UrlClassifierService,
     private readonly noteResolutionService: NoteResolutionService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
@@ -77,14 +77,9 @@ export class LookupController {
 
   @Public()
   @Post('classify')
-  @RateLimit({ endpoint: 'classify' })
-  async classifyProduct(
-    @Body() classifyDto: ClassifyProductDto,
-    @Query('organizationId') organizationId: string,
-  ) {
-    return this.classificationService.classifyProduct(
-      classifyDto.description,
-      organizationId,
+  async classifyProduct() {
+    throw new GoneException(
+      'lookup/classify is deprecated. Use lookup/autocomplete, lookup/search, or lookup/conversations instead.',
     );
   }
 
@@ -162,11 +157,18 @@ export class LookupController {
     return { status: 'ok', service: 'lookup' };
   }
 
-  @Public()
   @Post('conversations')
-  async createConversation(@Body() dto: CreateLookupConversationDto) {
+  async createConversation(
+    @CurrentUser() user: any,
+    @Body() dto: CreateLookupConversationDto,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
     const session = await this.lookupConversationAgentService.createConversation({
-      organizationId: dto.organizationId,
+      organizationId: user.organizationId,
+      userId: user.id,
       userProfile: dto.userProfile,
     });
     return {
@@ -175,33 +177,47 @@ export class LookupController {
         conversationId: session.id,
         status: session.status,
         createdAt: session.createdAt,
+        usage: session.usage || null,
       },
     };
   }
 
-  @Public()
   @Get('conversations/:conversationId')
-  async getConversation(@Param('conversationId') conversationId: string) {
-    const session =
-      await this.lookupConversationAgentService.getConversation(conversationId);
+  async getConversation(
+    @CurrentUser() user: any,
+    @Param('conversationId') conversationId: string,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    const session = await this.lookupConversationAgentService.getConversation(
+      conversationId,
+      user.organizationId,
+    );
     return {
       success: true,
       data: session,
     };
   }
 
-  @Public()
   @Get('conversations/:conversationId/messages')
   async getConversationMessages(
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
     @Query('limit') limit?: string,
   ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
     const safeLimit = Math.min(
       Math.max(parseInt(limit || '100', 10) || 100, 1),
       500,
     );
     const data = await this.lookupConversationAgentService.getMessages(
       conversationId,
+      user.organizationId,
       safeLimit,
     );
     return {
@@ -210,14 +226,19 @@ export class LookupController {
     };
   }
 
-  @Public()
   @Post('conversations/:conversationId/messages')
   async sendConversationMessage(
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
     @Body() dto: LookupConversationMessageDto,
   ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
     const result = await this.lookupConversationAgentService.sendMessage(
       conversationId,
+      user.organizationId,
       dto.message,
     );
     return {
@@ -226,14 +247,19 @@ export class LookupController {
     };
   }
 
-  @Public()
   @Post('conversations/:conversationId/feedback')
   async submitConversationFeedback(
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
     @Body() dto: LookupConversationFeedbackDto,
   ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
     const result = await this.lookupConversationAgentService.recordFeedback(
       conversationId,
+      user.organizationId,
       dto,
     );
     return {

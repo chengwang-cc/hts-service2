@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpException,
   HttpStatus,
+  GoneException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,32 +21,25 @@ import {
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
 import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
-import { ClassificationService } from '@hts/lookup';
-import { SearchService } from '@hts/lookup';
 
 /**
  * Public API v1 - Product Classification
- * HTS product classification with AI
+ * Deprecated: use HTS lookup search endpoints and lookup conversations.
  */
 @ApiTags('Classification')
 @ApiSecurity('api-key')
 @Controller('api/v1/classifications')
 @UseGuards(ApiKeyGuard)
 export class ClassificationPublicController {
-  constructor(
-    private readonly classificationService: ClassificationService,
-    private readonly searchService: SearchService,
-  ) {}
-
   /**
    * Create new classification
    * POST /api/v1/classifications
    */
   @Post()
   @ApiOperation({
-    summary: 'Classify a product',
+    summary: 'Classify a product (Deprecated)',
     description:
-      'Get AI-powered HTS code classification for a product based on description, images, or enhanced details.',
+      'Deprecated endpoint. Use /api/v1/hts/search or /api/v1/hts/autocomplete, or /lookup/conversations for guided lookup.',
   })
   @ApiBody({
     description: 'Product information for classification',
@@ -83,17 +77,13 @@ export class ClassificationPublicController {
   })
   @ApiResponse({ status: 201, description: 'Classification created' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 410, description: 'Endpoint deprecated' })
   @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @ApiPermissions('hts:search')
   async createClassification(
     @Body('productDescription') productDescription: string,
-    @Body('productName') productName?: string,
-    @Body('countryOfOrigin') countryOfOrigin?: string,
-    @Body('imageUrl') imageUrl?: string,
-    @Body('materialComposition') materialComposition?: string,
-    @CurrentApiKey() apiKey?: ApiKeyEntity,
   ) {
     if (!productDescription) {
       throw new HttpException(
@@ -106,66 +96,9 @@ export class ClassificationPublicController {
       );
     }
 
-    try {
-      // Build enhanced description if additional details provided
-      let fullDescription = productDescription;
-      if (materialComposition) {
-        fullDescription += ` | Material: ${materialComposition}`;
-      }
-      if (countryOfOrigin) {
-        fullDescription += ` | Origin: ${countryOfOrigin}`;
-      }
-
-      // Use classification service for AI-powered classification
-      const result = await this.classificationService.classifyProduct(
-        fullDescription,
-        apiKey?.organizationId || 'public',
-      );
-
-      // Get multiple suggestions using search
-      const suggestions = await this.searchService.hybridSearch(
-        fullDescription,
-        5,
-      );
-
-      return {
-        success: true,
-        data: {
-          id: `cls_${Date.now()}`,
-          productName: productName || 'Unnamed Product',
-          productDescription,
-          countryOfOrigin,
-          status: 'pending_confirmation',
-          suggestions: suggestions.map((s: any) => ({
-            htsCode: s.htsNumber,
-            description: s.description,
-            confidence: s.score || 0.7,
-            reasoning: s.reasoning || 'Based on product description match',
-          })),
-          primarySuggestion: {
-            htsCode: result.htsCode || suggestions[0]?.htsNumber,
-            confidence: result.confidence || suggestions[0]?.score || 0.7,
-            reasoning:
-              result.reasoning ||
-              'AI-powered classification based on product description',
-          },
-          createdAt: new Date().toISOString(),
-        },
-        meta: {
-          apiVersion: 'v1',
-          organizationId: apiKey?.organizationId,
-        },
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to classify product',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    throw new GoneException(
+      'api/v1/classifications is deprecated. Use api/v1/hts/search or api/v1/hts/autocomplete; for guided workflow use lookup/conversations.',
+    );
   }
 
   /**

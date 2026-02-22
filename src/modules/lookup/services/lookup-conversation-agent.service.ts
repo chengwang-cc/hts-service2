@@ -1,11 +1,16 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Agent, run, tool } from '@openai/agents';
 import { z } from 'zod';
 import { SearchService } from './search.service';
-import { ClassificationService } from './classification.service';
 import { NoteResolutionService } from '@hts/knowledgebase';
+import { UsageTrackingService } from '@hts/billing';
 import { LookupConversationSessionEntity } from '../entities/lookup-conversation-session.entity';
 import { LookupConversationMessageEntity } from '../entities/lookup-conversation-message.entity';
 import { LookupConversationFeedbackEntity } from '../entities/lookup-conversation-feedback.entity';
@@ -40,6 +45,14 @@ export type ConversationAgentOutput = z.infer<typeof ConversationResponseSchema>
 
 export type ConversationRole = 'user' | 'assistant';
 
+export interface AdvancedConversationUsage {
+  dailyLimit: number;
+  usedToday: number;
+  remainingToday: number;
+  overageApplied: boolean;
+  overageChargeUsd: number;
+}
+
 export interface ConversationMessage {
   id: string;
   role: ConversationRole;
@@ -55,11 +68,14 @@ export interface ConversationSession {
   updatedAt: string;
   status: 'active' | 'closed';
   messages: ConversationMessage[];
+  usage?: AdvancedConversationUsage;
 }
 
 @Injectable()
 export class LookupConversationAgentService {
   private readonly logger = new Logger(LookupConversationAgentService.name);
+  private readonly ADVANCED_SESSION_DAILY_LIMIT = 20;
+  private readonly ADVANCED_SESSION_OVERAGE_CHARGE_USD = 0.1;
 
   constructor(
     @InjectRepository(LookupConversationSessionEntity)
@@ -69,28 +85,59 @@ export class LookupConversationAgentService {
     @InjectRepository(LookupConversationFeedbackEntity)
     private readonly feedbackRepository: Repository<LookupConversationFeedbackEntity>,
     private readonly searchService: SearchService,
-    private readonly classificationService: ClassificationService,
     private readonly noteResolutionService: NoteResolutionService,
+    private readonly usageTrackingService: UsageTrackingService,
   ) {}
 
-  async createConversation(params?: {
-    organizationId?: string;
+  async createConversation(params: {
+    organizationId: string;
+    userId?: string;
     userProfile?: string;
   }): Promise<ConversationSession> {
+    const { start, end } = this.getUtcDayWindow();
+    const sessionsToday = await this.sessionRepository
+      .createQueryBuilder('session')
+      .where('session.organizationId = :organizationId', {
+        organizationId: params.organizationId,
+      })
+      .andWhere('session.createdAt >= :start', { start })
+      .andWhere('session.createdAt < :end', { end })
+      .getCount();
+
+    const overageApplied = sessionsToday >= this.ADVANCED_SESSION_DAILY_LIMIT;
     const session = this.sessionRepository.create({
-      organizationId: params?.organizationId || null,
-      userProfile: params?.userProfile || null,
+      organizationId: params.organizationId,
+      userProfile: params.userProfile || null,
       status: 'active',
       contextJson: null,
     });
     const saved = await this.sessionRepository.save(session);
-    return this.toConversationSession(saved, []);
+
+    await this.trackAdvancedSessionUsage(params.organizationId, {
+      sessionId: saved.id,
+      userId: params.userId || null,
+      overageApplied,
+    });
+
+    const usedToday = sessionsToday + 1;
+    const usage: AdvancedConversationUsage = {
+      dailyLimit: this.ADVANCED_SESSION_DAILY_LIMIT,
+      usedToday,
+      remainingToday: Math.max(0, this.ADVANCED_SESSION_DAILY_LIMIT - usedToday),
+      overageApplied,
+      overageChargeUsd: overageApplied
+        ? this.ADVANCED_SESSION_OVERAGE_CHARGE_USD
+        : 0,
+    };
+
+    return this.toConversationSession(saved, [], usage);
   }
 
   async getConversation(
     conversationId: string,
+    organizationId: string,
   ): Promise<Omit<ConversationSession, 'messages'> & { messageCount: number }> {
-    const session = await this.requireSession(conversationId);
+    const session = await this.requireSession(conversationId, organizationId);
     const messageCount = await this.messageRepository.count({
       where: { sessionId: conversationId },
     });
@@ -107,9 +154,10 @@ export class LookupConversationAgentService {
 
   async getMessages(
     conversationId: string,
+    organizationId: string,
     limit = 100,
   ): Promise<{ conversationId: string; count: number; messages: ConversationMessage[] }> {
-    await this.requireSession(conversationId);
+    await this.requireSession(conversationId, organizationId);
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
     const rows = await this.messageRepository
       .createQueryBuilder('m')
@@ -128,6 +176,7 @@ export class LookupConversationAgentService {
 
   async sendMessage(
     conversationId: string,
+    organizationId: string,
     message: string,
   ): Promise<{
     conversationId: string;
@@ -135,7 +184,7 @@ export class LookupConversationAgentService {
     messageId: string;
     toolTrace: string[];
   }> {
-    const session = await this.requireSession(conversationId);
+    const session = await this.requireSession(conversationId, organizationId);
     const safeMessage = message.trim();
     if (!safeMessage) {
       throw new Error('Message cannot be empty');
@@ -205,6 +254,7 @@ export class LookupConversationAgentService {
 
   async recordFeedback(
     conversationId: string,
+    organizationId: string,
     payload: {
       isCorrect: boolean;
       messageId?: string;
@@ -216,7 +266,7 @@ export class LookupConversationAgentService {
     feedbackId: string;
     storedAt: string;
   }> {
-    await this.requireSession(conversationId);
+    await this.requireSession(conversationId, organizationId);
 
     if (payload.messageId) {
       const message = await this.messageRepository.findOne({
@@ -335,31 +385,6 @@ export class LookupConversationAgentService {
       },
     });
 
-    const classifyTool = tool({
-      name: 'hts_classify',
-      description:
-        'Run AI-assisted HTS classification on a product description and return ranked candidates.',
-      parameters: z.object({
-        description: z.string(),
-      }),
-      execute: async (input) => {
-        toolTrace.push('hts_classify');
-        const result = await this.classificationService.classifyProduct(
-          input.description,
-          '',
-        );
-        return {
-          htsCode: result.htsCode,
-          description: result.description,
-          confidence: result.confidence,
-          reasoning: result.reasoning,
-          chapter: result.chapter,
-          needsReview: result.needsReview ?? false,
-          candidates: result.candidates.slice(0, 5),
-        };
-      },
-    });
-
     const notesTool = tool({
       name: 'hts_get_notes',
       description:
@@ -435,7 +460,6 @@ Output must follow the response schema. Use toolTrace entries from tools that we
         hybridSearchTool,
         exactLookupTool,
         compareCandidatesTool,
-        classifyTool,
         notesTool,
       ],
       outputType: ConversationResponseSchema,
@@ -514,12 +538,16 @@ Respond using the structured schema.`;
 
   private async requireSession(
     conversationId: string,
+    organizationId: string,
   ): Promise<LookupConversationSessionEntity> {
     const session = await this.sessionRepository.findOne({
       where: { id: conversationId },
     });
     if (!session) {
       throw new NotFoundException(`Conversation ${conversationId} not found`);
+    }
+    if (session.organizationId !== organizationId) {
+      throw new ForbiddenException('Access denied for this conversation');
     }
     return session;
   }
@@ -540,6 +568,7 @@ Respond using the structured schema.`;
   private toConversationSession(
     row: LookupConversationSessionEntity,
     messages: ConversationMessage[],
+    usage?: AdvancedConversationUsage,
   ): ConversationSession {
     return {
       id: row.id,
@@ -549,6 +578,7 @@ Respond using the structured schema.`;
       updatedAt: row.updatedAt.toISOString(),
       status: row.status,
       messages,
+      usage,
     };
   }
 
@@ -603,5 +633,57 @@ Respond using the structured schema.`;
       }
     }
     return new Date().getFullYear();
+  }
+
+  private getUtcDayWindow(): { start: Date; end: Date } {
+    const now = new Date();
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
+  private async trackAdvancedSessionUsage(
+    organizationId: string,
+    params: {
+      sessionId: string;
+      userId: string | null;
+      overageApplied: boolean;
+    },
+  ): Promise<void> {
+    const metadata = {
+      sessionId: params.sessionId,
+      userId: params.userId,
+      channel: 'lookup.conversation',
+      unitPriceUsd: this.ADVANCED_SESSION_OVERAGE_CHARGE_USD,
+    };
+
+    try {
+      await this.usageTrackingService.trackUsage(
+        organizationId,
+        'advancedSearch.sessions',
+        1,
+        metadata,
+      );
+
+      if (params.overageApplied) {
+        await this.usageTrackingService.trackUsage(
+          organizationId,
+          'advancedSearch.overageSessions',
+          1,
+          {
+            ...metadata,
+            chargeUsd: this.ADVANCED_SESSION_OVERAGE_CHARGE_USD,
+          },
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to track advanced conversation usage for organization=${organizationId}: ${message}`,
+      );
+    }
   }
 }
