@@ -5,7 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { UserEntity, RoleEntity, OrganizationEntity } from './entities';
 import { AuthService } from './services/auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
+import { GoogleAuthCallbackGuard } from './guards/google-auth-callback.guard';
 import { AuthController } from './controllers/auth.controller';
 
 const userTypeOrmModule = TypeOrmModule.forFeature([
@@ -24,7 +27,14 @@ const userTypeOrmModule = TypeOrmModule.forFeature([
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    GoogleStrategy,
+    JwtAuthGuard,
+    GoogleAuthGuard,
+    GoogleAuthCallbackGuard,
+  ],
   exports: [
     AuthService,
     JwtStrategy,

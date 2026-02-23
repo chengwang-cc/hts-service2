@@ -7,10 +7,16 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  Req,
+  Res,
+  Query,
 } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { LoginDto, RegisterDto } from '../dto';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { GoogleAuthGuard } from '../guards/google-auth.guard';
+import { GoogleAuthCallbackGuard } from '../guards/google-auth-callback.guard';
 import { Public } from '../decorators/public.decorator';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { UserEntity } from '../entities/user.entity';
@@ -30,9 +36,7 @@ export class AuthController {
       registerDto.organizationId || null,
     );
 
-    // Remove password from response
-    const { password, ...result } = user;
-    return result;
+    return this.authService.login({ id: user.id });
   }
 
   @Public()
@@ -54,8 +58,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   getProfile(@CurrentUser() user: UserEntity) {
-    const { password, ...result } = user;
-    return result;
+    return this.authService.toClientUser(user);
   }
 
   @Public()
@@ -77,5 +80,45 @@ export class AuthController {
   @Get('health')
   health() {
     return { status: 'ok', service: 'auth' };
+  }
+
+  @Public()
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  googleAuth(@Query('returnTo') _returnTo?: string) {
+    // Intentionally empty: Passport guard redirects to Google.
+  }
+
+  @Public()
+  @Get('google/callback')
+  @UseGuards(GoogleAuthCallbackGuard)
+  async googleAuthCallback(
+    @Req() req: Request & { user?: { id: string }; query?: Record<string, any> },
+    @Res() res: Response,
+  ) {
+    if (!req.user?.id) {
+      const fallback = new URL(
+        '/login?oauthError=google_auth_failed',
+        process.env.FRONTEND_URL || 'http://localhost:4200',
+      );
+      return res.redirect(fallback.toString());
+    }
+
+    const loginResult = await this.authService.login({ id: req.user.id });
+    const rawState =
+      typeof req.query?.state === 'string' ? req.query.state : undefined;
+    const oauthState = this.authService.readGoogleOauthState(rawState);
+
+    const redirectUrl = new URL(
+      '/auth/google/callback',
+      process.env.FRONTEND_URL || 'http://localhost:4200',
+    );
+    const fragmentParams = new URLSearchParams({
+      accessToken: loginResult.tokens.accessToken,
+      refreshToken: loginResult.tokens.refreshToken,
+      returnTo: oauthState.returnTo,
+    });
+
+    return res.redirect(`${redirectUrl.toString()}#${fragmentParams.toString()}`);
   }
 }

@@ -10,7 +10,7 @@ import { Agent, run, tool } from '@openai/agents';
 import { z } from 'zod';
 import { SearchService } from './search.service';
 import { NoteResolutionService } from '@hts/knowledgebase';
-import { UsageTrackingService } from '@hts/billing';
+import { UsageTrackingService } from '../../billing/services/usage-tracking.service';
 import { LookupConversationSessionEntity } from '../entities/lookup-conversation-session.entity';
 import { LookupConversationMessageEntity } from '../entities/lookup-conversation-message.entity';
 import { LookupConversationFeedbackEntity } from '../entities/lookup-conversation-feedback.entity';

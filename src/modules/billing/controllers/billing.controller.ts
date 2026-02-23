@@ -11,12 +11,10 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  SubscriptionService,
-  UsageTrackingService,
-  EntitlementService,
-  PLANS,
-} from '@hts/billing';
+import { SubscriptionService } from '../services/subscription.service';
+import { UsageTrackingService } from '../services/usage-tracking.service';
+import { EntitlementService } from '../services/entitlement.service';
+import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 

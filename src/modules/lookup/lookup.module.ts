@@ -18,7 +18,8 @@ import {
 import { HtsEntity, CoreModule } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
-import { BillingModule } from '../billing/billing.module';
+import { UsageRecordEntity } from '../billing/entities/usage-record.entity';
+import { UsageTrackingService } from '../billing/services/usage-tracking.service';
 
 /**
  * Lookup Wrapper Module
@@ -32,7 +33,6 @@ import { BillingModule } from '../billing/billing.module';
     HttpModule,
     AuthModule, // Provides JWT authentication components
     KnowledgebaseModule,
-    BillingModule,
     CoreModule.forFeature(),
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
@@ -41,6 +41,7 @@ import { BillingModule } from '../billing/billing.module';
       LookupConversationMessageEntity,
       LookupConversationFeedbackEntity,
       HtsEntity,
+      UsageRecordEntity,
     ]),
   ],
   controllers: [LookupController],
@@ -51,6 +52,7 @@ import { BillingModule } from '../billing/billing.module';
     LookupConversationAgentService,
     RateLimitService,
     RateLimitGuard,
+    UsageTrackingService,
   ],
   exports: [
     SearchService,
