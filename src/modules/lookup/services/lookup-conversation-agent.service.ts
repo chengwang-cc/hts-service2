@@ -391,7 +391,6 @@ export class LookupConversationAgentService {
         'Resolve legal note references from HTS general/other columns for a specific HTS code.',
       parameters: z.object({
         htsNumber: z.string(),
-        year: z.number().int().optional(),
       }),
       execute: async (input) => {
         toolTrace.push('hts_get_notes');
@@ -399,7 +398,7 @@ export class LookupConversationAgentService {
         if (!row) {
           return [];
         }
-        const resolvedYear = this.resolveYear(input.year, row.sourceVersion);
+        const resolvedYear = this.resolveYear(undefined, row.sourceVersion);
         const candidates: Array<{
           sourceColumn: 'general' | 'other';
           referenceText: string;
@@ -442,9 +441,6 @@ export class LookupConversationAgentService {
     return new Agent({
       name: 'HTS Advanced Conversation Agent',
       model: 'gpt-5-mini',
-      modelSettings: {
-        temperature: 0.2,
-      },
       instructions: `You are an expert HTS assistant for advanced users.
 
 Goals:
