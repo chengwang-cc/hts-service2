@@ -8,14 +8,18 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Enable CORS for frontend
+  const devOrigins = [
+    'http://localhost:7000',
+    'http://localhost:4200',
+    'http://localhost:4201',
+    'http://localhost:4202',
+    'http://127.0.0.1:4200',
+  ];
+  const envOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
   app.enableCors({
-    origin: [
-      'http://localhost:7000', // Development frontend
-      'http://localhost:4200', // Alternative dev port
-      'http://localhost:4201', // Widget dev port
-      'http://localhost:4202', // Admin dev port
-      'http://127.0.0.1:4200', // Same as localhost but explicit IP
-    ],
+    origin: [...devOrigins, ...envOrigins],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],

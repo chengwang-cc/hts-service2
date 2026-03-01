@@ -14,6 +14,8 @@ import {
   UrlClassifierService,
   LookupConversationAgentService,
 } from '../services';
+import { QueueService } from '../../queue/queue.service';
+import { LOOKUP_CONVERSATION_QUEUE } from '../lookup.module';
 import {
   SearchDto,
   ClassifyUrlRequestDto,
@@ -32,6 +34,7 @@ export class LookupController {
     private readonly urlClassifierService: UrlClassifierService,
     private readonly noteResolutionService: NoteResolutionService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
+    private readonly queueService: QueueService,
   ) {}
 
   @Public()
@@ -236,10 +239,38 @@ export class LookupController {
       throw new UnauthorizedException('Authentication required');
     }
 
-    const result = await this.lookupConversationAgentService.sendMessage(
+    const result = await this.lookupConversationAgentService.enqueueMessage(
       conversationId,
       user.organizationId,
       dto.message,
+    );
+
+    await this.queueService.sendJob(LOOKUP_CONVERSATION_QUEUE, {
+      conversationId,
+      messageId: result.messageId,
+      message: dto.message,
+    });
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  @Get('conversations/:conversationId/messages/:messageId/status')
+  async getConversationMessageStatus(
+    @CurrentUser() user: any,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    const result = await this.lookupConversationAgentService.getMessageStatus(
+      messageId,
+      conversationId,
+      user.organizationId,
     );
     return {
       success: true,

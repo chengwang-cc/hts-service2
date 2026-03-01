@@ -1,0 +1,20 @@
+# Per-Dockerfile ignore for Dockerfile.prebuilt.
+# dist/ is intentionally included — it holds the pre-compiled TypeScript output.
+.git
+.gitignore
+.vscode
+.idea
+
+node_modules
+coverage
+
+**/node_modules
+**/coverage
+**/*.log
+
+.env
+.env.*
+
+test
+htc-docs
+*.md

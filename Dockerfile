@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-bookworm-slim AS builder
-
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1: builder
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -11,17 +11,23 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+# ── Copy manifests FIRST so npm ci is cached when only src changes ────────────
+COPY package.json package-lock.json .npmrc ./
 
-# Copy source first; .dockerignore keeps build context lean.
-COPY . .
+# npm cache is cached across builds via BuildKit cache mount
+RUN --mount=type=cache,id=npm-hts,target=/root/.npm \
+    npm ci
 
-# Install dependencies and build workspace packages + Nest app.
-RUN pnpm install --frozen-lockfile
-RUN pnpm -r build && pnpm exec nest build
+# ── Copy source and compile ────────────────────────────────────────────────────
+COPY tsconfig.json tsconfig.build.json nest-cli.json ./
+COPY src/ ./src/
 
+RUN npm run build
 
-FROM node:20-bookworm-slim AS runtime
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: runtime
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3002
@@ -32,20 +38,14 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 
-# Keep runtime container non-root.
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 
-# Runtime assets:
-# - node_modules from builder (contains workspace links)
-# - compiled app in dist/
-# - workspace packages (targets for workspace symlinks)
-COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./
+COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/packages ./packages
 
 EXPOSE 3002
 
 USER appuser
 
-CMD ["node", "dist/src/main.js"]
+CMD ["node", "dist/main.js"]

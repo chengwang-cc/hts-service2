@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import {
@@ -20,6 +20,10 @@ import { AuthModule } from '../auth/auth.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 import { UsageRecordEntity } from '../billing/entities/usage-record.entity';
 import { UsageTrackingService } from '../billing/services/usage-tracking.service';
+import { QueueModule } from '../queue/queue.module';
+import { QueueService } from '../queue/queue.service';
+
+export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
 
 /**
  * Lookup Wrapper Module
@@ -34,6 +38,7 @@ import { UsageTrackingService } from '../billing/services/usage-tracking.service
     AuthModule, // Provides JWT authentication components
     KnowledgebaseModule,
     CoreModule.forFeature(),
+    QueueModule,
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
       ApiUsageEntity,
@@ -62,4 +67,28 @@ import { UsageTrackingService } from '../billing/services/usage-tracking.service
     RateLimitService,
   ],
 })
-export class LookupModule {}
+export class LookupModule implements OnModuleInit {
+  constructor(
+    private readonly queueService: QueueService,
+    private readonly lookupConversationAgentService: LookupConversationAgentService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.queueService.registerHandler(
+      LOOKUP_CONVERSATION_QUEUE,
+      async (job) => {
+        const { conversationId, messageId, message } = job.data as {
+          conversationId: string;
+          messageId: string;
+          message: string;
+        };
+        await this.lookupConversationAgentService.processMessage(
+          conversationId,
+          messageId,
+          message,
+        );
+      },
+      { teamSize: 3, teamConcurrency: 1 },
+    );
+  }
+}

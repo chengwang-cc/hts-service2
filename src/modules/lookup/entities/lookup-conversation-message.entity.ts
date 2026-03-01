@@ -28,6 +28,12 @@ export class LookupConversationMessageEntity {
   @Column('jsonb', { nullable: true })
   tokenUsage: Record<string, any> | null;
 
+  @Column('varchar', { length: 20, default: 'complete' })
+  status: 'pending' | 'processing' | 'complete' | 'failed';
+
+  @Column('text', { nullable: true })
+  errorMessage: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

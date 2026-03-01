@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -174,15 +175,18 @@ export class LookupConversationAgentService {
     };
   }
 
-  async sendMessage(
+  /**
+   * Enqueues a conversation message for async processing via pg-boss.
+   * Returns immediately with a pending messageId; caller should poll getMessageStatus().
+   */
+  async enqueueMessage(
     conversationId: string,
     organizationId: string,
     message: string,
   ): Promise<{
     conversationId: string;
-    response: ConversationAgentOutput;
     messageId: string;
-    toolTrace: string[];
+    status: 'pending';
   }> {
     const session = await this.requireSession(conversationId, organizationId);
     const safeMessage = message.trim();
@@ -190,66 +194,132 @@ export class LookupConversationAgentService {
       throw new Error('Message cannot be empty');
     }
 
+    // Persist user message immediately
     const userMessage = this.messageRepository.create({
       sessionId: session.id,
       role: 'user',
       contentJson: { type: 'text', text: safeMessage },
       toolTraceJson: null,
       tokenUsage: null,
+      status: 'complete',
+      errorMessage: null,
     });
     await this.messageRepository.save(userMessage);
 
-    const toolTrace: string[] = [];
-    const agent = this.buildAgent(toolTrace);
-    const history = await this.getRecentMessages(session.id, 12);
-    const prompt = this.buildTurnPrompt(history);
-
-    let normalized: ConversationAgentOutput;
-    try {
-      const runResult = await run(agent, prompt, { maxTurns: 10 });
-      normalized = this.normalizeAgentOutput(runResult.finalOutput, toolTrace);
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Conversation agent execution failed: ${messageText}`);
-      normalized = {
-        answer:
-          'I could not finalize classification from available evidence. Please provide more product details (material, function, and format).',
-        recommendedHts: null,
-        alternatives: [],
-        confidence: 0,
-        needsClarification: true,
-        clarificationQuestions: [
-          'What is the exact product type and end use?',
-          'Is this item a periodical/publication, or a toy/electrical good?',
-        ],
-        evidence: [],
-        toolTrace,
-      };
-    }
-
-    const assistantMessage = this.messageRepository.create({
+    // Create a pending placeholder for the assistant reply
+    const assistantPlaceholder = this.messageRepository.create({
       sessionId: session.id,
       role: 'assistant',
-      contentJson: normalized as Record<string, any>,
-      toolTraceJson: normalized.toolTrace,
+      contentJson: {},
+      toolTraceJson: null,
       tokenUsage: null,
+      status: 'pending',
+      errorMessage: null,
     });
-    const savedAssistant = await this.messageRepository.save(assistantMessage);
-
-    session.contextJson = {
-      ...(session.contextJson || {}),
-      lastToolTrace: normalized.toolTrace,
-      lastRecommendedHts: normalized.recommendedHts || null,
-      lastConfidence: normalized.confidence,
-    };
-    await this.sessionRepository.save(session);
+    const savedPlaceholder = await this.messageRepository.save(assistantPlaceholder);
 
     return {
       conversationId,
-      response: normalized,
-      messageId: savedAssistant.id,
-      toolTrace: normalized.toolTrace,
+      messageId: savedPlaceholder.id,
+      status: 'pending',
     };
+  }
+
+  /**
+   * Runs the AI agent and writes the result into the pending assistant message.
+   * Called by the pg-boss worker — must NOT be called from an HTTP handler directly.
+   */
+  async processMessage(
+    conversationId: string,
+    messageId: string,
+    message: string,
+  ): Promise<void> {
+    await this.messageRepository.update(messageId, { status: 'processing' });
+
+    const toolTrace: string[] = [];
+    let normalized: ConversationAgentOutput;
+
+    try {
+      const session = await this.sessionRepository.findOne({ where: { id: conversationId } });
+      if (!session) {
+        throw new InternalServerErrorException(`Session ${conversationId} not found during processing`);
+      }
+
+      const agent = this.buildAgent(toolTrace);
+      const history = await this.getRecentMessages(session.id, 8);
+      const clarificationEchoGuard = this.buildClarificationEchoGuardResponse(
+        history,
+        message,
+      );
+      if (clarificationEchoGuard) {
+        normalized = clarificationEchoGuard;
+      } else {
+        const prompt = this.buildTurnPrompt(history);
+        const runResult = await run(agent, prompt, { maxTurns: 5 });
+        normalized = this.normalizeAgentOutput(runResult.finalOutput, toolTrace);
+      }
+
+      await this.messageRepository.update(messageId, {
+        contentJson: normalized as Record<string, any>,
+        toolTraceJson: normalized.toolTrace,
+        status: 'complete',
+        errorMessage: null,
+      });
+
+      session.contextJson = {
+        ...(session.contextJson || {}),
+        lastToolTrace: normalized.toolTrace,
+        lastRecommendedHts: normalized.recommendedHts || null,
+        lastConfidence: normalized.confidence,
+      };
+      await this.sessionRepository.save(session);
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      this.logger.error(`processMessage failed for messageId=${messageId}: ${errorText}`);
+      await this.messageRepository.update(messageId, {
+        status: 'failed',
+        errorMessage: errorText,
+      });
+    }
+  }
+
+  /**
+   * Polls the status of a pending assistant message.
+   */
+  async getMessageStatus(
+    messageId: string,
+    conversationId: string,
+    organizationId: string,
+  ): Promise<{
+    status: 'pending' | 'processing' | 'complete' | 'failed';
+    messageId: string;
+    response?: ConversationAgentOutput;
+    error?: string;
+  }> {
+    await this.requireSession(conversationId, organizationId);
+
+    const message = await this.messageRepository.findOne({
+      where: { id: messageId, sessionId: conversationId },
+    });
+    if (!message) {
+      throw new NotFoundException(`Message ${messageId} not found`);
+    }
+
+    if (message.status === 'complete') {
+      return {
+        status: 'complete',
+        messageId: message.id,
+        response: this.normalizeAgentOutput(message.contentJson, message.toolTraceJson || []),
+      };
+    }
+    if (message.status === 'failed') {
+      return {
+        status: 'failed',
+        messageId: message.id,
+        error: message.errorMessage || 'Processing failed',
+      };
+    }
+    return { status: message.status, messageId: message.id };
   }
 
   async recordFeedback(
@@ -440,7 +510,7 @@ export class LookupConversationAgentService {
 
     return new Agent({
       name: 'HTS Advanced Conversation Agent',
-      model: 'gpt-5-mini',
+      model: 'gpt-5-nano',
       instructions: `You are an expert HTS assistant for advanced users.
 
 Goals:
@@ -463,21 +533,60 @@ Output must follow the response schema. Use toolTrace entries from tools that we
   }
 
   private buildTurnPrompt(history: ConversationMessage[]): string {
+    const latestUserMessage = [...history]
+      .reverse()
+      .find((msg) => msg.role === 'user' && typeof msg.content === 'string');
+    const latestUserText =
+      latestUserMessage && typeof latestUserMessage.content === 'string'
+        ? latestUserMessage.content
+        : '';
+
+    const latestAssistantWithClarifications = [...history]
+      .reverse()
+      .find(
+        (msg) =>
+          msg.role === 'assistant' &&
+          typeof msg.content !== 'string' &&
+          Array.isArray(msg.content.clarificationQuestions) &&
+          msg.content.clarificationQuestions.length > 0,
+      );
+    const priorClarificationQuestions =
+      latestAssistantWithClarifications &&
+      typeof latestAssistantWithClarifications.content !== 'string'
+        ? latestAssistantWithClarifications.content.clarificationQuestions || []
+        : [];
+
+    const normalizedLatestUser = this.normalizeQuestionText(latestUserText);
+    const echoedClarification = priorClarificationQuestions.find(
+      (question) =>
+        this.normalizeQuestionText(question) === normalizedLatestUser &&
+        normalizedLatestUser.length > 0,
+    );
+
     const serializedHistory = history
       .map((msg) => {
         if (msg.role === 'assistant') {
           const content =
             typeof msg.content === 'string'
               ? msg.content
-              : `${msg.content.answer} (recommended=${msg.content.recommendedHts || 'n/a'}, confidence=${msg.content.confidence})`;
+              : `${msg.content.answer} (recommended=${msg.content.recommendedHts || 'n/a'}, confidence=${msg.content.confidence}, needsClarification=${msg.content.needsClarification}, clarificationQuestions=${(msg.content.clarificationQuestions || []).join(' | ')})`;
           return `assistant: ${content}`;
         }
         return `user: ${String(msg.content)}`;
       })
       .join('\n');
 
+    const antiLoopRule = echoedClarification
+      ? `Important anti-loop rule:
+- The latest user message repeats a prior clarification question verbatim: "${echoedClarification}".
+- Do NOT repeat the same clarification list.
+- Ask for the user's direct answer value in one concise sentence (for example: "general audience" or "children").`
+      : '';
+
     return `Conversation context:
 ${serializedHistory}
+
+${antiLoopRule}
 
 Respond using the structured schema.`;
   }
@@ -555,6 +664,7 @@ Respond using the structured schema.`;
     const rows = await this.messageRepository
       .createQueryBuilder('m')
       .where('m.sessionId = :conversationId', { conversationId })
+      .andWhere('m.status = :status', { status: 'complete' })
       .orderBy('m.createdAt', 'DESC')
       .limit(limit)
       .getMany();
@@ -601,6 +711,100 @@ Respond using the structured schema.`;
 
   private tokenize(input: string): string[] {
     return [...new Set(((input || '').toLowerCase().match(/[a-z0-9]+/g) || []).filter((token) => token.length > 1))];
+  }
+
+  private normalizeQuestionText(input: string): string {
+    return (input || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  private buildClarificationEchoGuardResponse(
+    history: ConversationMessage[],
+    latestUserText: string,
+  ): ConversationAgentOutput | null {
+    const latestAssistantWithClarifications = [...history]
+      .reverse()
+      .find(
+        (msg) =>
+          msg.role === 'assistant' &&
+          typeof msg.content !== 'string' &&
+          Array.isArray(msg.content.clarificationQuestions) &&
+          msg.content.clarificationQuestions.length > 0,
+      );
+
+    if (
+      !latestAssistantWithClarifications ||
+      typeof latestAssistantWithClarifications.content === 'string'
+    ) {
+      return null;
+    }
+
+    const clarificationQuestions =
+      latestAssistantWithClarifications.content.clarificationQuestions || [];
+    const normalizedLatestUser = this.normalizeQuestionText(latestUserText);
+    if (!normalizedLatestUser) {
+      return null;
+    }
+
+    const echoedQuestion = clarificationQuestions.find(
+      (question) => this.normalizeQuestionText(question) === normalizedLatestUser,
+    );
+    if (!echoedQuestion) {
+      return null;
+    }
+
+    const remainingQuestions = clarificationQuestions.filter(
+      (question) => this.normalizeQuestionText(question) !== normalizedLatestUser,
+    );
+    const exampleAnswer = this.buildClarificationAnswerExample(echoedQuestion);
+
+    return {
+      answer: `Please answer this clarification directly: "${echoedQuestion}". Example answer: ${exampleAnswer}.`,
+      recommendedHts: null,
+      alternatives: [],
+      confidence: 0.1,
+      needsClarification: true,
+      clarificationQuestions:
+        remainingQuestions.length > 0 ? remainingQuestions : [echoedQuestion],
+      evidence: [],
+      toolTrace: ['clarification_echo_guard'],
+    };
+  }
+
+  private buildClarificationAnswerExample(question: string): string {
+    const cleaned = (question || '').replace(/[?]+$/g, '').trim();
+    const parts = cleaned
+      .split(/\s+or\s+/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (parts.length >= 2) {
+      const leftRaw = parts[parts.length - 2];
+      const rightRaw = parts[parts.length - 1];
+      const left = leftRaw.split(/[:,]/).pop()?.trim() || leftRaw;
+      const right = rightRaw.split(/[:,]/).pop()?.trim() || rightRaw;
+      return `"${left}" or "${right}"`;
+    }
+
+    if (/\b(yes|no)\b/i.test(cleaned)) {
+      return '"yes" or "no"';
+    }
+
+    if (/\bpage|pages\b/i.test(cleaned)) {
+      return '"32 pages"';
+    }
+
+    if (/\bcountry|destination|jurisdiction\b/i.test(cleaned)) {
+      return '"United States"';
+    }
+
+    if (/\bmaterial|composition\b/i.test(cleaned)) {
+      return '"100% paper"';
+    }
+
+    return '"physical print" or "digital"';
   }
 
   private hasLikelyNoteReference(value: string | null | undefined): boolean {

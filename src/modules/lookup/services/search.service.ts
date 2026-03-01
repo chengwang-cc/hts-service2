@@ -344,6 +344,7 @@ export class SearchService {
           description: entry.description ?? '',
           chapter: entry.chapter,
           indent: entry.indent,
+          fullDescription: entry.fullDescription ?? null,
           score,
         };
       })
@@ -564,6 +565,7 @@ export class SearchService {
           description: entry.description ?? '',
           chapter: entry.chapter,
           indent: Number(entry.indent) || 0,
+          fullDescription: entry.fullDescription ?? null,
           score:
             base +
             coverage * 0.85 +
