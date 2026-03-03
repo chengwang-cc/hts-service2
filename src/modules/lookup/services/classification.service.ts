@@ -1145,7 +1145,7 @@ Return JSON: { "index": <1-based number> }`,
       'from',
     ]);
 
-    const matches = (input || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+    const matches: string[] = (input || '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
     return [...new Set(matches.filter((token) => token.length > 1 && !stopWords.has(token)))];
   }
 

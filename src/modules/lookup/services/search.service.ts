@@ -1,9 +1,7 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { HtsEntity, EmbeddingService } from '@hts/core';
-import { DgxRerankerService } from '../../../core/dgx/dgx-reranker.service';
-import { GroundedVerifierService, VerifierResult } from './grounded-verifier.service';
+import { HtsEntity } from '@hts/core';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -207,9 +205,6 @@ export class SearchService {
   constructor(
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
-    private readonly embeddingService: EmbeddingService,
-    @Optional() private readonly dgxReranker: DgxRerankerService,
-    @Optional() private readonly groundedVerifier: GroundedVerifierService,
   ) {}
 
   /**
@@ -278,34 +273,16 @@ export class SearchService {
     const signals = this.buildQuerySignals(queryTokens);
     const lexicalTokens = this.buildLexicalTokens(queryTokens, signals);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
-    const semanticQuery = this.buildSemanticQuery(normalizedQuery, queryTokens, signals);
-    let semanticResults: SemanticCandidate[] = [];
-    const shouldRunSemantic =
-      queryTokens.length > 0 &&
-      normalizedQuery.length >= 4 &&
-      !this.isLikelyHtsCodeQuery(normalizedQuery);
-
-    if (shouldRunSemantic) {
-      try {
-        semanticResults = await this.semanticTextSearch(
-          semanticQuery,
-          Math.min(this.MAX_LIMIT, safeLimit * 4),
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(
-          `Semantic search unavailable, falling back to keyword-only search: ${message}`,
-        );
-      }
-    }
 
     const keywordResults = await this.searchByKeyword(
       normalizedQuery,
       Math.min(this.MAX_LIMIT, safeLimit * 4),
       expandedTokens,
     );
+    // No semantic (DGX embedding) or reranker (DGX cross-encoder) calls —
+    // keyword-only RRF + hand-tuned scoring is the ranking pipeline.
     const combined = this.combineResults(
-      semanticResults,
+      [],
       keywordResults,
       Math.min(this.MAX_LIMIT, safeLimit * 4),
     );
@@ -324,83 +301,6 @@ export class SearchService {
     const entryByHts = new Map(
       entries.map((entry) => [entry.htsNumber, entry]),
     );
-
-    // DGX cross-encoder reranker (Phase 4 — enabled once model is trained)
-    if (this.dgxReranker?.isEnabled) {
-      try {
-        const candidates = combined.slice(0, this.dgxReranker.maxCandidatesCount).map((r) => {
-          const e = entryByHts.get(r.htsNumber);
-          const title = e?.description ?? '';
-          const breadcrumb = e?.fullDescription?.slice(-2).join(' › ') ?? '';
-          return {
-            id: r.htsNumber,
-            text: `${r.htsNumber} | ${title} | ${breadcrumb}`.slice(0, 400),
-          };
-        });
-        const ranked = await this.dgxReranker.rerank(normalizedQuery, candidates);
-        const dgxScoreMap = new Map(ranked.map((r) => [r.id, r.score]));
-        const finalRows = combined
-          .map((r) => {
-            const entry = entryByHts.get(r.htsNumber);
-            if (!entry) return null;
-            return {
-              htsNumber: entry.htsNumber,
-              description: entry.description ?? '',
-              chapter: entry.chapter,
-              indent: entry.indent,
-              fullDescription: entry.fullDescription ?? null,
-              score: dgxScoreMap.get(r.htsNumber) ?? 0,
-            };
-          })
-          .filter((r): r is NonNullable<typeof r> => r !== null)
-          .sort((a, b) =>
-            b.score === a.score
-              ? a.htsNumber.localeCompare(b.htsNumber)
-              : b.score - a.score,
-          );
-        const sliced = finalRows.slice(0, safeLimit);
-
-        // Phase 5 — Grounded Verifier: invoked when top reranker score is below threshold
-        if (this.groundedVerifier?.isEnabled) {
-          try {
-            const verifierResult = await this.groundedVerifier.verify(
-              normalizedQuery,
-              sliced.map((r) => ({
-                htsNumber: r.htsNumber,
-                description: r.description,
-                chapter: r.chapter,
-                fullDescription: r.fullDescription,
-                score: r.score,
-              })),
-            );
-
-            if (verifierResult.triggered && verifierResult.verifiedHtsNumber) {
-              const idx = sliced.findIndex(
-                (r) => r.htsNumber === verifierResult.verifiedHtsNumber,
-              );
-              // Promote verified code to position 0 if it differs from top
-              if (idx > 0) {
-                const [verified] = sliced.splice(idx, 1);
-                sliced.unshift(verified);
-              }
-            }
-
-            // Attach verifier metadata to the top result
-            if (sliced.length > 0) {
-              (sliced[0] as any).verifier = verifierResult;
-            }
-          } catch (err) {
-            this.logger.warn(
-              `Grounded verifier error: ${(err as Error).message}`,
-            );
-          }
-        }
-
-        return sliced;
-      } catch (err) {
-        this.logger.warn(`DGX reranker failed, using hand-tuned scoring: ${(err as Error).message}`);
-      }
-    }
 
     const reranked = combined
       .map((result) => {
@@ -491,13 +391,24 @@ export class SearchService {
           : b.score - a.score,
       );
 
-    const finalRows = this.applyChapterDiversity(
+    const diversifiedRows = this.applyChapterDiversity(
       reranked,
       safeLimit,
       expandedTokens.length >= 3,
     );
 
-    return finalRows.slice(0, safeLimit);
+    // Normalize hand-tuned scores relative to the top result so the UI shows
+    // meaningful percentages (top = 100%, others proportionally lower).
+    // Clamping negatives to 0 before dividing keeps all display values in [0, 1].
+    const finalRows = diversifiedRows.slice(0, safeLimit);
+    const maxScore = finalRows.length > 0 ? Math.max(...finalRows.map((r) => r.score)) : 0;
+    if (maxScore <= 0) {
+      return finalRows;
+    }
+    return finalRows.map((r) => ({
+      ...r,
+      score: Math.max(r.score, 0) / maxScore,
+    }));
   }
 
   async autocomplete(query: string, limit: number = 10): Promise<any[]> {
@@ -597,7 +508,6 @@ export class SearchService {
     const signals = this.buildQuerySignals(baseTokens);
     const lexicalTokens = this.buildLexicalTokens(baseTokens, signals);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
-    const semanticQuery = this.buildSemanticQuery(query, baseTokens, signals);
     const candidateLimit = Math.min(this.MAX_LIMIT, Math.max(limit * 5, 30));
 
     const lexicalPromise = this.autocompleteByFullText(
@@ -605,25 +515,17 @@ export class SearchService {
       candidateLimit,
       expandedTokens,
     );
-    const semanticPromise =
-      query.length >= 4
-        ? this.semanticAutocompleteSearch(semanticQuery, candidateLimit)
-        : Promise.resolve([] as SemanticCandidate[]);
     const codePromise = includeCodeCandidates
       ? this.autocompleteByCode(query, Math.min(candidateLimit, 20))
       : Promise.resolve([] as any[]);
 
-    const [lexicalRows, semanticRows, codeRows] = await Promise.all([
+    const [lexicalRows, codeRows] = await Promise.all([
       lexicalPromise,
-      semanticPromise,
       codePromise,
     ]);
 
     const fused = new Map<string, number>();
     lexicalRows.forEach((row, index) => {
-      fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
-    });
-    semanticRows.forEach((row, index) => {
       fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
     });
     codeRows.forEach((row, index) => {
@@ -719,8 +621,21 @@ export class SearchService {
           : b.score - a.score,
       );
 
+    if (ranked.length === 0) {
+      return [];
+    }
+
+    // Normalize scores: clamp negatives to 0, divide by max(maxScore, 1.0).
+    // A perfect match (RRF + full coverage + phrase boost) scores ≥ 1.0 → 100%.
+    // Weaker matches are proportionally lower. Keeps absolute quality signal.
+    const maxScore = Math.max(...ranked.map((r) => r.score));
+    const normDivisor = Math.max(maxScore, 1.0);
+    const normalized = ranked
+      .map((r) => ({ ...r, score: Math.max(r.score, 0) / normDivisor }))
+      .filter((r) => r.score >= 0.5);
+
     const diversified = this.applyChapterDiversity(
-      ranked,
+      normalized,
       limit,
       expandedTokens.length >= 3,
     );
@@ -816,37 +731,6 @@ export class SearchService {
       chapter: row.chapter,
       indent: Number(row.indent) || 0,
       score: Number(row.score) || 0,
-    }));
-  }
-
-  private async semanticAutocompleteSearch(
-    query: string,
-    limit: number,
-  ): Promise<SemanticCandidate[]> {
-    return this.semanticTextSearch(query, limit);
-  }
-
-  private async semanticTextSearch(
-    query: string,
-    limit: number,
-  ): Promise<SemanticCandidate[]> {
-    const embedding = await this.embeddingService.generateEmbedding(query);
-    const rows = await this.htsRepository
-      .createQueryBuilder('hts')
-      .select('hts.htsNumber', 'htsNumber')
-      .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
-      .where('hts.isActive = :active', { active: true })
-      .andWhere('hts.embedding IS NOT NULL')
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
-      .andWhere("hts.chapter NOT IN ('98', '99')")
-      .setParameter('embedding', JSON.stringify(embedding))
-      .orderBy('similarity', 'DESC')
-      .limit(limit)
-      .getRawMany();
-
-    return rows.map((row) => ({
-      htsNumber: row.htsNumber,
-      similarity: Number(row.similarity) || 0,
     }));
   }
 
@@ -1246,25 +1130,6 @@ export class SearchService {
       (token) => token !== 'transformer' && token !== 'transformers',
     );
     return filtered.length > 0 ? filtered : queryTokens;
-  }
-
-  private buildSemanticQuery(
-    fallbackQuery: string,
-    queryTokens: string[],
-    signals: QuerySignals,
-  ): string {
-    if (!signals.hasMediaIntent || !signals.hasTransformerToken) {
-      return fallbackQuery;
-    }
-
-    const reduced = queryTokens.filter(
-      (token) => token !== 'transformer' && token !== 'transformers',
-    );
-
-    if (reduced.length === 0) {
-      return fallbackQuery;
-    }
-    return reduced.join(' ');
   }
 
   private computeIntentBoost(

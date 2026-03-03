@@ -34,13 +34,12 @@ export class EmbeddingService implements IEmbeddingService {
    */
   async generateEmbedding(text: string): Promise<number[]> {
     if (this.dgxEmbedding?.isEnabled) {
-      try {
-        return await this.dgxEmbedding.embed(text);
-      } catch (err) {
-        this.logger.warn(
-          `DGX embedding failed, falling back to OpenAI: ${(err as Error).message}`,
-        );
-      }
+      // DGX (BGE-M3, 1024-dim) is the primary provider.
+      // Do NOT fall back to OpenAI on failure: OpenAI text-embedding-3-small uses a
+      // different vector space and dimension (1536) than the stored HTS embeddings,
+      // so the pgvector <=> operator would throw a dimension-mismatch error anyway.
+      // Let the error propagate so hybridSearch's try/catch skips semantic search.
+      return this.dgxEmbedding.embed(text);
     }
     return this.openAiEmbedding(text);
   }
@@ -51,13 +50,9 @@ export class EmbeddingService implements IEmbeddingService {
    */
   async generateBatch(texts: string[]): Promise<number[][]> {
     if (this.dgxEmbedding?.isEnabled) {
-      try {
-        return await this.dgxEmbedding.embedBatch(texts);
-      } catch (err) {
-        this.logger.warn(
-          `DGX batch embedding failed, falling back to OpenAI: ${(err as Error).message}`,
-        );
-      }
+      // Same reasoning as generateEmbedding: let DGX failures propagate rather
+      // than calling OpenAI with an incompatible embedding model/dimension.
+      return this.dgxEmbedding.embedBatch(texts);
     }
     return this.openAiBatchEmbedding(texts);
   }

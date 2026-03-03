@@ -1026,7 +1026,8 @@ Respond using the structured schema.`;
   }
 
   private tokenize(input: string): string[] {
-    return [...new Set(((input || '').toLowerCase().match(/[a-z0-9]+/g) || []).filter((token) => token.length > 1))];
+    const tokens: string[] = (input || '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    return [...new Set(tokens.filter((token) => token.length > 1))];
   }
 
   private normalizeQuestionText(input: string): string {
