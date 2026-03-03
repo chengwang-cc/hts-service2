@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HtsEntity } from '../entities/hts.entity';
 import { EmbeddingService } from './embedding.service';
+import { OpenAiService } from './openai.service';
 
 /**
  * HTS Embedding Generation Service
@@ -17,15 +18,20 @@ export class HtsEmbeddingGenerationService {
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
     private readonly embeddingService: EmbeddingService,
+    private readonly openAiService: OpenAiService,
   ) {}
 
   /**
-   * Generate embeddings for all HTS codes
-   * Batch processing with configurable batch size
+   * Generate embeddings for all HTS codes, writing to the column for the
+   * active SEARCH_EMBEDDING_PROVIDER (dgx → `embedding`, openai → `embedding_openai`).
+   *
+   * @param onlyMissing  When true (default), skip rows that already have an embedding
+   *                     in the target column. Pass false to regenerate all.
    */
   async generateAllEmbeddings(
     batchSize: number = 100,
     modelVersion: string = 'text-embedding-3-small',
+    onlyMissing: boolean = true,
   ): Promise<{
     total: number;
     generated: number;
@@ -33,7 +39,10 @@ export class HtsEmbeddingGenerationService {
     failed: number;
     errors: string[];
   }> {
-    this.logger.log('Starting HTS embedding generation...');
+    const { provider, column } = this.embeddingService.providerInfo;
+    this.logger.log(
+      `Starting HTS embedding generation — provider: ${provider}, column: ${column}, onlyMissing: ${onlyMissing}`,
+    );
 
     const result = {
       total: 0,
@@ -48,13 +57,24 @@ export class HtsEmbeddingGenerationService {
       order: { htsNumber: 'ASC' },
     });
 
-    result.total = allHts.length;
-    this.logger.log(`Found ${result.total} active HTS entries`);
+    // Filter to only rows missing the target column's embedding when onlyMissing=true
+    const toProcess = onlyMissing
+      ? allHts.filter((hts) => {
+          if (column === 'embedding') return hts.embedding == null;
+          return hts.embeddingOpenai == null;
+        })
+      : allHts;
 
-    for (let i = 0; i < allHts.length; i += batchSize) {
-      const batch = allHts.slice(i, i + batchSize);
+    result.total = toProcess.length;
+    result.skipped = allHts.length - toProcess.length;
+    this.logger.log(
+      `${result.total} entries to process (${result.skipped} already have ${column} embeddings, skipped)`,
+    );
+
+    for (let i = 0; i < toProcess.length; i += batchSize) {
+      const batch = toProcess.slice(i, i + batchSize);
       this.logger.log(
-        `Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(allHts.length / batchSize)} (${batch.length} entries)`,
+        `Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(toProcess.length / batchSize)} (${batch.length} entries)`,
       );
 
       try {
@@ -68,7 +88,7 @@ export class HtsEmbeddingGenerationService {
           result.errors.push(...batchResult.errors.slice(0, 20));
         }
 
-        if (i + batchSize < allHts.length) {
+        if (i + batchSize < toProcess.length) {
           await this.sleep(1000);
         }
       } catch (error) {
@@ -148,12 +168,20 @@ export class HtsEmbeddingGenerationService {
       }
 
       try {
-        const updatePayload: Partial<HtsEntity> = {
-          embedding: embeddingVector,
-          embeddingSearchText: searchTexts[index],
-          embeddingModel: modelVersion,
-          embeddingGeneratedAt: new Date(),
-        };
+        const { column } = this.embeddingService.providerInfo;
+        const updatePayload: Partial<HtsEntity> =
+          column === 'embedding_openai'
+            ? {
+                embeddingOpenai: embeddingVector,
+                embeddingSearchText: searchTexts[index],
+                embeddingOpenaiGeneratedAt: new Date(),
+              }
+            : {
+                embedding: embeddingVector,
+                embeddingSearchText: searchTexts[index],
+                embeddingModel: modelVersion,
+                embeddingGeneratedAt: new Date(),
+              };
 
         if (
           !Array.isArray(hts.fullDescription) ||
@@ -294,40 +322,133 @@ export class HtsEmbeddingGenerationService {
   }
 
   /**
+   * Generate OpenAI embeddings (text-embedding-3-small, 1536-dim) into the
+   * `embedding_openai` column, regardless of the active SEARCH_EMBEDDING_PROVIDER.
+   *
+   * Use this to pre-populate the OpenAI column so you can switch providers
+   * without any downtime. Safe to run while DGX is the active provider.
+   *
+   * @param batchSize    Number of entries to embed per API call (default 100)
+   * @param onlyMissing  Skip rows that already have embedding_openai (default true)
+   */
+  async generateOpenAiEmbeddings(
+    batchSize: number = 100,
+    onlyMissing: boolean = true,
+  ): Promise<{
+    total: number;
+    generated: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const model = 'text-embedding-3-small';
+    this.logger.log(
+      `Starting OpenAI embedding reindex — model: ${model}, onlyMissing: ${onlyMissing}`,
+    );
+
+    const result = { total: 0, generated: 0, skipped: 0, failed: 0, errors: [] as string[] };
+
+    const allHts = await this.htsRepository.find({
+      where: { isActive: true },
+      order: { htsNumber: 'ASC' },
+    });
+
+    const toProcess = onlyMissing
+      ? allHts.filter((hts) => hts.embeddingOpenai == null)
+      : allHts;
+
+    result.skipped = allHts.length - toProcess.length;
+    result.total = toProcess.length;
+    this.logger.log(
+      `${result.total} entries to process (${result.skipped} already have embedding_openai, skipped)`,
+    );
+
+    for (let i = 0; i < toProcess.length; i += batchSize) {
+      const batch = toProcess.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(toProcess.length / batchSize);
+      this.logger.log(`OpenAI reindex batch ${batchNum}/${totalBatches} (${batch.length} entries)`);
+
+      const searchTexts = batch.map((hts) => this.buildSearchText(hts));
+      let embeddings: number[][];
+
+      try {
+        embeddings = await this.openAiService.generateEmbeddingBatch(searchTexts, model);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Batch ${batchNum} API call failed: ${msg}`);
+        result.failed += batch.length;
+        result.errors.push(`Batch ${batchNum}: ${msg}`);
+        if (i + batchSize < toProcess.length) await this.sleep(2000);
+        continue;
+      }
+
+      for (let j = 0; j < batch.length; j++) {
+        const hts = batch[j];
+        const vec = embeddings[j];
+        if (!Array.isArray(vec) || vec.length === 0) {
+          result.failed++;
+          result.errors.push(`${hts.htsNumber}: empty vector`);
+          continue;
+        }
+        try {
+          await this.htsRepository.update(
+            { id: hts.id },
+            { embeddingOpenai: vec, embeddingOpenaiGeneratedAt: new Date() },
+          );
+          result.generated++;
+        } catch (persistErr) {
+          const msg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+          result.failed++;
+          result.errors.push(`${hts.htsNumber}: ${msg}`);
+        }
+      }
+
+      this.logger.log(
+        `Batch ${batchNum}/${totalBatches} done — generated: ${result.generated}, failed: ${result.failed}`,
+      );
+      if (i + batchSize < toProcess.length) await this.sleep(1000);
+    }
+
+    this.logger.log(
+      `OpenAI reindex complete — generated: ${result.generated}, skipped: ${result.skipped}, failed: ${result.failed}`,
+    );
+    return result;
+  }
+
+  /**
    * Get embedding generation statistics
    */
   async getStatistics(): Promise<{
     totalHts: number;
-    totalEmbeddings: number;
-    missingEmbeddings: number;
-    modelVersions: Record<string, number>;
+    dgx: { total: number; missing: number };
+    openai: { total: number; missing: number };
+    activeProvider: string;
+    activeColumn: string;
   }> {
-    const totalHts = await this.htsRepository.count({
-      where: { isActive: true },
-    });
+    const totalHts = await this.htsRepository.count({ where: { isActive: true } });
 
-    const byModel = await this.htsRepository
-      .createQueryBuilder('hts')
-      .select('hts.embeddingModel', 'model')
-      .addSelect('COUNT(*)', 'count')
-      .where('hts.isActive = :active', { active: true })
-      .andWhere('hts.embedding IS NOT NULL')
-      .groupBy('hts.embeddingModel')
-      .getRawMany();
+    const [dgxCount, openaiCount] = await Promise.all([
+      this.htsRepository
+        .createQueryBuilder('hts')
+        .where('hts.isActive = :active', { active: true })
+        .andWhere('hts.embedding IS NOT NULL')
+        .getCount(),
+      this.htsRepository
+        .createQueryBuilder('hts')
+        .where('hts.isActive = :active', { active: true })
+        .andWhere('hts.embeddingOpenai IS NOT NULL')
+        .getCount(),
+    ]);
 
-    const modelVersions: Record<string, number> = {};
-    let totalEmbeddings = 0;
-    byModel.forEach((row) => {
-      const count = parseInt(row.count, 10);
-      modelVersions[row.model ?? 'unknown'] = count;
-      totalEmbeddings += count;
-    });
+    const { provider, column } = this.embeddingService.providerInfo;
 
     return {
       totalHts,
-      totalEmbeddings,
-      missingEmbeddings: totalHts - totalEmbeddings,
-      modelVersions,
+      dgx: { total: dgxCount, missing: totalHts - dgxCount },
+      openai: { total: openaiCount, missing: totalHts - openaiCount },
+      activeProvider: provider,
+      activeColumn: column,
     };
   }
 
@@ -349,20 +470,24 @@ export class HtsEmbeddingGenerationService {
     modelVersion: string,
   ): Promise<void> {
     const searchText = this.buildSearchText(hts);
-    const embeddingVector =
-      await this.embeddingService.generateEmbedding(searchText);
+    const embeddingVector = await this.embeddingService.generateEmbedding(searchText);
+    const { column } = this.embeddingService.providerInfo;
 
-    const updatePayload: Partial<HtsEntity> = {
-      embedding: embeddingVector,
-      embeddingSearchText: searchText,
-      embeddingModel: modelVersion,
-      embeddingGeneratedAt: new Date(),
-    };
+    const updatePayload: Partial<HtsEntity> =
+      column === 'embedding_openai'
+        ? {
+            embeddingOpenai: embeddingVector,
+            embeddingSearchText: searchText,
+            embeddingOpenaiGeneratedAt: new Date(),
+          }
+        : {
+            embedding: embeddingVector,
+            embeddingSearchText: searchText,
+            embeddingModel: modelVersion,
+            embeddingGeneratedAt: new Date(),
+          };
 
-    if (
-      !Array.isArray(hts.fullDescription) ||
-      hts.fullDescription.length === 0
-    ) {
+    if (!Array.isArray(hts.fullDescription) || hts.fullDescription.length === 0) {
       const fallbackFullDescription = this.buildFallbackFullDescription(hts);
       if (fallbackFullDescription.length > 0) {
         updatePayload.fullDescription = fallbackFullDescription;

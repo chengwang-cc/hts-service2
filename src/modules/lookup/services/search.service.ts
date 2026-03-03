@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { HtsEntity, EmbeddingService } from '@hts/core';
+import { HtsEntity, EmbeddingService, EmbeddingProviderConfig } from '@hts/core';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -322,17 +322,17 @@ export class SearchService {
     const lexicalTokens = this.buildLexicalTokens(queryTokens, signals);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
 
-    const keywordResults = await this.searchByKeyword(
-      normalizedQuery,
-      Math.min(this.MAX_LIMIT, safeLimit * 4),
-      expandedTokens,
-    );
-    // No semantic (DGX embedding) or reranker (DGX cross-encoder) calls —
-    // keyword-only RRF + hand-tuned scoring is the ranking pipeline.
+    const candidateLimit = Math.min(this.MAX_LIMIT, safeLimit * 4);
+
+    const [keywordResults, semanticResults] = await Promise.all([
+      this.searchByKeyword(normalizedQuery, candidateLimit, expandedTokens),
+      this.semanticSearch(normalizedQuery, candidateLimit),
+    ]);
+
     const combined = this.combineResults(
-      [],
+      semanticResults,
       keywordResults,
-      Math.min(this.MAX_LIMIT, safeLimit * 4),
+      candidateLimit,
     );
     if (combined.length === 0) {
       return [];
@@ -548,23 +548,27 @@ export class SearchService {
   }
 
   /**
-   * Semantic autocomplete search using pgvector cosine similarity.
-   * Embeds the query via EmbeddingService (DGX BGE-M3 primary, Redis-cached).
-   * Returns up to `limit` leaf HTS codes sorted by cosine similarity.
+   * Semantic search using pgvector cosine similarity.
+   * Automatically selects the correct column based on the active embedding provider:
+   *   SEARCH_EMBEDDING_PROVIDER=dgx    → hts.embedding (vector(1024))
+   *   SEARCH_EMBEDDING_PROVIDER=openai → hts.embedding_openai (vector(1536))
+   *
+   * Errors are caught and logged — semantic failure degrades to keyword-only gracefully.
    */
-  private async semanticAutocompleteSearch(
+  private async semanticSearch(
     query: string,
     limit: number,
   ): Promise<SemanticCandidate[]> {
     if (!this.embeddingService) return [];
     try {
+      const { column }: EmbeddingProviderConfig = this.embeddingService.providerInfo;
       const embedding = await this.embeddingService.generateEmbedding(query);
       const rows = await this.htsRepository
         .createQueryBuilder('hts')
         .select('hts.htsNumber', 'htsNumber')
-        .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
+        .addSelect(`1 - (hts.${column} <=> :embedding)`, 'similarity')
         .where('hts.isActive = :active', { active: true })
-        .andWhere('hts.embedding IS NOT NULL')
+        .andWhere(`hts.${column} IS NOT NULL`)
         .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
         .andWhere("hts.chapter NOT IN ('98', '99')")
         .setParameter('embedding', JSON.stringify(embedding))
@@ -577,7 +581,7 @@ export class SearchService {
       }));
     } catch (err) {
       this.logger.warn(
-        `Semantic autocomplete failed, skipping: ${(err as Error).message}`,
+        `Semantic search failed (provider=${this.embeddingService?.providerInfo.provider}), skipping: ${(err as Error).message}`,
       );
       return [];
     }
@@ -602,7 +606,7 @@ export class SearchService {
     const codePromise = includeCodeCandidates
       ? this.autocompleteByCode(query, Math.min(candidateLimit, 20))
       : Promise.resolve([] as any[]);
-    const semanticPromise = this.semanticAutocompleteSearch(
+    const semanticPromise = this.semanticSearch(
       query,
       candidateLimit,
     );

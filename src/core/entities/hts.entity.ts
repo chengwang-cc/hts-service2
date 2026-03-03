@@ -340,11 +340,19 @@ export class HtsEntity {
   searchVector: string | null;
 
   /**
-   * Embedding - 1024-dim vector from BGE-M3 (DGX Spark) or OpenAI fallback
-   * Used for semantic search via pgvector cosine similarity
+   * Embedding (DGX) - 1024-dim vector from BGE-M3 (self-hosted DGX Spark)
+   * Used for semantic search via pgvector cosine similarity when SEARCH_EMBEDDING_PROVIDER=dgx
    */
   @Column({ type: 'vector', length: 1024, select: false, nullable: true })
   embedding: number[] | null;
+
+  /**
+   * Embedding (OpenAI) - 1536-dim vector from text-embedding-3-small
+   * Used for semantic search when SEARCH_EMBEDDING_PROVIDER=openai
+   * Kept separate to avoid dimension mismatch with the DGX column.
+   */
+  @Column({ type: 'vector', length: 1536, select: false, nullable: true })
+  embeddingOpenai: number[] | null;
 
   /**
    * Embedding Search Text - Text that was used to generate the embedding
@@ -353,16 +361,22 @@ export class HtsEntity {
   embeddingSearchText: string | null;
 
   /**
-   * Embedding Model - OpenAI model used (e.g., "text-embedding-3-small")
+   * Embedding Model - model name last used to generate `embedding` (DGX column)
    */
   @Column('varchar', { length: 50, select: false, nullable: true })
   embeddingModel: string | null;
 
   /**
-   * Embedding Generated At - When the embedding was last generated
+   * Embedding Generated At - When the DGX embedding was last generated
    */
   @Column('timestamp', { select: false, nullable: true })
   embeddingGeneratedAt: Date | null;
+
+  /**
+   * OpenAI Embedding Generated At - When the OpenAI embedding was last generated
+   */
+  @Column('timestamp', { select: false, nullable: true })
+  embeddingOpenaiGeneratedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
