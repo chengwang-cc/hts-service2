@@ -51,9 +51,9 @@ const ConversationResponseSchema = z.object({
   evidence: z
     .array(
       z.object({
-        type: z.string(),
-        source: z.string(),
-        ref: z.string(),
+        type: z.string().optional().default(''),
+        source: z.string().optional().default(''),
+        ref: z.string().optional().default(''),
       }),
     )
     .default([]),
@@ -931,9 +931,28 @@ Respond using the structured schema.`;
       };
     }
 
-    const uniqueTrace = [...new Set([...parsed.data.toolTrace, ...toolTrace])];
+    const data = parsed.data;
+
+    // Safety net: enforce the confidence/clarification invariant.
+    // If the model returns low confidence but no questions, inject generic ones
+    // so the UI always has something to show rather than a dead-end low-confidence answer.
+    if (data.confidence < 0.7 && data.clarificationQuestions.length === 0) {
+      data.needsClarification = true;
+      data.clarificationQuestions = [
+        {
+          question: 'Can you describe the product in more detail? (materials, primary function, intended use)',
+          options: [],
+        },
+        {
+          question: 'Is this for personal use, commercial retail, or as a component/part?',
+          options: ['Personal use', 'Commercial / retail sale', 'Industrial / component use'],
+        },
+      ];
+    }
+
+    const uniqueTrace = [...new Set([...data.toolTrace, ...toolTrace])];
     return {
-      ...parsed.data,
+      ...data,
       toolTrace: uniqueTrace,
     };
   }

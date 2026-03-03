@@ -551,7 +551,7 @@ export class SearchService {
         'score',
       )
       .where('hts.isActive = :active', { active: true })
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
       .andWhere("hts.chapter NOT IN ('98', '99')")
 
       .andWhere(
@@ -801,7 +801,7 @@ export class SearchService {
         'score',
       )
       .where('hts.isActive = :active', { active: true })
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
       .andWhere("hts.chapter NOT IN ('98', '99')")
       .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
       .setParameters({ tsquery })
@@ -837,7 +837,7 @@ export class SearchService {
       .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
       .where('hts.isActive = :active', { active: true })
       .andWhere('hts.embedding IS NOT NULL')
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
       .andWhere("hts.chapter NOT IN ('98', '99')")
       .setParameter('embedding', JSON.stringify(embedding))
       .orderBy('similarity', 'DESC')
@@ -893,7 +893,7 @@ export class SearchService {
         'score',
       )
       .where('hts.isActive = :active', { active: true })
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
       .andWhere("hts.chapter NOT IN ('98', '99')")
 
       .andWhere(
@@ -956,7 +956,7 @@ export class SearchService {
           'score',
         )
         .where('hts.isActive = :active', { active: true })
-        .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
+        .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
         .andWhere("hts.chapter NOT IN ('98', '99')")
         .andWhere(`hts.searchVector @@ to_tsquery('english', :tsquery)`)
         .setParameters({ tsquery })
@@ -1162,15 +1162,8 @@ export class SearchService {
     return text.includes(needle) ? 0.2 : 0;
   }
 
-  private computeSpecificityBoost(htsNumber: string): number {
-    const digits = htsNumber.replace(/[^\d]/g, '').length;
-    if (digits >= 10) {
-      return 0.08;
-    }
-    if (digits >= 8) {
-      return 0.04;
-    }
-    return 0;
+  private computeSpecificityBoost(_htsNumber: string): number {
+    return 0.08;
   }
 
   private computeGenericPenalty(description: string, coverage: number): number {
