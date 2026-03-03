@@ -14,10 +14,12 @@ import {
   RateLimitService,
   RateLimitGuard,
   LookupController,
+  GroundedVerifierService,
 } from '@hts/lookup';
-import { HtsEntity, CoreModule } from '@hts/core';
+import { HtsEntity, CoreModule, AnthropicService } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { HtsNoteEntity } from '../knowledgebase/entities/hts-note.entity';
 import { UsageRecordEntity } from '../billing/entities/usage-record.entity';
 import { UsageTrackingService } from '../billing/services/usage-tracking.service';
 import { QueueModule } from '../queue/queue.module';
@@ -46,6 +48,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
       LookupConversationMessageEntity,
       LookupConversationFeedbackEntity,
       HtsEntity,
+      HtsNoteEntity,
       UsageRecordEntity,
     ]),
   ],
@@ -58,6 +61,8 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     RateLimitService,
     RateLimitGuard,
     UsageTrackingService,
+    AnthropicService,
+    GroundedVerifierService,
   ],
   exports: [
     SearchService,
@@ -65,6 +70,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     UrlClassifierService,
     LookupConversationAgentService,
     RateLimitService,
+    GroundedVerifierService,
   ],
 })
 export class LookupModule implements OnModuleInit {

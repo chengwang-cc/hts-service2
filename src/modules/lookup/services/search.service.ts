@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
 import { HtsEntity, EmbeddingService } from '@hts/core';
+import { DgxRerankerService } from '../../../core/dgx/dgx-reranker.service';
+import { GroundedVerifierService, VerifierResult } from './grounded-verifier.service';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -206,7 +208,64 @@ export class SearchService {
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
     private readonly embeddingService: EmbeddingService,
+    @Optional() private readonly dgxReranker: DgxRerankerService,
+    @Optional() private readonly groundedVerifier: GroundedVerifierService,
   ) {}
+
+  /**
+   * Fast keyword-only HTS search — no embedding, no DGX rerank.
+   * Used by the OpenAI agent path where sub-second search latency matters.
+   * Runs PostgreSQL full-text search + scoring and returns top results.
+   */
+  async fastTextSearch(query: string, limit: number = 10): Promise<any[]> {
+    const normalizedQuery = this.normalizeQuery(query);
+    const safeLimit = this.clampLimit(limit, 10);
+    if (!normalizedQuery) return [];
+
+    const queryTokens = this.tokenizeQuery(normalizedQuery);
+    const signals = this.buildQuerySignals(queryTokens);
+    const lexicalTokens = this.buildLexicalTokens(queryTokens, signals);
+    const expandedTokens = this.expandQueryTokens(lexicalTokens);
+
+    const keywordCandidates = await this.searchByKeyword(
+      normalizedQuery,
+      Math.min(this.MAX_LIMIT, safeLimit * 4),
+      expandedTokens,
+    );
+    if (keywordCandidates.length === 0) return [];
+
+    const htsNumbers = keywordCandidates.map((r) => r.htsNumber);
+    const entries = await this.htsRepository.find({
+      where: { htsNumber: In(htsNumbers), isActive: true },
+      select: ['htsNumber', 'description', 'chapter', 'indent', 'fullDescription'],
+    });
+    const entryByHts = new Map(entries.map((e) => [e.htsNumber, e]));
+
+    const scored = keywordCandidates
+      .map((r) => {
+        const entry = entryByHts.get(r.htsNumber);
+        if (!entry) return null;
+        const coverage = this.computeCoverageScore(queryTokens, this.buildEntryText(entry));
+        const phraseBoost = this.computePhraseBoost(normalizedQuery, this.buildEntryText(entry));
+        const specificityBoost = this.computeSpecificityBoost(entry.htsNumber);
+        const genericPenalty = this.computeGenericPenalty(entry.description, coverage);
+        const tokenSet = this.buildEntryTokenSet(entry);
+        const intentBoost = this.computeIntentBoost(signals, entry, tokenSet);
+        const intentPenalty = this.computeIntentPenalty(signals, entry, tokenSet);
+        return {
+          htsNumber: entry.htsNumber,
+          description: entry.description ?? '',
+          chapter: entry.chapter,
+          indent: entry.indent,
+          fullDescription: entry.fullDescription ?? null,
+          score: r.score + coverage * 0.7 + phraseBoost + specificityBoost - genericPenalty + intentBoost - intentPenalty,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .sort((a, b) => (b.score === a.score ? a.htsNumber.localeCompare(b.htsNumber) : b.score - a.score));
+
+    return scored.slice(0, safeLimit);
+  }
 
   async hybridSearch(query: string, limit: number = 20): Promise<any[]> {
     const normalizedQuery = this.normalizeQuery(query);
@@ -265,6 +324,83 @@ export class SearchService {
     const entryByHts = new Map(
       entries.map((entry) => [entry.htsNumber, entry]),
     );
+
+    // DGX cross-encoder reranker (Phase 4 — enabled once model is trained)
+    if (this.dgxReranker?.isEnabled) {
+      try {
+        const candidates = combined.slice(0, this.dgxReranker.maxCandidatesCount).map((r) => {
+          const e = entryByHts.get(r.htsNumber);
+          const title = e?.description ?? '';
+          const breadcrumb = e?.fullDescription?.slice(-2).join(' › ') ?? '';
+          return {
+            id: r.htsNumber,
+            text: `${r.htsNumber} | ${title} | ${breadcrumb}`.slice(0, 400),
+          };
+        });
+        const ranked = await this.dgxReranker.rerank(normalizedQuery, candidates);
+        const dgxScoreMap = new Map(ranked.map((r) => [r.id, r.score]));
+        const finalRows = combined
+          .map((r) => {
+            const entry = entryByHts.get(r.htsNumber);
+            if (!entry) return null;
+            return {
+              htsNumber: entry.htsNumber,
+              description: entry.description ?? '',
+              chapter: entry.chapter,
+              indent: entry.indent,
+              fullDescription: entry.fullDescription ?? null,
+              score: dgxScoreMap.get(r.htsNumber) ?? 0,
+            };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null)
+          .sort((a, b) =>
+            b.score === a.score
+              ? a.htsNumber.localeCompare(b.htsNumber)
+              : b.score - a.score,
+          );
+        const sliced = finalRows.slice(0, safeLimit);
+
+        // Phase 5 — Grounded Verifier: invoked when top reranker score is below threshold
+        if (this.groundedVerifier?.isEnabled) {
+          try {
+            const verifierResult = await this.groundedVerifier.verify(
+              normalizedQuery,
+              sliced.map((r) => ({
+                htsNumber: r.htsNumber,
+                description: r.description,
+                chapter: r.chapter,
+                fullDescription: r.fullDescription,
+                score: r.score,
+              })),
+            );
+
+            if (verifierResult.triggered && verifierResult.verifiedHtsNumber) {
+              const idx = sliced.findIndex(
+                (r) => r.htsNumber === verifierResult.verifiedHtsNumber,
+              );
+              // Promote verified code to position 0 if it differs from top
+              if (idx > 0) {
+                const [verified] = sliced.splice(idx, 1);
+                sliced.unshift(verified);
+              }
+            }
+
+            // Attach verifier metadata to the top result
+            if (sliced.length > 0) {
+              (sliced[0] as any).verifier = verifierResult;
+            }
+          } catch (err) {
+            this.logger.warn(
+              `Grounded verifier error: ${(err as Error).message}`,
+            );
+          }
+        }
+
+        return sliced;
+      } catch (err) {
+        this.logger.warn(`DGX reranker failed, using hand-tuned scoring: ${(err as Error).message}`);
+      }
+    }
 
     const reranked = combined
       .map((result) => {

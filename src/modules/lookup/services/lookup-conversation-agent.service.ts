@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Agent, run, tool } from '@openai/agents';
+import { ConfigService } from '@nestjs/config';
+import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { z } from 'zod';
 import { SearchService } from './search.service';
 import { NoteResolutionService } from '@hts/knowledgebase';
@@ -15,6 +17,22 @@ import { UsageTrackingService } from '../../billing/services/usage-tracking.serv
 import { LookupConversationSessionEntity } from '../entities/lookup-conversation-session.entity';
 import { LookupConversationMessageEntity } from '../entities/lookup-conversation-message.entity';
 import { LookupConversationFeedbackEntity } from '../entities/lookup-conversation-feedback.entity';
+
+type AgentModel = 'claude-haiku' | 'gpt-5-nano';
+
+/**
+ * A clarification question with optional quick-reply chips.
+ * Backward-compat: old DB rows may store plain strings — those are coerced.
+ */
+const ClarificationQuestionSchema = z.union([
+  z.string().transform((q) => ({ question: q, options: [] as string[] })),
+  z.object({
+    question: z.string(),
+    options: z.array(z.string()).default([]),
+  }),
+]);
+
+export type ClarificationQuestion = { question: string; options: string[] };
 
 const ConversationResponseSchema = z.object({
   answer: z.string(),
@@ -29,7 +47,7 @@ const ConversationResponseSchema = z.object({
     .default([]),
   confidence: z.number().min(0).max(1).default(0.5),
   needsClarification: z.boolean().default(false),
-  clarificationQuestions: z.array(z.string()).default([]),
+  clarificationQuestions: z.array(ClarificationQuestionSchema).default([]),
   evidence: z
     .array(
       z.object({
@@ -72,11 +90,43 @@ export interface ConversationSession {
   usage?: AdvancedConversationUsage;
 }
 
+const AGENT_SYSTEM_PROMPT = `You are an expert HTS (Harmonized Tariff Schedule) classification assistant.
+
+Process:
+1. Call hts_search_hybrid or hts_autocomplete to find candidate codes. One call is usually enough.
+2. If you need to verify a specific code, use hts_lookup_exact.
+3. When you have sufficient evidence, call provide_answer with your structured result.
+
+Rules:
+- Prefer specific leaf codes (e.g., 6109.10.00.04) over generic "Other" codes.
+- If product details are ambiguous, set needsClarification=true with 1-3 focused questions.
+- Provide alternatives only when there is genuine ambiguity between 2-3 codes.
+- Do NOT run multiple searches for the same query — one hybrid search gives good results.
+- Always end by calling provide_answer.
+
+Clarification questions format:
+Each clarification question MUST be a structured object with:
+- "question": the question text
+- "options": quick-reply chips for the UI
+  - Yes/No questions → ["Yes", "No"]
+  - Multiple-choice (material, color, type, end-use) → 3-5 most common values, e.g. ["Cotton", "Polyester", "Wool", "Blend"]
+  - Open-ended (dimensions, page count, custom value) → [] (empty, user types freely)
+
+Example clarificationQuestions:
+[
+  { "question": "What is the primary material?", "options": ["Cotton", "Polyester", "Wool", "Leather", "Other"] },
+  { "question": "What is the intended use?", "options": ["Commercial", "Personal", "Industrial"] },
+  { "question": "Is it battery-powered?", "options": ["Yes", "No"] },
+  { "question": "What are the exact dimensions (length × width × height)?", "options": [] }
+]`;
+
 @Injectable()
 export class LookupConversationAgentService {
   private readonly logger = new Logger(LookupConversationAgentService.name);
   private readonly ADVANCED_SESSION_DAILY_LIMIT = 20;
   private readonly ADVANCED_SESSION_OVERAGE_CHARGE_USD = 0.1;
+  private readonly anthropic: Anthropic;
+  private readonly openai: OpenAI;
 
   constructor(
     @InjectRepository(LookupConversationSessionEntity)
@@ -88,7 +138,24 @@ export class LookupConversationAgentService {
     private readonly searchService: SearchService,
     private readonly noteResolutionService: NoteResolutionService,
     private readonly usageTrackingService: UsageTrackingService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.anthropic = new Anthropic({
+      apiKey: config.get<string>('ANTHROPIC_API_KEY') ?? process.env.ANTHROPIC_API_KEY,
+      timeout: 60_000,
+      maxRetries: 0,
+    });
+    this.openai = new OpenAI({
+      apiKey: config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY,
+      timeout: 60_000,
+      maxRetries: 0,
+    });
+  }
+
+  private getConfiguredModel(): AgentModel {
+    const model = this.config.get<string>('LOOKUP_AGENT_MODEL', 'claude-haiku');
+    return model === 'gpt-5-nano' ? 'gpt-5-nano' : 'claude-haiku';
+  }
 
   async createConversation(params: {
     organizationId: string;
@@ -234,6 +301,7 @@ export class LookupConversationAgentService {
     messageId: string,
     message: string,
   ): Promise<void> {
+    const model = this.getConfiguredModel();
     await this.messageRepository.update(messageId, { status: 'processing' });
 
     const toolTrace: string[] = [];
@@ -245,7 +313,6 @@ export class LookupConversationAgentService {
         throw new InternalServerErrorException(`Session ${conversationId} not found during processing`);
       }
 
-      const agent = this.buildAgent(toolTrace);
       const history = await this.getRecentMessages(session.id, 8);
       const clarificationEchoGuard = this.buildClarificationEchoGuardResponse(
         history,
@@ -255,8 +322,9 @@ export class LookupConversationAgentService {
         normalized = clarificationEchoGuard;
       } else {
         const prompt = this.buildTurnPrompt(history);
-        const runResult = await run(agent, prompt, { maxTurns: 5 });
-        normalized = this.normalizeAgentOutput(runResult.finalOutput, toolTrace);
+        normalized = model === 'gpt-5-nano'
+          ? await this.runOpenAIAgent(message, prompt, toolTrace)
+          : await this.runClaudeAgent(prompt, toolTrace);
       }
 
       await this.messageRepository.update(messageId, {
@@ -366,75 +434,306 @@ export class LookupConversationAgentService {
     };
   }
 
-  private buildAgent(toolTrace: string[]): Agent<any, any> {
-    const autocompleteTool = tool({
-      name: 'hts_autocomplete',
-      description:
-        'Autocomplete HTS candidates using code or text query. Use for fast candidate discovery.',
-      parameters: z.object({
-        query: z.string(),
-        limit: z.number().int().min(1).max(20).default(10),
-      }),
-      execute: async (input) => {
+  /**
+   * Runs the Claude Haiku agent with up to 3 turns of tool use.
+   * Uses the `provide_answer` tool to return a structured output.
+   */
+  private async runClaudeAgent(
+    prompt: string,
+    toolTrace: string[],
+  ): Promise<ConversationAgentOutput> {
+    const researchTools = this.buildAnthropicTools();
+    const answerTool = this.buildAnswerTool();
+    const allTools: Anthropic.Tool[] = [...researchTools, answerTool];
+
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }];
+    const MAX_TURNS = 3;
+
+    for (let turn = 0; turn < MAX_TURNS; turn++) {
+      const isLastTurn = turn === MAX_TURNS - 1;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        system: AGENT_SYSTEM_PROMPT,
+        tools: allTools,
+        messages,
+        tool_choice: isLastTurn
+          ? { type: 'tool', name: 'provide_answer' }
+          : { type: 'auto' },
+      });
+
+      // If the model called provide_answer, return the structured result
+      const answerBlock = response.content.find(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'provide_answer',
+      );
+      if (answerBlock) {
+        return this.normalizeAgentOutput(answerBlock.input, toolTrace);
+      }
+
+      if (response.stop_reason !== 'tool_use') {
+        // Model ended without calling provide_answer — extract text and fall back
+        const text = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('');
+        return this.normalizeAgentOutput(text, toolTrace);
+      }
+
+      // Execute all tool calls in parallel, then continue the conversation
+      const toolUseBlocks = response.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+      );
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        toolUseBlocks.map(async (block) => {
+          const result = await this.executeAnthropicTool(block.name, block.input, toolTrace);
+          return {
+            type: 'tool_result' as const,
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          };
+        }),
+      );
+
+      messages.push({ role: 'assistant', content: response.content });
+      messages.push({ role: 'user', content: toolResults });
+    }
+
+    return this.normalizeAgentOutput(
+      { answer: 'Unable to produce a structured answer within the turn limit.', confidence: 0, needsClarification: true, clarificationQuestions: [], alternatives: [], evidence: [], toolTrace },
+      toolTrace,
+    );
+  }
+
+  /**
+   * Runs the OpenAI GPT-5-nano agent using the Responses API with JSON schema
+   * structured output. Single call — no tool-calling round-trips.
+   *
+   * Flow:
+   *  1. Fast keyword-only PostgreSQL search (< 500ms, no embedding API call)
+   *  2. Embed results in the prompt
+   *  3. Single Responses API call with json_schema format (guaranteed valid JSON)
+   */
+  private async runOpenAIAgent(
+    userQuery: string,
+    prompt: string,
+    toolTrace: string[],
+  ): Promise<ConversationAgentOutput> {
+    // Step 1: Fast keyword-only search (no embedding API call, no DGX rerank)
+    toolTrace.push('hts_search_hybrid');
+    const t0Search = Date.now();
+    const searchResults = await this.searchService.fastTextSearch(userQuery, 8);
+    this.logger.log(`Fast text search: ${Date.now() - t0Search}ms, ${searchResults.length} results`);
+
+    const trimmedResults = searchResults.slice(0, 8).map((r: Record<string, unknown>) => ({
+      htsNumber: r['htsNumber'],
+      description: r['description'],
+      breadcrumb: Array.isArray(r['fullDescription'])
+        ? (r['fullDescription'] as string[]).slice(-2).join(' › ')
+        : null,
+    }));
+
+    // Step 2: Responses API with structured output (json_schema)
+    const userInput = [
+      prompt,
+      '',
+      `HTS search results for "${userQuery}" (${trimmedResults.length} candidates):`,
+      JSON.stringify(trimmedResults),
+      '',
+      'Respond with ONLY a JSON object in exactly this format (no extra text):',
+      '{"answer":"<1-2 sentence explanation>","recommendedHts":"<best HTS leaf code or null>","alternatives":[{"hts":"<code>","reason":"<why>"}],"confidence":<0.0-1.0>,"needsClarification":<true/false>,"clarificationQuestions":[{"question":"<text>","options":[]}],"evidence":[],"toolTrace":[]}',
+    ].join('\n');
+
+    const t0 = Date.now();
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-nano',
+      instructions: AGENT_SYSTEM_PROMPT,
+      input: userInput,
+      text: {
+        format: { type: 'json_object' },
+      },
+    });
+    this.logger.log(`GPT-5-nano Responses API: ${Date.now() - t0}ms, status=${response.status}`);
+
+    return this.normalizeAgentOutput(response.output_text, toolTrace);
+  }
+
+  private buildOpenAITools(): OpenAI.Chat.Completions.ChatCompletionTool[] {
+    const anthropicTools = this.buildAnthropicTools();
+    const answerTool = this.buildAnswerTool();
+    return [...anthropicTools, answerTool].map((t) => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema as Record<string, unknown>,
+      },
+    }));
+  }
+
+  private buildAnthropicTools(): Anthropic.Tool[] {
+    return [
+      {
+        name: 'hts_autocomplete',
+        description: 'Autocomplete HTS candidates using code or text query. Use for fast candidate discovery.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'number', description: 'Max results (1–20), default 10' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'hts_search_hybrid',
+        description: 'Run high-accuracy HTS search using lexical + semantic retrieval and ranking.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'number', description: 'Max results (1–30), default 10' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'hts_lookup_exact',
+        description: 'Fetch exact HTS entry details by HTS number for evidence validation.',
+        input_schema: {
+          type: 'object' as const,
+          properties: { htsNumber: { type: 'string' } },
+          required: ['htsNumber'],
+        },
+      },
+      {
+        name: 'hts_compare_candidates',
+        description: 'Compare candidate HTS codes side-by-side for product fit and ambiguity handling.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            query: { type: 'string' },
+            candidateCodes: { type: 'array', items: { type: 'string' }, description: '1–10 HTS codes to compare' },
+          },
+          required: ['query', 'candidateCodes'],
+        },
+      },
+      {
+        name: 'hts_get_notes',
+        description: 'Resolve legal note references from HTS general/other columns for a specific HTS code.',
+        input_schema: {
+          type: 'object' as const,
+          properties: { htsNumber: { type: 'string' } },
+          required: ['htsNumber'],
+        },
+      },
+    ];
+  }
+
+  private buildAnswerTool(): Anthropic.Tool {
+    return {
+      name: 'provide_answer',
+      description: 'Return the final structured HTS classification result. Call this once you have enough evidence.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          answer: { type: 'string', description: 'Natural-language explanation of the classification' },
+          recommendedHts: { type: 'string', description: 'Recommended HTS leaf code, or null if unknown', nullable: true },
+          alternatives: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { hts: { type: 'string' }, reason: { type: 'string' } },
+              required: ['hts', 'reason'],
+            },
+          },
+          confidence: { type: 'number', description: 'Classification confidence 0–1' },
+          needsClarification: { type: 'boolean' },
+          clarificationQuestions: {
+            type: 'array',
+            description: 'Structured questions with quick-reply options for the UI.',
+            items: {
+              type: 'object',
+              properties: {
+                question: { type: 'string', description: 'The clarification question text' },
+                options: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Quick-reply chips: ["Yes","No"] for polar, list for multiple-choice, [] for open-ended',
+                },
+              },
+              required: ['question', 'options'],
+            },
+          },
+          evidence: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string' },
+                source: { type: 'string' },
+                ref: { type: 'string' },
+              },
+              required: ['type', 'source', 'ref'],
+            },
+          },
+          toolTrace: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['answer', 'confidence', 'needsClarification', 'clarificationQuestions', 'alternatives', 'evidence', 'toolTrace'],
+      },
+    };
+  }
+
+  private async executeAnthropicTool(
+    name: string,
+    input: unknown,
+    toolTrace: string[],
+  ): Promise<unknown> {
+    const p = input as Record<string, any>;
+    switch (name) {
+      case 'hts_autocomplete': {
         toolTrace.push('hts_autocomplete');
-        return this.searchService.autocomplete(input.query, input.limit);
-      },
-    });
-
-    const hybridSearchTool = tool({
-      name: 'hts_search_hybrid',
-      description:
-        'Run high-accuracy HTS search using lexical + semantic retrieval and ranking.',
-      parameters: z.object({
-        query: z.string(),
-        limit: z.number().int().min(1).max(30).default(10),
-      }),
-      execute: async (input) => {
+        const acResults = await this.searchService.autocomplete(p['query'], p['limit'] ?? 8);
+        return acResults.slice(0, 8).map((r: Record<string, unknown>) => ({
+          htsNumber: r['htsNumber'],
+          description: r['description'],
+          chapter: r['chapter'],
+          score: r['score'],
+        }));
+      }
+      case 'hts_search_hybrid': {
         toolTrace.push('hts_search_hybrid');
-        return this.searchService.hybridSearch(input.query, input.limit);
-      },
-    });
-
-    const exactLookupTool = tool({
-      name: 'hts_lookup_exact',
-      description:
-        'Fetch exact HTS entry details by HTS number for evidence validation.',
-      parameters: z.object({
-        htsNumber: z.string(),
-      }),
-      execute: async (input) => {
+        const searchResults = await this.searchService.hybridSearch(p['query'], p['limit'] ?? 8);
+        // Trim to reduce OpenAI context size — only essential fields, max 8 results
+        return searchResults.slice(0, 8).map((r: Record<string, unknown>) => ({
+          htsNumber: r['htsNumber'],
+          description: r['description'],
+          breadcrumb: Array.isArray(r['fullDescription'])
+            ? (r['fullDescription'] as string[]).slice(-2).join(' › ')
+            : null,
+          score: typeof r['score'] === 'number' ? Math.round(r['score'] * 1000) / 1000 : r['score'],
+        }));
+      }
+      case 'hts_lookup_exact': {
         toolTrace.push('hts_lookup_exact');
-        const row = await this.searchService.findByHtsNumber(input.htsNumber);
-        if (!row) {
-          return null;
-        }
+        const row = await this.searchService.findByHtsNumber(p['htsNumber']);
+        if (!row) return null;
         return {
           htsNumber: row.htsNumber,
           chapter: row.chapter,
           description: row.description,
-          fullDescription: row.fullDescription || [],
+          breadcrumb: (row.fullDescription || []).slice(-2).join(' › '),
           general: row.general,
           other: row.other,
-          parentHtses: row.parentHtses || [],
-          sourceVersion: row.sourceVersion,
         };
-      },
-    });
-
-    const compareCandidatesTool = tool({
-      name: 'hts_compare_candidates',
-      description:
-        'Compare candidate HTS codes side-by-side for product fit and ambiguity handling.',
-      parameters: z.object({
-        query: z.string(),
-        candidateCodes: z.array(z.string()).min(1).max(10),
-      }),
-      execute: async (input) => {
+      }
+      case 'hts_compare_candidates': {
         toolTrace.push('hts_compare_candidates');
         const rows = await Promise.all(
-          input.candidateCodes.map((code) => this.searchService.findByHtsNumber(code)),
+          (p['candidateCodes'] as string[]).map((code) => this.searchService.findByHtsNumber(code)),
         );
-        const queryTokens = this.tokenize(input.query);
+        const queryTokens = this.tokenize(p['query']);
         return rows
           .filter((row): row is NonNullable<typeof row> => row !== null)
           .map((row) => {
@@ -442,8 +741,7 @@ export class LookupConversationAgentService {
             const coverage =
               queryTokens.length === 0
                 ? 0
-                : queryTokens.filter((token) => description.includes(token)).length /
-                  queryTokens.length;
+                : queryTokens.filter((t) => description.includes(t)).length / queryTokens.length;
             return {
               htsNumber: row.htsNumber,
               description: row.description || '',
@@ -452,41 +750,19 @@ export class LookupConversationAgentService {
               fullDescription: row.fullDescription || [],
             };
           });
-      },
-    });
-
-    const notesTool = tool({
-      name: 'hts_get_notes',
-      description:
-        'Resolve legal note references from HTS general/other columns for a specific HTS code.',
-      parameters: z.object({
-        htsNumber: z.string(),
-      }),
-      execute: async (input) => {
+      }
+      case 'hts_get_notes': {
         toolTrace.push('hts_get_notes');
-        const row = await this.searchService.findByHtsNumber(input.htsNumber);
-        if (!row) {
-          return [];
-        }
+        const row = await this.searchService.findByHtsNumber(p['htsNumber']);
+        if (!row) return [];
         const resolvedYear = this.resolveYear(undefined, row.sourceVersion);
-        const candidates: Array<{
-          sourceColumn: 'general' | 'other';
-          referenceText: string;
-        }> = [];
-
+        const candidates: Array<{ sourceColumn: 'general' | 'other'; referenceText: string }> = [];
         if (this.hasLikelyNoteReference(row.general)) {
-          candidates.push({
-            sourceColumn: 'general',
-            referenceText: row.general || '',
-          });
+          candidates.push({ sourceColumn: 'general', referenceText: row.general || '' });
         }
         if (this.hasLikelyNoteReference(row.other)) {
-          candidates.push({
-            sourceColumn: 'other',
-            referenceText: row.other || '',
-          });
+          candidates.push({ sourceColumn: 'other', referenceText: row.other || '' });
         }
-
         const notes: Array<Record<string, any>> = [];
         for (const candidate of candidates) {
           const resolved = await this.noteResolutionService.resolveNoteReference(
@@ -497,39 +773,15 @@ export class LookupConversationAgentService {
             { persistResolution: false },
           );
           if (resolved) {
-            notes.push({
-              sourceColumn: candidate.sourceColumn,
-              referenceText: candidate.referenceText,
-              ...resolved,
-            });
+            notes.push({ sourceColumn: candidate.sourceColumn, referenceText: candidate.referenceText, ...resolved });
           }
         }
         return notes;
-      },
-    });
-
-    return new Agent({
-      name: 'HTS Advanced Conversation Agent',
-      model: 'gpt-5-nano',
-      instructions: `You are an expert HTS assistant for advanced users.
-
-Goals:
-1) Ask clarifying questions when product details are ambiguous.
-2) Use tools to gather evidence before recommending a final HTS code.
-3) Prefer specific leaf codes over generic "Other" when evidence supports it.
-4) Provide alternatives when there is true ambiguity.
-5) If confidence is low, set needsClarification=true and ask focused questions.
-
-Output must follow the response schema. Use toolTrace entries from tools that were called.`,
-      tools: [
-        autocompleteTool,
-        hybridSearchTool,
-        exactLookupTool,
-        compareCandidatesTool,
-        notesTool,
-      ],
-      outputType: ConversationResponseSchema,
-    });
+      }
+      default:
+        this.logger.warn(`Unknown tool called by Claude agent: ${name}`);
+        return { error: `Unknown tool: ${name}` };
+    }
   }
 
   private buildTurnPrompt(history: ConversationMessage[]): string {
@@ -550,7 +802,7 @@ Output must follow the response schema. Use toolTrace entries from tools that we
           Array.isArray(msg.content.clarificationQuestions) &&
           msg.content.clarificationQuestions.length > 0,
       );
-    const priorClarificationQuestions =
+    const priorClarificationQuestions: ClarificationQuestion[] =
       latestAssistantWithClarifications &&
       typeof latestAssistantWithClarifications.content !== 'string'
         ? latestAssistantWithClarifications.content.clarificationQuestions || []
@@ -558,8 +810,8 @@ Output must follow the response schema. Use toolTrace entries from tools that we
 
     const normalizedLatestUser = this.normalizeQuestionText(latestUserText);
     const echoedClarification = priorClarificationQuestions.find(
-      (question) =>
-        this.normalizeQuestionText(question) === normalizedLatestUser &&
+      (q) =>
+        this.normalizeQuestionText(q.question) === normalizedLatestUser &&
         normalizedLatestUser.length > 0,
     );
 
@@ -569,7 +821,7 @@ Output must follow the response schema. Use toolTrace entries from tools that we
           const content =
             typeof msg.content === 'string'
               ? msg.content
-              : `${msg.content.answer} (recommended=${msg.content.recommendedHts || 'n/a'}, confidence=${msg.content.confidence}, needsClarification=${msg.content.needsClarification}, clarificationQuestions=${(msg.content.clarificationQuestions || []).join(' | ')})`;
+              : `${msg.content.answer} (recommended=${msg.content.recommendedHts || 'n/a'}, confidence=${msg.content.confidence}, needsClarification=${msg.content.needsClarification}, clarificationQuestions=${(msg.content.clarificationQuestions || []).map((q) => q.question).join(' | ')})`;
           return `assistant: ${content}`;
         }
         return `user: ${String(msg.content)}`;
@@ -578,7 +830,7 @@ Output must follow the response schema. Use toolTrace entries from tools that we
 
     const antiLoopRule = echoedClarification
       ? `Important anti-loop rule:
-- The latest user message repeats a prior clarification question verbatim: "${echoedClarification}".
+- The latest user message repeats a prior clarification question verbatim: "${echoedClarification.question}".
 - Do NOT repeat the same clarification list.
 - Ask for the user's direct answer value in one concise sentence (for example: "general audience" or "children").`
       : '';
@@ -626,8 +878,8 @@ Respond using the structured schema.`;
         confidence: 0,
         needsClarification: true,
         clarificationQuestions: [
-          'What is the exact product category and use case?',
-          'Can you provide material/composition and format details?',
+          { question: 'What is the exact product category and use case?', options: [] },
+          { question: 'Can you provide material/composition and format details?', options: [] },
         ],
         evidence: [],
         toolTrace,
@@ -741,7 +993,7 @@ Respond using the structured schema.`;
       return null;
     }
 
-    const clarificationQuestions =
+    const clarificationQuestions: ClarificationQuestion[] =
       latestAssistantWithClarifications.content.clarificationQuestions || [];
     const normalizedLatestUser = this.normalizeQuestionText(latestUserText);
     if (!normalizedLatestUser) {
@@ -749,19 +1001,19 @@ Respond using the structured schema.`;
     }
 
     const echoedQuestion = clarificationQuestions.find(
-      (question) => this.normalizeQuestionText(question) === normalizedLatestUser,
+      (q) => this.normalizeQuestionText(q.question) === normalizedLatestUser,
     );
     if (!echoedQuestion) {
       return null;
     }
 
     const remainingQuestions = clarificationQuestions.filter(
-      (question) => this.normalizeQuestionText(question) !== normalizedLatestUser,
+      (q) => this.normalizeQuestionText(q.question) !== normalizedLatestUser,
     );
     const exampleAnswer = this.buildClarificationAnswerExample(echoedQuestion);
 
     return {
-      answer: `Please answer this clarification directly: "${echoedQuestion}". Example answer: ${exampleAnswer}.`,
+      answer: `Please answer this clarification directly: "${echoedQuestion.question}". Example answer: ${exampleAnswer}.`,
       recommendedHts: null,
       alternatives: [],
       confidence: 0.1,
@@ -773,37 +1025,17 @@ Respond using the structured schema.`;
     };
   }
 
-  private buildClarificationAnswerExample(question: string): string {
-    const cleaned = (question || '').replace(/[?]+$/g, '').trim();
-    const parts = cleaned
-      .split(/\s+or\s+/i)
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (parts.length >= 2) {
-      const leftRaw = parts[parts.length - 2];
-      const rightRaw = parts[parts.length - 1];
-      const left = leftRaw.split(/[:,]/).pop()?.trim() || leftRaw;
-      const right = rightRaw.split(/[:,]/).pop()?.trim() || rightRaw;
-      return `"${left}" or "${right}"`;
+  private buildClarificationAnswerExample(question: ClarificationQuestion): string {
+    // Prefer structured options if available
+    if (question.options && question.options.length >= 2) {
+      return `"${question.options[0]}" or "${question.options[question.options.length - 1]}"`;
     }
-
-    if (/\b(yes|no)\b/i.test(cleaned)) {
-      return '"yes" or "no"';
-    }
-
-    if (/\bpage|pages\b/i.test(cleaned)) {
-      return '"32 pages"';
-    }
-
-    if (/\bcountry|destination|jurisdiction\b/i.test(cleaned)) {
-      return '"United States"';
-    }
-
-    if (/\bmaterial|composition\b/i.test(cleaned)) {
-      return '"100% paper"';
-    }
-
+    // Fallback: scan question text
+    const cleaned = (question.question || '').replace(/[?]+$/g, '').trim();
+    if (/\b(yes|no)\b/i.test(cleaned)) return '"yes" or "no"';
+    if (/\bpage|pages\b/i.test(cleaned)) return '"32 pages"';
+    if (/\bcountry|destination|jurisdiction\b/i.test(cleaned)) return '"United States"';
+    if (/\bmaterial|composition\b/i.test(cleaned)) return '"100% paper"';
     return '"physical print" or "digital"';
   }
 

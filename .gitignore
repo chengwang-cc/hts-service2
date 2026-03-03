@@ -5,6 +5,9 @@
 /node_modules
 /build
 
+# Generated training data (large JSONL files — not committed)
+/data/
+
 # Logs
 logs
 *.log

@@ -12,6 +12,7 @@ async function bootstrap() {
     'http://localhost:7000',
     'http://localhost:4200',
     'http://localhost:4201',
+    'http://localhost:4300',
     'http://localhost:4202',
     'http://127.0.0.1:4200',
   ];

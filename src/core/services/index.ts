@@ -1,4 +1,5 @@
 // Services
+export * from './anthropic.service';
 export * from './openai.service';
 export * from './vision.service';
 export * from './embedding.service';

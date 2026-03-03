@@ -47,9 +47,9 @@ export class KnowledgeChunkEntity {
   tokenCount: number;
 
   /**
-   * Embedding - Vector embedding (1536 dimensions for OpenAI)
+   * Embedding - Vector embedding (1024 dimensions for BGE-M3)
    */
-  @Column({ type: 'vector', length: 1536, nullable: true })
+  @Column({ type: 'vector', length: 1024, nullable: true })
   embedding: number[] | null;
 
   /**

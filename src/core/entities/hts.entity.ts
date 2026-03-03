@@ -340,10 +340,10 @@ export class HtsEntity {
   searchVector: string | null;
 
   /**
-   * Embedding - 1536-dim vector from OpenAI text-embedding-3-small
+   * Embedding - 1024-dim vector from BGE-M3 (DGX Spark) or OpenAI fallback
    * Used for semantic search via pgvector cosine similarity
    */
-  @Column({ type: 'vector', length: 1536, select: false, nullable: true })
+  @Column({ type: 'vector', length: 1024, select: false, nullable: true })
   embedding: number[] | null;
 
   /**

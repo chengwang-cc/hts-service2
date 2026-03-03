@@ -3,3 +3,4 @@ export * from './classification.service';
 export * from './url-classifier.service';
 export * from './rate-limit.service';
 export * from './lookup-conversation-agent.service';
+export * from './grounded-verifier.service';

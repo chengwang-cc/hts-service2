@@ -19,7 +19,7 @@ export class HtsNoteEmbeddingEntity {
   @Column('uuid', { unique: true })
   noteId: string;
 
-  @Column({ type: 'vector', length: 1536 })
+  @Column({ type: 'vector', length: 1024 })
   embedding: number[];
 
   @Column('text')

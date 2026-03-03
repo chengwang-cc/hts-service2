@@ -66,6 +66,9 @@ import { ExternalProviderFormulaAdminController } from './controllers/external-p
 import { ReciprocalTariffAdminController } from './controllers/reciprocal-tariff.admin.controller';
 import { HtsEmbeddingAdminController } from './controllers/hts-embedding.admin.controller';
 
+// Controllers - Phase 6
+import { RerankerRetrainAdminController } from './controllers/reranker-retrain.admin.controller';
+
 // Services - Phase 1
 import { UsersAdminService } from './services/users.admin.service';
 import { RolesAdminService } from './services/roles.admin.service';
@@ -94,6 +97,11 @@ import { DocumentProcessingJobHandler } from './jobs/document-processing.job-han
 import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-handler';
 import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.job-handler';
 
+// Services + Job Handlers - Phase 6
+import { RerankerRetrainService } from './services/reranker-retrain.service';
+import { RerankerRetrainJobHandler } from './jobs/reranker-retrain.job-handler';
+import { RerankerTrainingRunEntity } from './entities/reranker-training-run.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -118,6 +126,8 @@ import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.jo
       // Phase 3 entities
       HtsDocumentEntity,
       KnowledgeChunkEntity,
+      // Phase 6 entities
+      RerankerTrainingRunEntity,
     ]),
     // Import wrapper modules to access services with repositories
     CoreWrapperModule,
@@ -142,6 +152,8 @@ import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.jo
     ExternalProviderFormulaAdminController,
     ReciprocalTariffAdminController,
     HtsEmbeddingAdminController,
+    // Phase 6 controllers
+    RerankerRetrainAdminController,
   ],
   providers: [
     // Phase 1 services
@@ -166,6 +178,9 @@ import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.jo
     DocumentProcessingJobHandler,
     EmbeddingGenerationJobHandler,
     LookupAccuracyReportJobHandler,
+    // Services + Job handlers - Phase 6
+    RerankerRetrainService,
+    RerankerRetrainJobHandler,
     AdminPermissionsGuard,
     // Core services (imported from wrapper modules, not provided here)
     // HtsProcessorService, FormulaGenerationService, HtsEmbeddingGenerationService, FormulaEvaluationService, OpenAiService - from CoreWrapperModule
@@ -194,6 +209,7 @@ export class AdminModule implements OnModuleInit {
     private documentProcessingHandler: DocumentProcessingJobHandler,
     private embeddingGenerationHandler: EmbeddingGenerationJobHandler,
     private lookupAccuracyReportHandler: LookupAccuracyReportJobHandler,
+    private rerankerRetrainHandler: RerankerRetrainJobHandler,
   ) {}
 
   async onModuleInit() {
@@ -224,9 +240,14 @@ export class AdminModule implements OnModuleInit {
       this.lookupAccuracyReportHandler.execute(job),
     );
 
-    this.logger.log('Job handlers registered successfully (6 handlers)');
+    await this.queueService.registerHandler('reranker-retrain', (job) =>
+      this.rerankerRetrainHandler.execute(job),
+    );
+
+    this.logger.log('Job handlers registered successfully (7 handlers)');
 
     await this.configureNightlyLookupAccuracySchedule();
+    await this.configureMonthlyRerankerRetrainSchedule();
   }
 
   private async configureNightlyLookupAccuracySchedule(): Promise<void> {
@@ -257,6 +278,29 @@ export class AdminModule implements OnModuleInit {
 
     this.logger.log(
       `Nightly lookup accuracy schedule active: cron="${cronExpression}" tz=${timezone}`,
+    );
+  }
+
+  private async configureMonthlyRerankerRetrainSchedule(): Promise<void> {
+    const enabled = process.env.RERANKER_RETRAIN_ENABLED === 'true';
+
+    if (!enabled) {
+      this.logger.log(
+        'Monthly reranker retrain schedule disabled (RERANKER_RETRAIN_ENABLED != true).',
+      );
+      return;
+    }
+
+    const cronExpression = process.env.RERANKER_RETRAIN_CRON || '0 2 1 * *';
+
+    await this.queueService.scheduleJob(
+      'reranker-retrain',
+      cronExpression,
+      { triggeredBy: 'cron' },
+    );
+
+    this.logger.log(
+      `Monthly reranker retrain schedule active: cron="${cronExpression}"`,
     );
   }
 }

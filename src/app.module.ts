@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CustomNamingStrategy } from '@hts/core';
 import { CoreModule } from '@hts/core';
+import { DgxModule } from './core/dgx';
 import { CoreWrapperModule } from './modules/core/core.module';
 import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.module';
 import { LookupModule } from './modules/lookup/lookup.module';
@@ -88,6 +89,9 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
         apiKey: process.env.OPENAI_API_KEY || '',
       },
     }),
+
+    // DGX Spark AI services (embedding + reranker)
+    DgxModule,
 
     // Core wrapper module (entities, repositories, controllers)
     CoreWrapperModule,
