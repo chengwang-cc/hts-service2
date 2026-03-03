@@ -14,14 +14,26 @@ export interface EmbeddingProviderConfig {
   /** Vector dimension for the active provider */
   dimension: number;
   /**
-   * PostgreSQL column name on the `hts` table to use in raw pgvector SQL.
+   * PostgreSQL column name (snake_case) for use in raw pgvector SQL expressions,
+   * e.g. `addSelect('1 - (hts.embedding_openai <=> :v)', 'similarity')`.
+   * TypeORM passes complex addSelect expressions through as raw SQL — it does
+   * NOT resolve the alias.column reference through the NamingStrategy here.
+   *
    * 'embedding'        = DGX column (vector(1024))
    * 'embedding_openai' = OpenAI column (vector(1536))
-   *
-   * Uses snake_case (DB column name) not the TypeORM camelCase property name,
-   * because QueryBuilder raw SQL strings bypass the NamingStrategy.
    */
   column: 'embedding' | 'embedding_openai';
+  /**
+   * TypeORM entity property name (camelCase) for use in QueryBuilder
+   * where / andWhere / orderBy / select clauses.
+   * TypeORM resolves these through the NamingStrategy — using the snake_case
+   * column name instead causes:
+   *   TypeError: Cannot read properties of undefined (reading 'databaseName')
+   *
+   * 'embedding'       = DGX entity property
+   * 'embeddingOpenai' = OpenAI entity property
+   */
+  property: 'embedding' | 'embeddingOpenai';
 }
 
 /**
@@ -60,8 +72,8 @@ export class EmbeddingService implements IEmbeddingService {
     const provider: EmbeddingProvider = raw === 'openai' ? 'openai' : 'dgx';
 
     this.providerConfig = provider === 'dgx'
-      ? { provider: 'dgx', dimension: 1024, column: 'embedding' }
-      : { provider: 'openai', dimension: 1536, column: 'embedding_openai' };
+      ? { provider: 'dgx', dimension: 1024, column: 'embedding', property: 'embedding' }
+      : { provider: 'openai', dimension: 1536, column: 'embedding_openai', property: 'embeddingOpenai' };
 
     this.redisTtlSec = config.get<number>('REDIS_EMBEDDING_TTL_SECONDS', 30 * 24 * 3600);
     this.redis = new Redis(
@@ -71,7 +83,7 @@ export class EmbeddingService implements IEmbeddingService {
 
     this.logger.log(
       `Embedding provider: ${provider.toUpperCase()} ` +
-      `(${this.providerConfig.dimension}-dim, column: "${this.providerConfig.column}")` +
+      `(${this.providerConfig.dimension}-dim, column: "${this.providerConfig.column}", property: "${this.providerConfig.property}")` +
       (provider === 'dgx' && !(dgxEmbedding?.isEnabled)
         ? ' — WARNING: DGX_EMBEDDING_ENABLED is false'
         : ''),

@@ -52,21 +52,26 @@ export class HtsEmbeddingGenerationService {
       errors: [] as string[],
     };
 
-    const allHts = await this.htsRepository.find({
-      where: { isActive: true },
-      order: { htsNumber: 'ASC' },
-    });
+    // Build DB query — filter NULL at DB level rather than loading vector columns into memory.
+    // Both `embedding` and `embeddingOpenai` are `select: false`, so they are never populated
+    // by find() — in-memory filtering with `hts.embeddingOpenai == null` always returns true
+    // (undefined == null) and would process every row on every run.
+    const { property } = this.embeddingService.providerInfo;
+    const queryBuilder = this.htsRepository
+      .createQueryBuilder('hts')
+      .where('hts.isActive = :active', { active: true })
+      .orderBy('hts.htsNumber', 'ASC');
+    if (onlyMissing) {
+      queryBuilder.andWhere(`hts.${property} IS NULL`);
+    }
 
-    // Filter to only rows missing the target column's embedding when onlyMissing=true
-    const toProcess = onlyMissing
-      ? allHts.filter((hts) => {
-          if (column === 'embedding') return hts.embedding == null;
-          return hts.embeddingOpenai == null;
-        })
-      : allHts;
+    const [toProcess, totalActive] = await Promise.all([
+      queryBuilder.getMany(),
+      this.htsRepository.count({ where: { isActive: true } }),
+    ]);
 
     result.total = toProcess.length;
-    result.skipped = allHts.length - toProcess.length;
+    result.skipped = totalActive - toProcess.length;
     this.logger.log(
       `${result.total} entries to process (${result.skipped} already have ${column} embeddings, skipped)`,
     );
@@ -348,16 +353,23 @@ export class HtsEmbeddingGenerationService {
 
     const result = { total: 0, generated: 0, skipped: 0, failed: 0, errors: [] as string[] };
 
-    const allHts = await this.htsRepository.find({
-      where: { isActive: true },
-      order: { htsNumber: 'ASC' },
-    });
+    // Filter NULL at DB level — `embeddingOpenai` is `select: false`, so it is never
+    // populated by find(). In-memory `hts.embeddingOpenai == null` is always true
+    // (undefined == null) and would process every row regardless of onlyMissing.
+    const queryBuilder = this.htsRepository
+      .createQueryBuilder('hts')
+      .where('hts.isActive = :active', { active: true })
+      .orderBy('hts.htsNumber', 'ASC');
+    if (onlyMissing) {
+      queryBuilder.andWhere('hts.embeddingOpenai IS NULL');
+    }
 
-    const toProcess = onlyMissing
-      ? allHts.filter((hts) => hts.embeddingOpenai == null)
-      : allHts;
+    const [toProcess, totalActive] = await Promise.all([
+      queryBuilder.getMany(),
+      this.htsRepository.count({ where: { isActive: true } }),
+    ]);
 
-    result.skipped = allHts.length - toProcess.length;
+    result.skipped = totalActive - toProcess.length;
     result.total = toProcess.length;
     this.logger.log(
       `${result.total} entries to process (${result.skipped} already have embedding_openai, skipped)`,

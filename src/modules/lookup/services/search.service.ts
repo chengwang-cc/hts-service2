@@ -561,14 +561,19 @@ export class SearchService {
   ): Promise<SemanticCandidate[]> {
     if (!this.embeddingService) return [];
     try {
-      const { column }: EmbeddingProviderConfig = this.embeddingService.providerInfo;
+      // column   = snake_case DB column name — used in raw SQL addSelect expressions
+      // property = camelCase TypeORM property name — used in andWhere/orderBy so
+      //            TypeORM resolves it through the NamingStrategy correctly.
+      //            Using the snake_case column name in andWhere throws:
+      //            TypeError: Cannot read properties of undefined (reading 'databaseName')
+      const { column, property }: EmbeddingProviderConfig = this.embeddingService.providerInfo;
       const embedding = await this.embeddingService.generateEmbedding(query);
       const rows = await this.htsRepository
         .createQueryBuilder('hts')
         .select('hts.htsNumber', 'htsNumber')
         .addSelect(`1 - (hts.${column} <=> :embedding)`, 'similarity')
         .where('hts.isActive = :active', { active: true })
-        .andWhere(`hts.${column} IS NOT NULL`)
+        .andWhere(`hts.${property} IS NOT NULL`)
         .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
         .andWhere("hts.chapter NOT IN ('98', '99')")
         .setParameter('embedding', JSON.stringify(embedding))

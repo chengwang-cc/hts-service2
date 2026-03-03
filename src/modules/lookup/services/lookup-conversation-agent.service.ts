@@ -633,19 +633,6 @@ export class LookupConversationAgentService {
     };
   }
 
-  private buildOpenAITools(): OpenAI.Chat.Completions.ChatCompletionTool[] {
-    const anthropicTools = this.buildAnthropicTools();
-    const answerTool = this.buildAnswerTool();
-    return [...anthropicTools, answerTool].map((t) => ({
-      type: 'function' as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.input_schema as Record<string, unknown>,
-      },
-    }));
-  }
-
   private buildAnthropicTools(): Anthropic.Tool[] {
     return [
       {
