@@ -120,6 +120,29 @@ Example clarificationQuestions:
   { "question": "What are the exact dimensions (length × width × height)?", "options": [] }
 ]`;
 
+/**
+ * Separate system prompt for the OpenAI RAG path.
+ * No function-calling references — the model receives pre-fetched search results
+ * and must output JSON directly. On follow-up turns (previous_response_id set),
+ * the model already has full conversation context.
+ */
+const OPENAI_AGENT_SYSTEM_PROMPT = `You are an expert HTS (Harmonized Tariff Schedule) classification assistant.
+
+When HTS search results are provided, use them to recommend the best matching leaf code.
+When the user provides answers to clarification questions, use ALL provided answers to give a definitive final classification.
+
+Output ONLY valid JSON — no extra text, no markdown fences:
+{"answer":"1-2 sentence explanation","recommendedHts":"leaf code or null","alternatives":[{"hts":"code","reason":"why"}],"confidence":0.0,"needsClarification":false,"clarificationQuestions":[{"question":"text","options":["opt1","opt2"]}],"evidence":[],"toolTrace":[]}
+
+Rules:
+- MANDATORY: If confidence < 0.7, you MUST set needsClarification=true and ask 2-3 targeted questions to resolve the ambiguity. Never return confidence < 0.7 with an empty clarificationQuestions array.
+- If the user has already answered clarification questions, give a confident final answer — do NOT repeat the same questions.
+- Prefer specific leaf codes (e.g., 6109.10.00.04) over generic "Other" codes.
+- clarificationQuestions options: ["Yes","No"] for yes/no; 3-5 values for multiple-choice; [] for open-ended text.
+- For media/printed matter: ask about format (bound book vs loose issues), page count range, and audience (children vs general).
+- For apparel: ask about primary material, gender/age group, and whether knitted or woven.
+- For electronics: ask about primary function and whether battery-powered.`;
+
 @Injectable()
 export class LookupConversationAgentService {
   private readonly logger = new Logger(LookupConversationAgentService.name);
@@ -318,13 +341,23 @@ export class LookupConversationAgentService {
         history,
         message,
       );
+
+      let newOpenAiResponseId: string | null = null;
+
       if (clarificationEchoGuard) {
         normalized = clarificationEchoGuard;
       } else {
         const prompt = this.buildTurnPrompt(history);
-        normalized = model === 'gpt-5-nano'
-          ? await this.runOpenAIAgent(message, prompt, toolTrace)
-          : await this.runClaudeAgent(prompt, toolTrace);
+        if (model === 'gpt-5-nano') {
+          const previousResponseId =
+            (session.contextJson as Record<string, unknown> | null)
+              ?.openaiPreviousResponseId as string | null ?? null;
+          const result = await this.runOpenAIAgent(message, prompt, toolTrace, previousResponseId);
+          normalized = result.output;
+          newOpenAiResponseId = result.responseId;
+        } else {
+          normalized = await this.runClaudeAgent(prompt, toolTrace);
+        }
       }
 
       await this.messageRepository.update(messageId, {
@@ -339,6 +372,7 @@ export class LookupConversationAgentService {
         lastToolTrace: normalized.toolTrace,
         lastRecommendedHts: normalized.recommendedHts || null,
         lastConfidence: normalized.confidence,
+        ...(newOpenAiResponseId ? { openaiPreviousResponseId: newOpenAiResponseId } : {}),
       };
       await this.sessionRepository.save(session);
     } catch (error) {
@@ -507,56 +541,67 @@ export class LookupConversationAgentService {
   }
 
   /**
-   * Runs the OpenAI GPT-5-nano agent using the Responses API with JSON schema
-   * structured output. Single call — no tool-calling round-trips.
+   * Runs the OpenAI GPT-5-nano agent using the Responses API.
    *
-   * Flow:
-   *  1. Fast keyword-only PostgreSQL search (< 500ms, no embedding API call)
-   *  2. Embed results in the prompt
-   *  3. Single Responses API call with json_schema format (guaranteed valid JSON)
+   * First turn  : fast keyword search → embed results in prompt → single API call.
+   * Subsequent turns: pass `previous_response_id` — the model retains the full
+   * conversation context (search results + prior Q&A) without re-fetching.
    */
   private async runOpenAIAgent(
     userQuery: string,
     prompt: string,
     toolTrace: string[],
-  ): Promise<ConversationAgentOutput> {
-    // Step 1: Fast keyword-only search (no embedding API call, no DGX rerank)
-    toolTrace.push('hts_search_hybrid');
-    const t0Search = Date.now();
-    const searchResults = await this.searchService.fastTextSearch(userQuery, 8);
-    this.logger.log(`Fast text search: ${Date.now() - t0Search}ms, ${searchResults.length} results`);
+    previousResponseId?: string | null,
+  ): Promise<{ output: ConversationAgentOutput; responseId: string }> {
+    let inputText: string;
 
-    const trimmedResults = searchResults.slice(0, 8).map((r: Record<string, unknown>) => ({
-      htsNumber: r['htsNumber'],
-      description: r['description'],
-      breadcrumb: Array.isArray(r['fullDescription'])
-        ? (r['fullDescription'] as string[]).slice(-2).join(' › ')
-        : null,
-    }));
+    if (previousResponseId) {
+      // Subsequent turn — model already has full context, just forward the user's message.
+      // "json" must appear in the input when using json_object format.
+      toolTrace.push('conversation_continue');
+      inputText = `${userQuery}\n\nRespond in JSON format.`;
+      this.logger.log(`GPT-5-nano: continuing thread previous_response_id=${previousResponseId}`);
+    } else {
+      // First turn — search + embed results into the prompt
+      toolTrace.push('hts_search_hybrid');
+      const t0Search = Date.now();
+      const searchResults = await this.searchService.fastTextSearch(userQuery, 8);
+      this.logger.log(`Fast text search: ${Date.now() - t0Search}ms, ${searchResults.length} results`);
 
-    // Step 2: Responses API with structured output (json_schema)
-    const userInput = [
-      prompt,
-      '',
-      `HTS search results for "${userQuery}" (${trimmedResults.length} candidates):`,
-      JSON.stringify(trimmedResults),
-      '',
-      'Respond with ONLY a JSON object in exactly this format (no extra text):',
-      '{"answer":"<1-2 sentence explanation>","recommendedHts":"<best HTS leaf code or null>","alternatives":[{"hts":"<code>","reason":"<why>"}],"confidence":<0.0-1.0>,"needsClarification":<true/false>,"clarificationQuestions":[{"question":"<text>","options":[]}],"evidence":[],"toolTrace":[]}',
-    ].join('\n');
+      const trimmedResults = searchResults.slice(0, 8).map((r: Record<string, unknown>) => ({
+        htsNumber: r['htsNumber'],
+        description: r['description'],
+        breadcrumb: Array.isArray(r['fullDescription'])
+          ? (r['fullDescription'] as string[]).slice(-2).join(' › ')
+          : null,
+      }));
+
+      inputText = [
+        prompt,
+        '',
+        `HTS search results for "${userQuery}" (${trimmedResults.length} candidates):`,
+        JSON.stringify(trimmedResults),
+        '',
+        'Respond in JSON format.',
+      ].join('\n');
+    }
 
     const t0 = Date.now();
     const response = await this.openai.responses.create({
       model: 'gpt-5-nano',
-      instructions: AGENT_SYSTEM_PROMPT,
-      input: userInput,
-      text: {
-        format: { type: 'json_object' },
-      },
+      instructions: OPENAI_AGENT_SYSTEM_PROMPT,
+      input: inputText,
+      ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+      text: { format: { type: 'json_object' } },
     });
-    this.logger.log(`GPT-5-nano Responses API: ${Date.now() - t0}ms, status=${response.status}`);
+    this.logger.log(
+      `GPT-5-nano Responses API: ${Date.now() - t0}ms, status=${response.status}, id=${response.id}`,
+    );
 
-    return this.normalizeAgentOutput(response.output_text, toolTrace);
+    return {
+      output: this.normalizeAgentOutput(response.output_text, toolTrace),
+      responseId: response.id,
+    };
   }
 
   private buildOpenAITools(): OpenAI.Chat.Completions.ChatCompletionTool[] {
