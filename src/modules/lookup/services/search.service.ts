@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { HtsEntity } from '@hts/core';
+import { HtsEntity, EmbeddingService } from '@hts/core';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -64,6 +64,53 @@ export class SearchService {
     tshirts: ['tshirt', 'shirt', 'shirts', 'tee', 'apparel'],
     shirt: ['shirts', 'tshirt', 'tshirts', 'apparel'],
     shirts: ['shirt', 'tshirt', 'tshirts', 'apparel'],
+    // HTS vocabulary: "electric" is the standard term in HTS headings
+    electronic: ['electric', 'electrical'],
+    electronics: ['electric', 'electrical'],
+    electrical: ['electric', 'electronic'],
+    // Common product descriptions
+    maker: ['machine', 'apparatus'],
+    makers: ['machine', 'apparatus'],
+    dryer: ['drying'],
+    dryers: ['drying'],
+    washer: ['washing'],
+    washers: ['washing'],
+    freezer: ['freezing', 'refrigerating'],
+    freezers: ['freezing', 'refrigerating'],
+    cooler: ['cooling', 'refrigerating'],
+    heater: ['heating'],
+    heaters: ['heating'],
+    blender: ['mixing'],
+    grinder: ['grinding'],
+    grinders: ['grinding'],
+    printer: ['printing'],
+    printers: ['printing'],
+    scanner: ['scanning'],
+    computer: ['computers', 'computing', 'data processing'],
+    computers: ['computer', 'computing', 'data processing'],
+    laptop: ['portable', 'computer', 'computers'],
+    laptops: ['portable', 'computer', 'computers'],
+    phone: ['telephone', 'telephones'],
+    phones: ['telephone', 'telephones'],
+    smartphone: ['telephone', 'cellular', 'mobile'],
+    smartphones: ['telephone', 'cellular', 'mobile'],
+    tv: ['television', 'televisions'],
+    television: ['televisions', 'tv'],
+    televisions: ['television', 'tv'],
+    headphone: ['headphones', 'earphone'],
+    headphones: ['headphone', 'earphone'],
+    earphone: ['earphones', 'headphone'],
+    earphones: ['earphone', 'headphone'],
+    speaker: ['speakers', 'loudspeaker'],
+    speakers: ['speaker', 'loudspeaker'],
+    camera: ['cameras', 'photographic'],
+    cameras: ['camera', 'photographic'],
+    watch: ['watches', 'timepiece', 'wristwatch'],
+    watches: ['watch', 'timepiece', 'wristwatch'],
+    shoe: ['shoes', 'footwear'],
+    shoes: ['shoe', 'footwear'],
+    bag: ['bags', 'handbag', 'luggage'],
+    bags: ['bag', 'handbag', 'luggage'],
   };
 
   private readonly MEDIA_INTENT_TOKENS = new Set([
@@ -205,6 +252,7 @@ export class SearchService {
   constructor(
     @InjectRepository(HtsEntity)
     private readonly htsRepository: Repository<HtsEntity>,
+    @Optional() private readonly embeddingService: EmbeddingService,
   ) {}
 
   /**
@@ -499,6 +547,42 @@ export class SearchService {
     }));
   }
 
+  /**
+   * Semantic autocomplete search using pgvector cosine similarity.
+   * Embeds the query via EmbeddingService (DGX BGE-M3 primary, Redis-cached).
+   * Returns up to `limit` leaf HTS codes sorted by cosine similarity.
+   */
+  private async semanticAutocompleteSearch(
+    query: string,
+    limit: number,
+  ): Promise<SemanticCandidate[]> {
+    if (!this.embeddingService) return [];
+    try {
+      const embedding = await this.embeddingService.generateEmbedding(query);
+      const rows = await this.htsRepository
+        .createQueryBuilder('hts')
+        .select('hts.htsNumber', 'htsNumber')
+        .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
+        .where('hts.isActive = :active', { active: true })
+        .andWhere('hts.embedding IS NOT NULL')
+        .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
+        .andWhere("hts.chapter NOT IN ('98', '99')")
+        .setParameter('embedding', JSON.stringify(embedding))
+        .orderBy('similarity', 'DESC')
+        .limit(limit)
+        .getRawMany<{ htsNumber: string; similarity: string }>();
+      return rows.map((r) => ({
+        htsNumber: r.htsNumber,
+        similarity: parseFloat(r.similarity),
+      }));
+    } catch (err) {
+      this.logger.warn(
+        `Semantic autocomplete failed, skipping: ${(err as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   private async autocompleteByTextHybrid(
     query: string,
     limit: number,
@@ -518,10 +602,15 @@ export class SearchService {
     const codePromise = includeCodeCandidates
       ? this.autocompleteByCode(query, Math.min(candidateLimit, 20))
       : Promise.resolve([] as any[]);
+    const semanticPromise = this.semanticAutocompleteSearch(
+      query,
+      candidateLimit,
+    );
 
-    const [lexicalRows, codeRows] = await Promise.all([
+    const [lexicalRows, codeRows, semanticRows] = await Promise.all([
       lexicalPromise,
       codePromise,
+      semanticPromise,
     ]);
 
     const fused = new Map<string, number>();
@@ -529,6 +618,9 @@ export class SearchService {
       fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
     });
     codeRows.forEach((row, index) => {
+      fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
+    });
+    semanticRows.forEach((row, index) => {
       fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
     });
 
@@ -625,13 +717,14 @@ export class SearchService {
       return [];
     }
 
-    // Normalize scores: clamp negatives to 0, divide by max(maxScore, 1.0).
-    // A perfect match (RRF + full coverage + phrase boost) scores ≥ 1.0 → 100%.
-    // Weaker matches are proportionally lower. Keeps absolute quality signal.
+    // Normalize scores relative to the top result (top = 100%, others proportional).
+    // The 0.5 filter keeps only results within 50% of the best match.
     const maxScore = Math.max(...ranked.map((r) => r.score));
-    const normDivisor = Math.max(maxScore, 1.0);
+    if (maxScore <= 0) {
+      return [];
+    }
     const normalized = ranked
-      .map((r) => ({ ...r, score: Math.max(r.score, 0) / normDivisor }))
+      .map((r) => ({ ...r, score: Math.max(r.score, 0) / maxScore }))
       .filter((r) => r.score >= 0.5);
 
     const diversified = this.applyChapterDiversity(

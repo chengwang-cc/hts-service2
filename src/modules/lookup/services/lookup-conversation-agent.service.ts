@@ -349,16 +349,19 @@ export class LookupConversationAgentService {
       } else {
         const prompt = this.buildTurnPrompt(history);
         if (model === 'gpt-5-nano') {
-          const previousResponseId =
-            (session.contextJson as Record<string, unknown> | null)
-              ?.openaiPreviousResponseId as string | null ?? null;
-          const result = await this.runOpenAIAgent(message, prompt, toolTrace, previousResponseId);
+          const ctx = (session.contextJson as Record<string, unknown> | null) ?? null;
+          const previousResponseId = ctx?.openaiPreviousResponseId as string | null ?? null;
+          const result = await this.runOpenAIAgent(message, prompt, toolTrace, previousResponseId, ctx);
           normalized = result.output;
           newOpenAiResponseId = result.responseId;
         } else {
           normalized = await this.runClaudeAgent(prompt, toolTrace);
         }
       }
+
+      // Validate that recommendedHts and alternatives exist in the DB.
+      // LLMs can hallucinate HTS numbers that look plausible but don't exist.
+      normalized = await this.validateHtsCodes(normalized);
 
       await this.messageRepository.update(messageId, {
         contentJson: normalized as Record<string, any>,
@@ -367,11 +370,14 @@ export class LookupConversationAgentService {
         errorMessage: null,
       });
 
+      const existingCtx = (session.contextJson as Record<string, unknown> | null) ?? {};
       session.contextJson = {
-        ...(session.contextJson || {}),
+        ...existingCtx,
         lastToolTrace: normalized.toolTrace,
         lastRecommendedHts: normalized.recommendedHts || null,
         lastConfidence: normalized.confidence,
+        // Store the original product query on first turn so subsequent turns can re-search with it
+        productQuery: existingCtx.productQuery ?? message,
         ...(newOpenAiResponseId ? { openaiPreviousResponseId: newOpenAiResponseId } : {}),
       };
       await this.sessionRepository.save(session);
@@ -552,35 +558,58 @@ export class LookupConversationAgentService {
     prompt: string,
     toolTrace: string[],
     previousResponseId?: string | null,
+    sessionCtx?: Record<string, unknown> | null,
   ): Promise<{ output: ConversationAgentOutput; responseId: string }> {
     let inputText: string;
 
-    if (previousResponseId) {
-      // Subsequent turn — model already has full context, just forward the user's message.
-      // "json" must appear in the input when using json_object format.
-      toolTrace.push('conversation_continue');
-      inputText = `${userQuery}\n\nRespond in JSON format.`;
-      this.logger.log(`GPT-5-nano: continuing thread previous_response_id=${previousResponseId}`);
-    } else {
-      // First turn — search + embed results into the prompt
-      toolTrace.push('hts_search_hybrid');
-      const t0Search = Date.now();
-      const searchResults = await this.searchService.fastTextSearch(userQuery, 8);
-      this.logger.log(`Fast text search: ${Date.now() - t0Search}ms, ${searchResults.length} results`);
-
-      const trimmedResults = searchResults.slice(0, 8).map((r: Record<string, unknown>) => ({
+    // Helper: search using autocomplete (keyword + semantic via DGX pgvector)
+    const fetchCandidates = async (query: string) => {
+      const t0 = Date.now();
+      const results = await this.searchService.autocomplete(query, 10);
+      this.logger.log(`Autocomplete search: ${Date.now() - t0}ms, ${results.length} results`);
+      return results.slice(0, 10).map((r: Record<string, unknown>) => ({
         htsNumber: r['htsNumber'],
         description: r['description'],
+        score: r['score'],
         breadcrumb: Array.isArray(r['fullDescription'])
           ? (r['fullDescription'] as string[]).slice(-2).join(' › ')
           : null,
       }));
+    };
+
+    if (previousResponseId) {
+      toolTrace.push('conversation_continue');
+      this.logger.log(`GPT-5-nano: continuing thread previous_response_id=${previousResponseId}`);
+
+      // If no confirmed HTS code yet, re-run the search with the original product query
+      // so the model has DB-verified candidates instead of answering from training memory.
+      const lastRecommendedHts = sessionCtx?.lastRecommendedHts as string | null ?? null;
+      const productQuery = sessionCtx?.productQuery as string | null ?? userQuery;
+
+      if (!lastRecommendedHts) {
+        toolTrace.push('hts_search_refresh');
+        const candidates = await fetchCandidates(productQuery);
+        inputText = [
+          userQuery,
+          '',
+          `Refreshed HTS candidates for "${productQuery}" (${candidates.length} results — pick ONLY from these):`,
+          JSON.stringify(candidates),
+          '',
+          'Respond in JSON format.',
+        ].join('\n');
+      } else {
+        inputText = `${userQuery}\n\nRespond in JSON format.`;
+      }
+    } else {
+      // First turn — search with autocomplete (keyword + semantic) and embed results
+      toolTrace.push('hts_search_hybrid');
+      const candidates = await fetchCandidates(userQuery);
 
       inputText = [
         prompt,
         '',
-        `HTS search results for "${userQuery}" (${trimmedResults.length} candidates):`,
-        JSON.stringify(trimmedResults),
+        `HTS search results for "${userQuery}" (${candidates.length} candidates — pick ONLY from these):`,
+        JSON.stringify(candidates),
         '',
         'Respond in JSON format.',
       ].join('\n');
@@ -886,6 +915,60 @@ ${serializedHistory}
 ${antiLoopRule}
 
 Respond using the structured schema.`;
+  }
+
+  /**
+   * Check that every HTS code the LLM recommended actually exists in the DB.
+   * Nulls out recommendedHts and filters alternatives for any hallucinated codes.
+   * If recommendedHts is nulled, confidence is also dropped so the UI prompts
+   * for clarification rather than displaying a broken result.
+   */
+  private async validateHtsCodes(
+    output: ConversationAgentOutput,
+  ): Promise<ConversationAgentOutput> {
+    // Collect all codes to check in one batch
+    const codesToCheck = new Set<string>();
+    if (output.recommendedHts) codesToCheck.add(output.recommendedHts);
+    for (const alt of output.alternatives ?? []) {
+      if (alt.hts) codesToCheck.add(alt.hts);
+    }
+    if (codesToCheck.size === 0) return output;
+
+    const existing = await Promise.all(
+      [...codesToCheck].map((code) => this.searchService.findByHtsNumber(code)),
+    );
+    const validCodes = new Set(
+      existing.filter(Boolean).map((e) => e!.htsNumber),
+    );
+
+    const invalidCodes = [...codesToCheck].filter((c) => !validCodes.has(c));
+    if (invalidCodes.length === 0) return output;
+
+    this.logger.warn(
+      `Hallucinated HTS codes removed from agent output: ${invalidCodes.join(', ')}`,
+    );
+
+    const validatedRecommended = output.recommendedHts && validCodes.has(output.recommendedHts)
+      ? output.recommendedHts
+      : null;
+
+    const validatedAlternatives = (output.alternatives ?? []).filter(
+      (alt) => alt.hts && validCodes.has(alt.hts),
+    );
+
+    return {
+      ...output,
+      recommendedHts: validatedRecommended,
+      alternatives: validatedAlternatives,
+      // Drop confidence when the primary recommendation was invalid
+      confidence: validatedRecommended === null && output.recommendedHts !== null
+        ? Math.min(output.confidence, 0.5)
+        : output.confidence,
+      // Force clarification if we lost the recommended code
+      needsClarification: validatedRecommended === null && output.recommendedHts !== null
+        ? true
+        : output.needsClarification,
+    };
   }
 
   private normalizeAgentOutput(
