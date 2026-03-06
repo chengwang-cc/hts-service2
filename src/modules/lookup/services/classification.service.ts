@@ -382,15 +382,16 @@ Examples (correct classifications):
     try {
       const embedding =
         await this.embeddingService.generateEmbedding(description);
+      const { column, property } = this.embeddingService.providerInfo;
 
       // Step 1: Top leaf entries by cosine similarity (include description for orphan fallback)
       const leafRows = await this.htsRepository
         .createQueryBuilder('hts')
         .select('hts.htsNumber', 'htsNumber')
         .addSelect('hts.description', 'description')
-        .addSelect('1 - (hts.embedding <=> :embedding)', 'similarity')
+        .addSelect(`1 - (hts.${column} <=> :embedding)`, 'similarity')
         .where('hts.isActive = :active', { active: true })
-        .andWhere('hts.embedding IS NOT NULL')
+        .andWhere(`hts.${property} IS NOT NULL`)
         .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
         .andWhere("hts.chapter NOT IN ('98', '99')")
         .setParameter('embedding', JSON.stringify(embedding))
@@ -941,13 +942,14 @@ Return JSON: { htsCode, confidence, reasoning }.`;
       return [];
     }
 
+    const { column, property } = this.embeddingService.providerInfo;
     const rows = await this.htsRepository
       .createQueryBuilder('hts')
       .select('hts.htsNumber', 'htsNumber')
       .addSelect('hts.description', 'description')
-      .addSelect('1 - (hts.embedding <=> :embedding)', 'score')
+      .addSelect(`1 - (hts.${column} <=> :embedding)`, 'score')
       .where('hts.isActive = :active', { active: true })
-      .andWhere('hts.embedding IS NOT NULL')
+      .andWhere(`hts.${property} IS NOT NULL`)
       .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)")
       .andWhere("hts.chapter NOT IN ('98', '99')")
       .andWhere(

@@ -31,6 +31,28 @@ interface QuerySignals {
   hasApparelIntent: boolean;
   hasTshirtIntent: boolean;
   hasCottonToken: boolean;
+  /** True when query describes a phone/device accessory (case, stand, holder)
+   *  → should resolve to plastic articles (ch.39), NOT luggage (ch.42) or audio (ch.85). */
+  hasPhoneAccessoryIntent: boolean;
+  /** True when query contains "keychain"/"keychains" with metal material (not plastic/acrylic)
+   *  → ch.73 (other articles of iron/steel), NOT ch.83 (padlocks). */
+  hasKeychainIntent: boolean;
+  /** True when query contains "keychain" with plastic/acrylic material → ch.39 (3926.40). */
+  hasAcrylicKeychainIntent: boolean;
+  /** True when query contains "socks"/"sock" (non-compression) → ch.61 cotton hosiery (6115.95). */
+  hasSockIntent: boolean;
+  /** True when query contains compression/support socks → 6115.10 (support hosiery). */
+  hasCompressionSockIntent: boolean;
+  /** True when query contains earbuds/earphones → ch.85 (8518.30 headphones/earphones). */
+  hasEarbudIntent: boolean;
+  /** True when query contains "plated" → imitation jewelry 7117, NOT precious metal 7113. */
+  hasPlatedIntent: boolean;
+  /** True when query has laptop/notebook + sleeve/case/bag → ch.42 (4202.12). */
+  hasLaptopCaseIntent: boolean;
+  /** True when query has tote/shopping bag → ch.42 textile bags (4202.92). */
+  hasShoppingBagIntent: boolean;
+  /** True when query has bottle/flask → ch.73 household articles (7323). */
+  hasWaterBottleIntent: boolean;
 }
 
 @Injectable()
@@ -109,8 +131,106 @@ export class SearchService {
     watches: ['watch', 'timepiece', 'wristwatch'],
     shoe: ['shoes', 'footwear'],
     shoes: ['shoe', 'footwear'],
-    bag: ['bags', 'handbag', 'luggage'],
-    bags: ['bag', 'handbag', 'luggage'],
+    // "luggage" removed from bag: it was pulling canvas totes into 4202.12 (travel cases).
+    // 4202.92 (shopping/sports bags of textile) is the correct heading for tote bags.
+    bag: ['bags', 'handbag', 'tote'],
+    bags: ['bag', 'handbag', 'tote'],
+    tote: ['bag', 'bags', 'shopping'],
+    // ── USB / charging cables → chapter 85 (insulated conductors, fitted with connectors) ──
+    // "connectors"/"fitted" target the 8544.42 subheading "Fitted with connectors" specifically.
+    usb: ['electric', 'electrical', 'conductor', 'connectors', 'fitted'],
+    charging: ['electric', 'electrical', 'power', 'connectors'],
+    charger: ['electric', 'electrical', 'power', 'connectors', 'fitted'],
+    chargers: ['electric', 'electrical', 'power', 'connectors', 'fitted'],
+    cable: ['cables', 'conductor', 'wire', 'connectors'],
+    cables: ['cable', 'conductor', 'wire'],
+    // ── Pokémon / trading cards → chapter 95 (playing cards / games) ───────────────────
+    pokemon: ['playing', 'card', 'game', 'trading'],
+    trading: ['card', 'game', 'playing'],
+    card: ['cards', 'playing', 'game'],
+    cards: ['card', 'playing', 'game'],
+    // ── Plush / stuffed toys → chapter 95 ───────────────────────────────────────────────
+    plush: ['stuffed', 'toy', 'toys', 'dolls'],
+    stuffed: ['plush', 'toy', 'toys'],
+    toy: ['toys', 'plaything', 'dolls'],
+    toys: ['toy', 'plaything', 'dolls'],
+    // ── Vinyl sticker / printed decorative items → chapter 49 (printed matter 4911.91) ─────
+    // "adhesive"/"label"/"self-adhesive" point to 4821 (paper labels) — removed.
+    // "pictorial"/"picture"/"design" target 4911.91 "Printed pictures, designs and photographs".
+    sticker: ['printed', 'pictorial', 'picture', 'design'],
+    stickers: ['printed', 'pictorial', 'picture', 'design'],
+    vinyl: ['printed', 'pictorial', 'design'],
+    // ── Keychain / metal accessories → chapter 73 (7326 articles of iron/steel) ──────────
+    // "key" removed — it matches padlocks/locks (chapter 83); keychains go in chapter 73.
+    // "iron"/"steel"/"chain" removed — they match unrelated laminated goods / roller chains.
+    // "ornament" removed — matches 8306 (base metal bells/ornaments of ch.83).
+    // "wire" targets 7326.20 "Articles of iron or steel wire" (key rings are wire articles).
+    keychain: ['fob', 'wire', 'metal', 'accessory'],
+    keychains: ['fob', 'wire', 'metal', 'accessory'],
+    // ── Laptop sleeve → chapter 42 (bags/cases, not apparel) ────────────────────────────
+    sleeve: ['bag', 'case', 'holder', 'protective'],
+    sleeves: ['bag', 'case', 'holder', 'protective'],
+    // ── Hair scrunchie → 6117.80 (other knitted clothing accessories: ponytail holders) ──
+    // "hair" removed — "hair" matches "hair-nets" in chapter 65 (headgear/hats).
+    // "ponytail" and "holders" target 6117.80.30.10 / 6117.80.85.00 descriptions directly.
+    scrunchie: ['elastic', 'knitted', 'textile', 'ponytail', 'holders', 'headband'],
+    scrunchies: ['elastic', 'knitted', 'textile', 'ponytail', 'holders', 'headband'],
+    // ── Bottle opener / can opener → chapter 82 (8210 hand-operated mechanical appliances) ──
+    // "mechanical" and "appliance"/"appliances" target 8210's description directly:
+    // "Hand-operated mechanical appliances, weighing 10 kg or less, used in the preparation..."
+    opener: ['mechanical', 'appliance', 'appliances', 'hand', 'operated'],
+    openers: ['mechanical', 'appliance', 'appliances', 'hand', 'operated'],
+    // ── Costume jewelry / necklace → chapter 71 (imitation jewelry) ─────────────────────
+    necklace: ['jewelry', 'jewellery', 'imitation', 'ornament'],
+    necklaces: ['jewelry', 'jewellery', 'imitation'],
+    jewelry: ['jewellery', 'imitation', 'ornament'],
+    jewellery: ['jewelry', 'imitation', 'ornament'],
+    costume: ['imitation', 'jewelry', 'jewellery'],
+    // ── Baseball cap / headwear → chapter 65 ────────────────────────────────────────────
+    cap: ['hat', 'headwear', 'headgear', 'hats'],
+    caps: ['hat', 'headwear', 'headgear', 'hats'],
+    hat: ['cap', 'headwear', 'headgear'],
+    hats: ['cap', 'headwear', 'headgear'],
+    baseball: ['sports', 'sport', 'game', 'headgear'],
+    // ── Wallet / purse → chapter 42 ──────────────────────────────────────────────────────
+    wallet: ['purse', 'leather', 'pocketbook'],
+    wallets: ['purse', 'leather', 'pocketbook'],
+    purse: ['wallet', 'leather', 'handbag'],
+    // ── Scarf → chapter 61/62 ─────────────────────────────────────────────────────────────
+    scarf: ['shawl', 'apparel', 'knit', 'woven', 'muffler'],
+    scarves: ['shawl', 'apparel', 'knit', 'woven'],
+    // ── Socks / hosiery → chapter 61 ─────────────────────────────────────────────────────
+    sock: ['socks', 'hosiery', 'knit'],
+    socks: ['sock', 'hosiery', 'knit'],
+    // ── Dice / game accessories → chapter 95 ─────────────────────────────────────────────
+    dice: ['game', 'gaming', 'play', 'toys'],
+    die: ['dice', 'game', 'play'],
+    // ── Notebook / stationery → chapter 48 ───────────────────────────────────────────────
+    notebook: ['book', 'stationery', 'paper', 'journal'],
+    notebooks: ['book', 'stationery', 'paper'],
+    // ── Silicone / plastic articles → chapter 39 ─────────────────────────────────────────
+    silicone: ['plastic', 'rubber', 'elastomeric'],
+    // ── Stand / holder (non-audio) ────────────────────────────────────────────────────────
+    stand: ['holder', 'support', 'mount'],
+    // ── Canvas → textile bags (4202.92) not suitcases (4202.12) ─────────────────────────
+    // "outer" and "surface" appear ONLY in the 4202.92 subheading text:
+    // "With outer surface of sheeting of plastics or of textile materials"
+    // They do NOT appear in 4202.12 subheading, so they disambiguate the two subheadings.
+    canvas: ['woven', 'cotton', 'textile', 'outer', 'surface'],
+    // ── Cotton socks/hosiery → 6115.95 (cotton) not 6115.10 (support/compression) ────────
+    hosiery: ['knit', 'knitted', 'socks', 'stockings'],
+    knit: ['knitted', 'hosiery', 'textile'],
+    knitted: ['knit', 'hosiery', 'textile'],
+    // ── Earbuds / earphones → chapter 85 (8518.30 headphones/earphones) ─────────────────
+    earbud: ['earphone', 'earphones', 'headphone', 'headphones'],
+    earbuds: ['earbud', 'earphone', 'earphones', 'headphone', 'headphones'],
+    // ── Wireless / Bluetooth → radio, cordless (avoids matching ch.85 telephones broadly) ─
+    wireless: ['cordless', 'radio'],
+    bluetooth: ['wireless', 'cordless'],
+    // ── Water bottle / flask → chapter 73 (7323 table/kitchen/household articles) ─────────
+    bottle: ['container', 'flask', 'vessel', 'thermos'],
+    bottles: ['bottle', 'container', 'flask', 'vessel'],
+    flask: ['bottle', 'vessel', 'thermos'],
   };
 
   private readonly MEDIA_INTENT_TOKENS = new Set([
@@ -637,6 +757,24 @@ export class SearchService {
       return [];
     }
 
+    // For specific intents, the correct entries may not surface in the semantic/lexical
+    // candidate pools (due to vocabulary mismatch). Inject them with a synthetic baseline
+    // RRF score so they can receive intent boosts and compete in the final ranking.
+    const syntheticRank = 40; // equivalent to rank 40 in a 50-RRF_K scheme → small base score
+    if (signals.hasPhoneAccessoryIntent) {
+      // 3926.90.xx — other articles of plastics (phone cases/covers go here)
+      await this.injectCandidates(fused, '3926.90', syntheticRank);
+    }
+    if (signals.hasKeychainIntent) {
+      // 7326.20.xx — wire articles of iron/steel (key rings), 7326.90.xx — other articles
+      await this.injectCandidates(fused, '7326.20', syntheticRank);
+      await this.injectCandidates(fused, '7326.90', syntheticRank + 5);
+    }
+    if (signals.hasAcrylicKeychainIntent) {
+      // 3926.40.xx — statuettes and other ornamental articles of plastics
+      await this.injectCandidates(fused, '3926.40', syntheticRank);
+    }
+
     const htsNumbers = [...fused.keys()];
     const entries = await this.htsRepository.find({
       where: { htsNumber: In(htsNumbers), isActive: true },
@@ -652,7 +790,12 @@ export class SearchService {
         }
         const base = fused.get(htsNumber) || 0;
         const text = this.buildEntryText(entry);
-        const coverage = this.computeCoverageScore(baseTokens, text);
+        // Use expandedTokens for coverage so that synonym-expanded HTS vocabulary terms
+        // (e.g. "usb"→"electric","conductor") raise the coverage against entries whose
+        // fullDescription contains HTS terms but not the original consumer product word.
+        // This prevents computeGenericPenalty from unfairly penalising correct "Other"
+        // leaf codes (e.g. 8544.42.90.90) when the query includes terms like "USB charging".
+        const coverage = this.computeCoverageScore(expandedTokens, text);
         const phraseBoost = this.computePhraseBoost(query, text);
         const specificityBoost = this.computeSpecificityBoost(htsNumber);
         const genericPenalty = this.computeGenericPenalty(
@@ -696,6 +839,36 @@ export class SearchService {
         ) {
           return null;
         }
+        // Phone case/accessory intent: only 3926.xx (manufactured plastic articles) are relevant.
+        // All other chapters dominate lexical search with wrong results: ch.42 (bag "cases"),
+        // ch.85 8517 (smartphones), ch.91 (watch cases), ch.40 (rubber), ch.28/29 (chemicals).
+        // Hard-filter to only allow ch.39 articles (3926.xx) so semantic results can surface.
+        if (signals.hasPhoneAccessoryIntent && !entry.htsNumber.startsWith('3926.')) {
+          return null;
+        }
+        // Laptop sleeve → 4202.12 (computer/briefcase cases). 4202.92 (shopping/travel bags) is wrong.
+        if (signals.hasLaptopCaseIntent && entry.htsNumber.startsWith('4202.92')) {
+          return null;
+        }
+        // Shopping tote bag → 4202.92. 4202.12 (hard cases/briefcases) is wrong.
+        if (signals.hasShoppingBagIntent && entry.htsNumber.startsWith('4202.12')) {
+          return null;
+        }
+        // Water bottle → 7323 (household articles). 7324 (sanitary/bath ware) is wrong.
+        if (signals.hasWaterBottleIntent && entry.htsNumber.startsWith('7324.')) {
+          return null;
+        }
+        // Earbuds → 8518 (headphones/earphones). 8517 (telephones/handsets) is wrong.
+        if (signals.hasEarbudIntent && entry.htsNumber.startsWith('8517.')) {
+          return null;
+        }
+        // Acrylic keychain → 3926.40 (plastic ornamental articles).
+        // "acrylic" in HTS lexically matches 3906 (acrylic polymer chemicals) and
+        // "ornament" from keychain synonym matches 8306 (base metal bells/ornaments).
+        // Hard-restrict to ch.39/3926.xx only since acrylic keychain is clearly a plastic article.
+        if (signals.hasAcrylicKeychainIntent && !entry.htsNumber.startsWith('3926.')) {
+          return null;
+        }
         const intentBoost = this.computeIntentBoost(signals, entry, tokenSet);
         const intentPenalty = this.computeIntentPenalty(signals, entry, tokenSet);
 
@@ -734,7 +907,7 @@ export class SearchService {
     }
     const normalized = ranked
       .map((r) => ({ ...r, score: Math.max(r.score, 0) / maxScore }))
-      .filter((r) => r.score >= 0.5);
+      .filter((r) => r.score >= 0.35);
 
     const diversified = this.applyChapterDiversity(
       normalized,
@@ -1148,8 +1321,14 @@ export class SearchService {
     return text.includes(needle) ? 0.2 : 0;
   }
 
-  private computeSpecificityBoost(_htsNumber: string): number {
-    return 0.08;
+  private computeSpecificityBoost(htsNumber: string): number {
+    // Reward more specific (longer) HTS codes so that 10-digit leaf entries
+    // outrank ambiguous 4-digit headings when both surface in the same search.
+    const digits = htsNumber.replace(/\./g, '').length;
+    if (digits >= 10) return 0.12;
+    if (digits >= 8) return 0.08;
+    if (digits >= 6) return 0.04;
+    return 0;
   }
 
   private computeGenericPenalty(description: string, coverage: number): number {
@@ -1165,6 +1344,35 @@ export class SearchService {
 
   private rrf(rankIndex: number): number {
     return 1 / (this.RRF_K + rankIndex + 1);
+  }
+
+  /**
+   * Inject 10-digit leaf HTS codes matching `prefix` into the fused candidate map
+   * with a synthetic RRF score (as if they ranked at `syntheticRank`).
+   * Only injects entries not already in the map (existing entries keep their higher scores).
+   * Used to ensure intent-boosted entries always appear in the scoring pass even when
+   * they don't rank in the top-N of semantic or lexical search.
+   */
+  private async injectCandidates(
+    fused: Map<string, number>,
+    prefix: string,
+    syntheticRank: number,
+  ): Promise<void> {
+    const rows = await this.htsRepository
+      .createQueryBuilder('hts')
+      .select('hts.htsNumber', 'htsNumber')
+      .where('hts.isActive = :active', { active: true })
+      .andWhere('hts.htsNumber LIKE :prefix', { prefix: `${prefix}%` })
+      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
+      .andWhere("hts.chapter NOT IN ('98', '99')")
+      .getRawMany<{ htsNumber: string }>();
+
+    const syntheticScore = this.rrf(syntheticRank);
+    for (const { htsNumber } of rows) {
+      if (!fused.has(htsNumber)) {
+        fused.set(htsNumber, syntheticScore);
+      }
+    }
   }
 
   private applyChapterDiversity<T extends { chapter?: string }>(
@@ -1208,6 +1416,23 @@ export class SearchService {
       return false;
     };
 
+    // Phone accessory: "phone" + case/stand/holder/grip/mount/cover → plastic article (ch.39)
+    const PHONE_ACCESSORY_TERMS = new Set(['case', 'stand', 'holder', 'grip', 'mount', 'cover', 'silicone']);
+    const hasPhoneAccessoryIntent =
+      (tokenSet.has('phone') || tokenSet.has('smartphone') || tokenSet.has('iphone')) &&
+      [...PHONE_ACCESSORY_TERMS].some((t) => tokenSet.has(t));
+
+    // Plastic material in query: acrylic, resin, etc. → prevents metal keychain boost
+    const hasPlasticMaterialToken =
+      tokenSet.has('acrylic') || tokenSet.has('resin') || tokenSet.has('pvc') ||
+      (tokenSet.has('plastic') && !hasPhoneAccessoryIntent);
+
+    const hasKeychainToken = tokenSet.has('keychain') || tokenSet.has('keychains');
+
+    // Compression socks: "compression" or "support" with socks → 6115.10
+    const hasSockToken = tokenSet.has('sock') || tokenSet.has('socks');
+    const hasCompressionToken = tokenSet.has('compression') || tokenSet.has('support') || tokenSet.has('therapeutic');
+
     return {
       hasMediaIntent: hasAny(this.MEDIA_INTENT_TOKENS),
       hasComicIntent: hasAny(this.COMIC_INTENT_TOKENS),
@@ -1217,6 +1442,31 @@ export class SearchService {
       hasApparelIntent: hasAny(this.APPAREL_INTENT_TOKENS),
       hasTshirtIntent: tokenSet.has('tshirt') || tokenSet.has('tshirts'),
       hasCottonToken: tokenSet.has('cotton'),
+      hasPhoneAccessoryIntent,
+      // hasKeychainIntent only for metal/unspecified keychains (not acrylic/plastic)
+      hasKeychainIntent: hasKeychainToken && !hasPlasticMaterialToken,
+      // hasAcrylicKeychainIntent for plastic/acrylic keychains → 3926.40
+      hasAcrylicKeychainIntent: hasKeychainToken && hasPlasticMaterialToken,
+      // hasSockIntent only for plain socks (not compression/support hosiery)
+      hasSockIntent: hasSockToken && !hasCompressionToken,
+      // hasCompressionSockIntent for support hosiery → 6115.10
+      hasCompressionSockIntent: hasSockToken && hasCompressionToken,
+      // hasEarbudIntent: earbuds/earphones → 8518.30 (headphones/earphones), NOT 8517 (phones)
+      hasEarbudIntent:
+        tokenSet.has('earbud') || tokenSet.has('earbuds') ||
+        tokenSet.has('earphone') || tokenSet.has('earphones'),
+      // hasPlatedIntent: "plated" → imitation jewelry (7117), NOT precious metal (7113)
+      hasPlatedIntent: tokenSet.has('plated'),
+      // hasLaptopCaseIntent: laptop/notebook + sleeve/case/bag → 4202.12 (computer cases)
+      hasLaptopCaseIntent:
+        (tokenSet.has('laptop') || tokenSet.has('notebooks')) &&
+        (tokenSet.has('sleeve') || tokenSet.has('case') || tokenSet.has('bag') || tokenSet.has('holder')),
+      // hasShoppingBagIntent: tote/shopping bags → 4202.92 (textile shopping/travel bags)
+      hasShoppingBagIntent:
+        (tokenSet.has('tote') || tokenSet.has('shopping')) &&
+        (tokenSet.has('bag') || tokenSet.has('bags')),
+      // hasWaterBottleIntent: bottle/flask → 7323 (table/kitchen/household articles)
+      hasWaterBottleIntent: tokenSet.has('bottle') || tokenSet.has('bottles') || tokenSet.has('flask'),
     };
   }
 
@@ -1224,14 +1474,26 @@ export class SearchService {
     queryTokens: string[],
     signals: QuerySignals,
   ): string[] {
-    if (!signals.hasMediaIntent || !signals.hasTransformerToken) {
-      return queryTokens;
+    // When media+transformer intent is detected, strip transformer to avoid ch.85 electrical matches
+    if (signals.hasMediaIntent && signals.hasTransformerToken) {
+      const filtered = queryTokens.filter(
+        (token) => token !== 'transformer' && token !== 'transformers',
+      );
+      return filtered.length > 0 ? filtered : queryTokens;
     }
 
-    const filtered = queryTokens.filter(
-      (token) => token !== 'transformer' && token !== 'transformers',
-    );
-    return filtered.length > 0 ? filtered : queryTokens;
+    // When phone accessory intent is detected, remove "phone", "case" from lexical tokens:
+    // - "phone" → expands to "telephone" which floods candidates with ch.85 handsets
+    // - "case" → matches ch.42 attache/briefcases that dominate the lexical search
+    // Only the material terms (silicone/plastic) remain to find ch.39 plastic article entries.
+    if (signals.hasPhoneAccessoryIntent) {
+      const filtered = queryTokens.filter(
+        (token) => !['phone', 'phones', 'smartphone', 'smartphones', 'iphone', 'case'].includes(token),
+      );
+      return filtered.length > 0 ? filtered : queryTokens;
+    }
+
+    return queryTokens;
   }
 
   private computeIntentBoost(
@@ -1283,6 +1545,93 @@ export class SearchService {
       }
       if (this.hasTokenOverlap(entryTokens, this.TSHIRT_RESULT_HINTS)) {
         boost += 0.3;
+      }
+    }
+
+    // Phone accessory (case, stand, holder, silicone phone mount) → plastic articles ch.39
+    if (signals.hasPhoneAccessoryIntent) {
+      if (entry.chapter === '39') {
+        boost += 0.55;
+      }
+      // Extra boost for 3926.90 specifically (other articles of plastics — the catch-all)
+      if (entry.htsNumber.startsWith('3926.90')) {
+        boost += 0.45;
+      }
+    }
+
+    // Keychain (metal) → other articles of iron/steel (7326), not kitchen/household (7323)
+    if (signals.hasKeychainIntent) {
+      if (entry.htsNumber.startsWith('7326.')) {
+        boost += 0.55;
+      }
+      // 7326.20 = wire articles (key rings are wire articles) — extra boost for specificity
+      if (entry.htsNumber.startsWith('7326.20')) {
+        boost += 0.3;
+      }
+    }
+
+    // Acrylic/plastic keychain → plastic articles (3926.40)
+    if (signals.hasAcrylicKeychainIntent) {
+      if (entry.htsNumber.startsWith('3926.40')) {
+        boost += 0.65;
+      }
+      if (entry.chapter === '39') {
+        boost += 0.25;
+      }
+    }
+
+    // Socks → cotton hosiery (6115.95), not support/compression hosiery (6115.10)
+    if (signals.hasSockIntent) {
+      if (entry.htsNumber.startsWith('6115.9')) {
+        boost += 0.4;
+      }
+    }
+
+    // Compression socks → support hosiery (6115.10), not plain cotton socks (6115.9x)
+    if (signals.hasCompressionSockIntent) {
+      if (entry.htsNumber.startsWith('6115.10')) {
+        boost += 0.55;
+      }
+    }
+
+    // Earbuds → 8518.30 (headphones/earphones), not 8517 (phones — already hard-filtered)
+    if (signals.hasEarbudIntent) {
+      if (entry.htsNumber.startsWith('8518.30')) {
+        boost += 0.55;
+      }
+      if (entry.chapter === '85' && entry.htsNumber.startsWith('8518.')) {
+        boost += 0.25;
+      }
+    }
+
+    // Plated jewelry (gold plated, silver plated) → imitation jewelry 7117, NOT precious metal 7113
+    if (signals.hasPlatedIntent) {
+      if (entry.htsNumber.startsWith('7117.')) {
+        boost += 0.65;
+      }
+      if (entry.chapter === '71' && !entry.htsNumber.startsWith('7113.')) {
+        boost += 0.2;
+      }
+    }
+
+    // Laptop sleeve/case → 4202.12 (briefcase-style computer cases)
+    if (signals.hasLaptopCaseIntent) {
+      if (entry.htsNumber.startsWith('4202.12')) {
+        boost += 0.55;
+      }
+    }
+
+    // Shopping tote bag → 4202.92 (textile shopping/travel bags)
+    if (signals.hasShoppingBagIntent) {
+      if (entry.htsNumber.startsWith('4202.92')) {
+        boost += 0.55;
+      }
+    }
+
+    // Water bottle/flask → 7323 (table, kitchen or household articles of iron/steel)
+    if (signals.hasWaterBottleIntent) {
+      if (entry.htsNumber.startsWith('7323.')) {
+        boost += 0.55;
       }
     }
 
@@ -1340,6 +1689,83 @@ export class SearchService {
         !this.hasTokenOverlap(entryTokens, this.TSHIRT_RESULT_HINTS)
       ) {
         penalty += 0.75;
+      }
+    }
+
+    // Phone accessory → penalize luggage (ch.42) and audio equipment (ch.85),
+    // and penalize raw plastic primary forms/sheets (3910, 3920) — want 3926.90 articles.
+    if (signals.hasPhoneAccessoryIntent) {
+      if (entry.chapter === '42') {
+        penalty += 0.65;
+      }
+      if (entry.chapter === '85' && (entryTokens.has('loudspeaker') || entryTokens.has('microphone') || entryTokens.has('amplifier'))) {
+        penalty += 0.55;
+      }
+      // Penalise raw plastic materials (3910 silicones in primary forms, 3920 sheets/film/foil)
+      // that surface due to "silicone"/"plastic" tokens but are not manufactured articles.
+      if (entry.chapter === '39' && !entry.htsNumber.startsWith('3926.90')) {
+        const fullText = this.buildEntryText(entry);
+        if (fullText.includes('primary form') || fullText.includes('sheet') || fullText.includes('film') || fullText.includes('foil') || fullText.includes('plate')) {
+          penalty += 0.55;
+        }
+      }
+    }
+
+    // Keychain (metal) → penalize kitchen/household steel articles (7323) — want other articles (7326)
+    if (signals.hasKeychainIntent) {
+      if (entry.htsNumber.startsWith('7323.') || entry.htsNumber.startsWith('8301.')) {
+        penalty += 0.65;
+      }
+    }
+
+    // Acrylic/plastic keychain → penalize metal articles (7326)
+    if (signals.hasAcrylicKeychainIntent) {
+      if (entry.htsNumber.startsWith('7326.') || entry.htsNumber.startsWith('8302.')) {
+        penalty += 0.65;
+      }
+    }
+
+    // Socks → penalize support/compression hosiery (6115.10) — want plain cotton hosiery (6115.95)
+    if (signals.hasSockIntent) {
+      if (entry.htsNumber.startsWith('6115.10') || entry.htsNumber.startsWith('6115.29')) {
+        penalty += 0.5;
+      }
+    }
+
+    // Compression socks → penalize plain cotton hosiery (6115.9x) — want support hosiery (6115.10)
+    if (signals.hasCompressionSockIntent) {
+      if (entry.htsNumber.startsWith('6115.9')) {
+        penalty += 0.45;
+      }
+    }
+
+    // Earbuds → no additional penalty needed (8517 already hard-filtered in autocompleteByTextHybrid)
+
+    // Plated jewelry → penalize precious metal jewelry (7113) — want imitation jewelry (7117)
+    if (signals.hasPlatedIntent) {
+      if (entry.htsNumber.startsWith('7113.')) {
+        penalty += 0.7;
+      }
+    }
+
+    // Laptop sleeve → penalize 4202.92 (shopping bags) — already hard-filtered, but add penalty too
+    if (signals.hasLaptopCaseIntent) {
+      if (entry.htsNumber.startsWith('4202.92')) {
+        penalty += 0.55;
+      }
+    }
+
+    // Shopping bag → penalize 4202.12 (hard cases/briefcases) — already hard-filtered
+    if (signals.hasShoppingBagIntent) {
+      if (entry.htsNumber.startsWith('4202.12')) {
+        penalty += 0.55;
+      }
+    }
+
+    // Water bottle → penalize sanitary ware (7324 — sinks/baths/bidets)
+    if (signals.hasWaterBottleIntent) {
+      if (entry.htsNumber.startsWith('7324.')) {
+        penalty += 0.7;
       }
     }
 

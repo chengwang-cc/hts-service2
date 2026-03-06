@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Get,
@@ -8,17 +9,23 @@ import {
   NotFoundException,
   GoneException,
   UnauthorizedException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   SearchService,
   UrlClassifierService,
   LookupConversationAgentService,
+  ClassificationService,
 } from '../services';
+import { VisionService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import { LOOKUP_CONVERSATION_QUEUE } from '../lookup.module';
 import {
   SearchDto,
   ClassifyUrlRequestDto,
+  ClassifyHtsFromUrlDto,
   CreateLookupConversationDto,
   LookupConversationMessageDto,
   LookupConversationFeedbackDto,
@@ -26,12 +33,15 @@ import {
 import { Public } from '../decorators';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { UrlType } from '../dto/classify-url.dto';
 
 @Controller('lookup')
 export class LookupController {
   constructor(
     private readonly searchService: SearchService,
     private readonly urlClassifierService: UrlClassifierService,
+    private readonly classificationService: ClassificationService,
+    private readonly visionService: VisionService,
     private readonly noteResolutionService: NoteResolutionService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
     private readonly queueService: QueueService,
@@ -90,6 +100,141 @@ export class LookupController {
   @Post('classify-url')
   async classifyUrl(@Body() dto: ClassifyUrlRequestDto) {
     return this.urlClassifierService.classifyUrl(dto.url);
+  }
+
+  /**
+   * Full pipeline: URL → (vision or text) → HTS classification
+   * Handles product pages, image URLs, and general web pages.
+   * Requires JWT authentication (resource-intensive: calls GPT-4o vision + classification).
+   */
+  @Post('classify-hts-from-url')
+  async classifyHtsFromUrl(
+    @CurrentUser() user: any,
+    @Body() dto: ClassifyHtsFromUrlDto,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    const urlResult = await this.urlClassifierService.classifyUrl(dto.url);
+
+    if (urlResult.type === UrlType.INVALID) {
+      throw new BadRequestException(urlResult.error ?? 'Invalid or inaccessible URL');
+    }
+
+    let productDescription: string;
+    let visionUsed = false;
+
+    if (urlResult.type === UrlType.IMAGE) {
+      // Direct image URL — analyze with GPT-4o vision
+      const analysis = await this.visionService.analyzeProductImage(dto.url);
+      if (!analysis.products.length) {
+        throw new BadRequestException('No product detected in the image');
+      }
+      const product = analysis.products[0];
+      productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
+      visionUsed = true;
+    } else if (urlResult.imageUrl) {
+      // Product or webpage with an OG image — analyze image, supplement with OG text
+      const analysis = await this.visionService.analyzeProductImage(urlResult.imageUrl, {
+        url: dto.url,
+        title: urlResult.metadata?.title,
+      });
+      const visionDescription = analysis.products[0]
+        ? [analysis.products[0].name, analysis.products[0].description, ...(analysis.products[0].materials ?? [])].filter(Boolean).join(', ')
+        : '';
+      const ogDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
+      productDescription = visionDescription || ogDescription;
+      visionUsed = !!visionDescription;
+    } else {
+      // Webpage with no image — use extracted text description
+      productDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
+    }
+
+    if (!productDescription?.trim()) {
+      throw new BadRequestException('Unable to extract product description from URL');
+    }
+
+    const classification = await this.classificationService.classifyProduct(
+      productDescription,
+      user.organizationId,
+    );
+
+    return {
+      success: true,
+      data: {
+        ...classification,
+        source: {
+          url: dto.url,
+          urlType: urlResult.type,
+          visionUsed,
+          productDescription,
+        },
+      },
+    };
+  }
+
+  /**
+   * Full pipeline: uploaded image → vision analysis → HTS classification
+   * Accepts PNG, JPG, WebP images up to 10 MB.
+   * Requires JWT authentication.
+   */
+  @Post('classify-hts-from-image')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+      fileFilter: (_req, file, cb) => {
+        if (!file.mimetype.match(/image\/(png|jpeg|jpg|webp)/)) {
+          return cb(new BadRequestException('Only PNG, JPG, and WebP images are accepted'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async classifyHtsFromImage(
+    @CurrentUser() user: any,
+    @UploadedFile() image: Express.Multer.File,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+    if (!image) {
+      throw new BadRequestException('Image file is required (field name: "image")');
+    }
+
+    const analysis = await this.visionService.analyzeProductImage(image.buffer, {
+      title: image.originalname,
+    });
+
+    if (!analysis.products.length) {
+      throw new BadRequestException('No product detected in the uploaded image');
+    }
+
+    const product = analysis.products[0];
+    const productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
+
+    const classification = await this.classificationService.classifyProduct(
+      productDescription,
+      user.organizationId,
+    );
+
+    return {
+      success: true,
+      data: {
+        ...classification,
+        source: {
+          visionUsed: true,
+          productDescription,
+          detectedProduct: {
+            name: product.name,
+            description: product.description,
+            materials: product.materials,
+            brand: product.brand,
+            confidence: product.confidence,
+          },
+        },
+      },
+    };
   }
 
   @Public()

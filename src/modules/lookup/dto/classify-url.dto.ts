@@ -1,5 +1,17 @@
 import { IsUrl, IsNotEmpty } from 'class-validator';
 
+export class ClassifyHtsFromUrlDto {
+  @IsUrl(
+    {
+      require_tld: false,
+      require_protocol: true,
+    },
+    { message: 'Invalid URL format' },
+  )
+  @IsNotEmpty({ message: 'URL is required' })
+  url: string;
+}
+
 export class ClassifyUrlRequestDto {
   @IsUrl(
     {
