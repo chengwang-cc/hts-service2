@@ -3340,12 +3340,21 @@ export class SearchService {
     prefix: string,
     syntheticRank: number,
   ): Promise<void> {
+    // Allow 8-digit leaf codes only when the inject prefix itself is 8+ digits
+    // (e.g., 9101.99.80 is a valid 8-digit leaf). For shorter prefixes, only
+    // inject 10-digit leaf codes to avoid injecting intermediate parent nodes.
+    const prefixDigits = prefix.replace(/\./g, '').length;
+    const lenCondition =
+      prefixDigits >= 8
+        ? "LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)"
+        : "LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10";
+
     const rows = await this.htsRepository
       .createQueryBuilder('hts')
       .select('hts.htsNumber', 'htsNumber')
       .where('hts.isActive = :active', { active: true })
       .andWhere('hts.htsNumber LIKE :prefix', { prefix: `${prefix}%` })
-      .andWhere("LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10")
+      .andWhere(lenCondition)
       .andWhere("hts.chapter NOT IN ('98', '99')")
       .getRawMany<{ htsNumber: string }>();
 
