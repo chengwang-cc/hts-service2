@@ -159,4 +159,78 @@ describe('UrlClassifierService', () => {
     expect(result.metadata?.description).toContain('vacuum-insulated');
     expect(openAiService.response).toHaveBeenCalledTimes(1);
   });
+
+  it('returns multiple product candidates for listing pages so callers can use batch lookup', async () => {
+    const html = `<!doctype html>
+      <html lang="en">
+        <head>
+          <title>Fixture Catalog</title>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "Product",
+                  "name": "Insulated Stainless Steel Water Bottle",
+                  "description": "Reusable stainless steel vacuum-insulated bottle for beverages with screw cap and powder-coated finish.",
+                  "image": "/images/bottle.png",
+                  "offers": { "@type": "Offer", "price": "24.99", "priceCurrency": "USD" }
+                },
+                {
+                  "@type": "Product",
+                  "name": "Ceramic Coffee Mug",
+                  "description": "Glazed ceramic drinking mug with handle for hot beverages and daily tabletop use.",
+                  "image": "/images/mug.png",
+                  "offers": { "@type": "Offer", "price": "12.50", "priceCurrency": "USD" }
+                }
+              ]
+            }
+          </script>
+        </head>
+        <body>
+          <main>
+            <article class="product-card"><h2>Insulated Stainless Steel Water Bottle</h2></article>
+            <article class="product-card"><h2>Ceramic Coffee Mug</h2></article>
+          </main>
+        </body>
+      </html>`;
+
+    httpService.head.mockReturnValue(
+      of({
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+        },
+      }),
+    );
+    httpService.get.mockReturnValue(
+      of({
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+        },
+        data: html,
+      }),
+    );
+
+    const result = await service.classifyUrl('https://shop.example.com/catalog');
+
+    expect(result.type).toBe(UrlType.WEBPAGE);
+    expect(result.metadata?.isMultiProductPage).toBe(true);
+    expect(result.metadata?.productCount).toBe(2);
+    expect(result.metadata?.productCandidates).toEqual([
+      expect.objectContaining({
+        productName: 'Insulated Stainless Steel Water Bottle',
+        price: '24.99',
+        currency: 'USD',
+        imageUrl: 'https://shop.example.com/images/bottle.png',
+        source: 'structured-data',
+      }),
+      expect.objectContaining({
+        productName: 'Ceramic Coffee Mug',
+        price: '12.50',
+        currency: 'USD',
+        imageUrl: 'https://shop.example.com/images/mug.png',
+        source: 'structured-data',
+      }),
+    ]);
+  });
 });

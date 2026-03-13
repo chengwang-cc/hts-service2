@@ -13,6 +13,7 @@ import {
   ClassifyUrlResponseDto,
   UrlType,
   UrlMetadata,
+  UrlProductCandidate,
 } from '../dto/classify-url.dto';
 
 interface OpenGraphData {
@@ -31,6 +32,10 @@ interface StructuredProductData {
   image?: string;
   price?: string;
   currency?: string;
+}
+
+interface ProductCandidate extends StructuredProductData {
+  source: 'structured-data' | 'dom';
 }
 
 interface PageFetchResult {
@@ -149,7 +154,11 @@ export class UrlClassifierService {
 
       let page = await this.fetchHtmlOverHttp(url);
       let ogData = this.extractOpenGraph(page.html, url);
-      let structuredData = this.extractStructuredProductData(page.html, url);
+      let structuredCandidates = this.extractStructuredProductCandidates(
+        page.html,
+        url,
+      );
+      let structuredData = structuredCandidates[0] ?? null;
 
       if (
         page.method === 'http' &&
@@ -159,9 +168,19 @@ export class UrlClassifierService {
         if (renderedPage) {
           page = renderedPage;
           ogData = this.extractOpenGraph(page.html, url);
-          structuredData = this.extractStructuredProductData(page.html, url);
+          structuredCandidates = this.extractStructuredProductCandidates(
+            page.html,
+            url,
+          );
+          structuredData = structuredCandidates[0] ?? null;
         }
       }
+
+      const productCandidates = this.extractProductCandidates(
+        page.html,
+        url,
+        structuredCandidates,
+      );
 
       const isProductPage = this.detectProductPage(
         page.html,
@@ -174,6 +193,8 @@ export class UrlClassifierService {
         structuredData,
         page,
       );
+
+      const isMultiProductPage = productCandidates.length > 1;
 
       const metadata: UrlMetadata = {
         title: structuredData?.name || ogData.title || page.renderedTitle,
@@ -193,14 +214,34 @@ export class UrlClassifierService {
         usedBrowser: page.method === 'puppeteer',
         usedVision: extracted.usedVision,
         renderedImageUrl: page.primaryImageUrl ?? undefined,
+        isMultiProductPage,
+        productCount: productCandidates.length || undefined,
+        productCandidates:
+          isMultiProductPage
+            ? productCandidates.map((candidate) => ({
+                productName: candidate.name,
+                description: candidate.description,
+                imageUrl: candidate.image,
+                price: candidate.price,
+                currency: candidate.currency,
+                source: candidate.source,
+              }))
+            : undefined,
       };
 
       const imageUrl =
-        structuredData?.image || ogData.image || page.primaryImageUrl || undefined;
+        isMultiProductPage
+          ? undefined
+          : structuredData?.image || ogData.image || page.primaryImageUrl || undefined;
+      const responseType = isMultiProductPage
+        ? UrlType.WEBPAGE
+        : isProductPage
+          ? UrlType.PRODUCT
+          : UrlType.WEBPAGE;
 
       if (imageUrl) {
         return {
-          type: isProductPage ? UrlType.PRODUCT : UrlType.WEBPAGE,
+          type: responseType,
           imageUrl,
           metadata,
         };
@@ -208,7 +249,7 @@ export class UrlClassifierService {
 
       if (this.isUsefulDescription(metadata.description)) {
         return {
-          type: isProductPage ? UrlType.PRODUCT : UrlType.WEBPAGE,
+          type: responseType,
           metadata,
         };
       }
@@ -721,6 +762,114 @@ export class UrlClassifierService {
     };
   }
 
+  private extractProductCandidates(
+    html: string,
+    sourceUrl: string,
+    structuredCandidates: StructuredProductData[],
+  ): ProductCandidate[] {
+    const deduped = new Map<string, ProductCandidate>();
+    const addCandidate = (candidate: ProductCandidate) => {
+      const normalizedName = candidate.name?.replace(/\s+/g, ' ').trim();
+      const normalizedDescription = candidate.description
+        ?.replace(/\s+/g, ' ')
+        .trim();
+
+      if (!normalizedName || !this.looksLikeProductName(normalizedName)) {
+        return;
+      }
+
+      if (
+        !normalizedDescription ||
+        !this.isUsefulDescription(normalizedDescription)
+      ) {
+        return;
+      }
+
+      const key = normalizedName.toLowerCase();
+      if (deduped.has(key)) {
+        return;
+      }
+
+      deduped.set(key, {
+        name: normalizedName,
+        description: normalizedDescription,
+        image: this.normalizeResolvedUrl(candidate.image, sourceUrl),
+        price: candidate.price,
+        currency: candidate.currency,
+        source: candidate.source,
+      });
+    };
+
+    for (const candidate of structuredCandidates) {
+      addCandidate({
+        ...candidate,
+        source: 'structured-data',
+      });
+    }
+
+    if (deduped.size < 2) {
+      const $ = load(html);
+      const cardSelectors = [
+        '[itemtype*="Product"]',
+        '[data-product-id]',
+        '.product-card',
+        '.product',
+        'article.product',
+        'li.product',
+      ];
+
+      for (const selector of cardSelectors) {
+        $(selector).each((_, element) => {
+          const card = $(element);
+          const name =
+            card.find('[itemprop="name"], h1, h2, h3, .product-name, .product-title')
+              .first()
+              .text()
+              .replace(/\s+/g, ' ')
+              .trim() || undefined;
+          const description =
+            card
+              .find(
+                '[itemprop="description"], .product-description, .description, p',
+              )
+              .first()
+              .text()
+              .replace(/\s+/g, ' ')
+              .trim() || undefined;
+          const image = this.normalizeResolvedUrl(
+            card.find('img').first().attr('src') || undefined,
+            sourceUrl,
+          );
+          const price =
+            card
+              .find('[itemprop="price"], .price, [data-price]')
+              .first()
+              .text()
+              .replace(/\s+/g, ' ')
+              .trim() || undefined;
+          const currency =
+            card.find('[itemprop="priceCurrency"]').attr('content') ||
+            undefined;
+
+          addCandidate({
+            name,
+            description,
+            image,
+            price,
+            currency,
+            source: 'dom',
+          });
+        });
+
+        if (deduped.size > 1) {
+          break;
+        }
+      }
+    }
+
+    return Array.from(deduped.values()).slice(0, 20);
+  }
+
   private extractFocusedProductText(
     $: CheerioAPI,
     ogData: OpenGraphData,
@@ -854,12 +1003,14 @@ export class UrlClassifierService {
     }
   }
 
-  private extractStructuredProductData(
+  private extractStructuredProductCandidates(
     html: string,
     sourceUrl: string,
-  ): StructuredProductData | null {
+  ): StructuredProductData[] {
     const $ = load(html);
     const scripts = $('script[type="application/ld+json"]');
+    const candidates: StructuredProductData[] = [];
+    const seen = new Set<string>();
 
     for (let index = 0; index < scripts.length; index += 1) {
       try {
@@ -896,8 +1047,7 @@ export class UrlClassifierService {
             const imageValue = Array.isArray(item.image)
               ? item.image[0]
               : item.image;
-
-            return {
+            const candidate = {
               name: this.asTrimmedString(item.name),
               description: this.asTrimmedString(item.description),
               image: this.normalizeResolvedUrl(
@@ -911,6 +1061,11 @@ export class UrlClassifierService {
                 item.priceCurrency || offers?.priceCurrency,
               ),
             };
+            const key = candidate.name?.toLowerCase();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              candidates.push(candidate);
+            }
           }
         }
       } catch {
@@ -918,7 +1073,7 @@ export class UrlClassifierService {
       }
     }
 
-    return null;
+    return candidates;
   }
 
   private asTrimmedString(value: unknown): string | undefined {
@@ -960,5 +1115,24 @@ export class UrlClassifierService {
     ];
 
     return !genericPatterns.some((pattern) => pattern.test(normalized));
+  }
+
+  private looksLikeProductName(value: string): boolean {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length < 4 || normalized.length > 160) {
+      return false;
+    }
+
+    const rejectPatterns = [
+      /^shop\b/i,
+      /^home\b/i,
+      /^products?\b/i,
+      /^collections?\b/i,
+      /^featured\b/i,
+      /^all products\b/i,
+      /^view all\b/i,
+    ];
+
+    return !rejectPatterns.some((pattern) => pattern.test(normalized));
   }
 }

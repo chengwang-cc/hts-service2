@@ -42,6 +42,9 @@ export class UrlMetadata {
   usedBrowser?: boolean;
   usedVision?: boolean;
   renderedImageUrl?: string;
+  isMultiProductPage?: boolean;
+  productCount?: number;
+  productCandidates?: UrlProductCandidate[];
 }
 
 export class ClassifyUrlResponseDto {
@@ -49,4 +52,13 @@ export class ClassifyUrlResponseDto {
   imageUrl?: string;
   metadata?: UrlMetadata;
   error?: string;
+}
+
+export class UrlProductCandidate {
+  productName?: string;
+  description?: string;
+  imageUrl?: string;
+  price?: string;
+  currency?: string;
+  source?: 'structured-data' | 'dom';
 }
