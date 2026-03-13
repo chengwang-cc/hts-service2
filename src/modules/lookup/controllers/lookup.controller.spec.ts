@@ -15,6 +15,7 @@ describe('LookupController', () => {
   let classificationService: { classifyProduct: jest.Mock };
   let visionService: { analyzeProductImage: jest.Mock };
   let controller: LookupController;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     urlClassifierService = {
@@ -38,6 +39,10 @@ describe('LookupController', () => {
       rerankService,
       smartClassifyService,
     );
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it('returns persisted classification ids and image evidence for uploaded images', async () => {
@@ -160,5 +165,81 @@ describe('LookupController', () => {
         } as Express.Multer.File,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('downloads the extracted image server-side when direct vision URL fetch fails', async () => {
+    urlClassifierService.classifyUrl.mockResolvedValue({
+      type: UrlType.PRODUCT,
+      imageUrl: 'http://127.0.0.1:4200/e2e/bottle-fixture-small.png?rendered=1',
+      metadata: {
+        title: 'Rendered bottle fixture',
+        productName: 'Rendered bottle fixture',
+        description: 'Rendered browser product page',
+      },
+    });
+
+    visionService.analyzeProductImage
+      .mockRejectedValueOnce(
+        new Error(
+          'Failed to analyze image: 400 Error while downloading http://127.0.0.1:4200/e2e/bottle-fixture-small.png?rendered=1. Upstream status code: 407.',
+        ),
+      )
+      .mockResolvedValueOnce({
+        products: [
+          {
+            name: 'Steel bottle',
+            description: 'Insulated beverage container',
+            materials: ['stainless steel'],
+            brand: 'Acme',
+            confidence: 0.94,
+          },
+        ],
+      });
+    classificationService.classifyProduct.mockResolvedValue({
+      id: 'cls_rendered',
+      htsCode: '7323.93.0080',
+      description: 'Table, kitchen or other household articles of stainless steel',
+      confidence: 0.87,
+      reasoning: 'Matches a stainless steel insulated household container.',
+      chapter: '73',
+      candidates: [],
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) => {
+          if (name === 'content-type') return 'image/png';
+          if (name === 'content-length') return '4';
+          return null;
+        },
+      },
+      arrayBuffer: async () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer,
+    } as any);
+
+    const result = await controller.classifyHtsFromUrl(
+      { organizationId: 'org_1' },
+      { url: 'http://127.0.0.1:4200/e2e/rendered-product-fixture.html' },
+    );
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:4200/e2e/bottle-fixture-small.png?rendered=1',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Accept: expect.stringContaining('image/'),
+        }),
+      }),
+    );
+    expect(visionService.analyzeProductImage).toHaveBeenNthCalledWith(
+      1,
+      'http://127.0.0.1:4200/e2e/bottle-fixture-small.png?rendered=1',
+      expect.any(Object),
+    );
+    expect(visionService.analyzeProductImage).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Buffer),
+      expect.any(Object),
+    );
+    expect(result.data.id).toBe('cls_rendered');
   });
 });

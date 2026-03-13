@@ -160,7 +160,10 @@ export class LookupController {
 
     if (urlResult.type === UrlType.IMAGE) {
       // Direct image URL — analyze with GPT-4o vision
-      const analysis = await this.visionService.analyzeProductImage(dto.url);
+      const analysis = await this.analyzeProductImageWithFallback(dto.url, {
+        url: dto.url,
+        title: urlResult.metadata?.title,
+      });
       if (!analysis.products.length) {
         throw new BadRequestException('No product detected in the image');
       }
@@ -176,7 +179,7 @@ export class LookupController {
       };
     } else if (urlResult.imageUrl) {
       // Product or webpage with an OG image — analyze image, supplement with OG text
-      const analysis = await this.visionService.analyzeProductImage(urlResult.imageUrl, {
+      const analysis = await this.analyzeProductImageWithFallback(urlResult.imageUrl, {
         url: dto.url,
         title: urlResult.metadata?.title,
       });
@@ -555,5 +558,72 @@ export class LookupController {
     }
 
     return new Date().getFullYear();
+  }
+
+  private async analyzeProductImageWithFallback(
+    imageUrl: string,
+    context?: { url?: string; title?: string },
+  ) {
+    try {
+      return await this.visionService.analyzeProductImage(imageUrl, context);
+    } catch (error) {
+      if (!this.shouldRetryVisionWithDownloadedBuffer(imageUrl, error)) {
+        throw error;
+      }
+
+      const imageBuffer = await this.downloadImageBuffer(imageUrl);
+      return this.visionService.analyzeProductImage(imageBuffer, context);
+    }
+  }
+
+  private shouldRetryVisionWithDownloadedBuffer(
+    imageUrl: string,
+    error: unknown,
+  ): boolean {
+    const message =
+      error instanceof Error ? error.message : String(error ?? '');
+
+    return (
+      imageUrl.startsWith('http://127.0.0.1') ||
+      imageUrl.startsWith('http://localhost') ||
+      /error while downloading/i.test(message) ||
+      /status code:\s*407/i.test(message)
+    );
+  }
+
+  private async downloadImageBuffer(imageUrl: string): Promise<Buffer> {
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Unable to download product image (${response.status})`,
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) {
+      throw new BadRequestException('Extracted product asset is not an image');
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > 10 * 1024 * 1024) {
+      throw new BadRequestException('Extracted product image is too large');
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      throw new BadRequestException('Extracted product image is too large');
+    }
+
+    return buffer;
   }
 }
