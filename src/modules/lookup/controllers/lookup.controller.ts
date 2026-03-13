@@ -13,6 +13,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { createHash } from 'crypto';
 import {
   SearchService,
   UrlClassifierService,
@@ -155,6 +156,7 @@ export class LookupController {
 
     let productDescription: string;
     let visionUsed = false;
+    let detectedProduct: Record<string, unknown> | null = null;
 
     if (urlResult.type === UrlType.IMAGE) {
       // Direct image URL — analyze with GPT-4o vision
@@ -165,6 +167,13 @@ export class LookupController {
       const product = analysis.products[0];
       productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
       visionUsed = true;
+      detectedProduct = {
+        name: product.name,
+        description: product.description,
+        materials: product.materials,
+        brand: product.brand,
+        confidence: product.confidence,
+      };
     } else if (urlResult.imageUrl) {
       // Product or webpage with an OG image — analyze image, supplement with OG text
       const analysis = await this.visionService.analyzeProductImage(urlResult.imageUrl, {
@@ -177,6 +186,15 @@ export class LookupController {
       const ogDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
       productDescription = visionDescription || ogDescription;
       visionUsed = !!visionDescription;
+      detectedProduct = analysis.products[0]
+        ? {
+            name: analysis.products[0].name,
+            description: analysis.products[0].description,
+            materials: analysis.products[0].materials,
+            brand: analysis.products[0].brand,
+            confidence: analysis.products[0].confidence,
+          }
+        : null;
     } else {
       // Webpage with no image — use extracted text description
       productDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
@@ -189,6 +207,23 @@ export class LookupController {
     const classification = await this.classificationService.classifyProduct(
       productDescription,
       user.organizationId,
+      {
+        inputMethod:
+          urlResult.type === UrlType.IMAGE
+            ? 'IMAGE_URL'
+            : urlResult.type === UrlType.PRODUCT
+              ? 'PRODUCT_URL'
+              : 'WEBPAGE_URL',
+        sourceUrl: dto.url,
+        sourceImageUrl:
+          urlResult.type === UrlType.IMAGE ? dto.url : (urlResult.imageUrl ?? null),
+        sourceEvidence: {
+          urlType: urlResult.type,
+          metadata: urlResult.metadata ?? null,
+          visionUsed,
+          detectedProduct,
+        },
+      },
     );
 
     return {
@@ -196,6 +231,7 @@ export class LookupController {
       data: {
         ...classification,
         source: {
+          ...(classification.source ?? {}),
           url: dto.url,
           urlType: urlResult.type,
           visionUsed,
@@ -243,10 +279,28 @@ export class LookupController {
 
     const product = analysis.products[0];
     const productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
+    const imageHash = createHash('sha256').update(image.buffer).digest('hex');
 
     const classification = await this.classificationService.classifyProduct(
       productDescription,
       user.organizationId,
+      {
+        inputMethod: 'IMAGE_UPLOAD',
+        sourceImageHash: imageHash,
+        sourceEvidence: {
+          originalFilename: image.originalname,
+          mimeType: image.mimetype,
+          sizeBytes: image.size,
+          visionUsed: true,
+          detectedProduct: {
+            name: product.name,
+            description: product.description,
+            materials: product.materials,
+            brand: product.brand,
+            confidence: product.confidence,
+          },
+        },
+      },
     );
 
     return {
@@ -254,6 +308,7 @@ export class LookupController {
       data: {
         ...classification,
         source: {
+          ...(classification.source ?? {}),
           visionUsed: true,
           productDescription,
           detectedProduct: {

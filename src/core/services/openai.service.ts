@@ -11,6 +11,7 @@ import type {
   ResponseCreateParamsStreaming,
   ResponseFormatTextConfig,
   ResponseCreateParamsNonStreaming,
+  ResponseInput,
   ResponseStreamEvent,
 } from 'openai/resources/responses/responses';
 
@@ -98,7 +99,7 @@ export class OpenAiService {
    * This is OpenAI's standard API as of 2026
    */
   async response(
-    input: string,
+    input: string | ResponseInput,
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
@@ -261,7 +262,7 @@ export class OpenAiService {
    * Stream response (Responses API - recommended)
    */
   async *streamResponse(
-    input: string,
+    input: string | ResponseInput,
     options: ResponseOptions = {},
   ): AsyncIterable<ResponseStreamEvent> {
     const {

@@ -32,6 +32,21 @@ export class ProductClassificationEntity {
   @Column('varchar', { length: 50, default: 'DRAFT' })
   status: string;
 
+  @Column('varchar', { length: 32, default: 'TEXT' })
+  inputMethod: string;
+
+  @Column('varchar', { length: 2048, nullable: true })
+  sourceUrl: string | null;
+
+  @Column('varchar', { length: 2048, nullable: true })
+  sourceImageUrl: string | null;
+
+  @Column('varchar', { length: 64, nullable: true })
+  sourceImageHash: string | null;
+
+  @Column('jsonb', { nullable: true })
+  sourceEvidence: Record<string, any> | null;
+
   @Column('decimal', { precision: 5, scale: 2, nullable: true })
   confidence: number | null;
 

@@ -5,6 +5,7 @@ import { OpenAiService, EmbeddingService, HtsEntity } from '@hts/core';
 import { ProductClassificationEntity } from '../entities/product-classification.entity';
 
 export interface ClassificationResult {
+  id?: string;
   htsCode: string;
   description: string;
   confidence: number;
@@ -13,6 +14,21 @@ export interface ClassificationResult {
   candidates: Array<{ htsCode: string; description: string; score: number }>;
   alternatives?: Array<{ htsCode: string; description: string; score: number }>;
   needsReview?: boolean;
+  createdAt?: string;
+  source?: ClassificationSourceRecord | null;
+}
+
+export interface ClassificationSourceRecord {
+  inputMethod:
+    | 'TEXT'
+    | 'IMAGE_UPLOAD'
+    | 'IMAGE_URL'
+    | 'PRODUCT_URL'
+    | 'WEBPAGE_URL';
+  sourceUrl?: string | null;
+  sourceImageUrl?: string | null;
+  sourceImageHash?: string | null;
+  sourceEvidence?: Record<string, unknown> | null;
 }
 
 interface HeadingCandidate {
@@ -55,6 +71,7 @@ export class ClassificationService {
   async classifyProduct(
     description: string,
     organizationId: string,
+    source?: ClassificationSourceRecord,
   ): Promise<ClassificationResult> {
     try {
       // Step 1: Run DB search + AI knowledge prediction in parallel (no added latency)
@@ -128,16 +145,33 @@ export class ClassificationService {
 
       // Persist for authenticated organizations only
       if (organizationId) {
-        const entity = this.classificationRepository.create({
-          organizationId,
-          productName: description.substring(0, 500),
-          description,
-          suggestedHts: result.htsCode,
-          confidence: result.confidence,
-          status: 'PENDING_CONFIRMATION',
-          aiSuggestions: [aiResult, ...candidates.slice(0, 5)],
-        });
-        await this.classificationRepository.save(entity);
+        const entity = await this.classificationRepository.save(
+          this.classificationRepository.create({
+            organizationId,
+            productName: description.substring(0, 500),
+            description,
+            suggestedHts: result.htsCode,
+            confidence: result.confidence,
+            status: 'PENDING_CONFIRMATION',
+            inputMethod: source?.inputMethod ?? 'TEXT',
+            sourceUrl: source?.sourceUrl ?? null,
+            sourceImageUrl: source?.sourceImageUrl ?? null,
+            sourceImageHash: source?.sourceImageHash ?? null,
+            sourceEvidence: source?.sourceEvidence ?? null,
+            aiSuggestions: [aiResult, ...candidates.slice(0, 5)],
+          }),
+        );
+        result.id = entity.id;
+        result.createdAt = entity.createdAt.toISOString();
+        result.source = {
+          inputMethod: entity.inputMethod as ClassificationSourceRecord['inputMethod'],
+          sourceUrl: entity.sourceUrl,
+          sourceImageUrl: entity.sourceImageUrl,
+          sourceImageHash: entity.sourceImageHash,
+          sourceEvidence: entity.sourceEvidence,
+        };
+      } else if (source) {
+        result.source = source;
       }
 
       return result;
