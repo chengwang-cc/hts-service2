@@ -90,7 +90,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       this.boss = new PgBoss({
         connectionString: databaseUrl,
         schema: 'pgboss',
-        // pg-boss v12 simplified configuration
+        // Limit pg-boss pool so TypeORM + pg-boss together stay under max_connections
+        max: parseInt(process.env.PGBOSS_POOL_MAX ?? '5'),
       });
 
       // Start pg-boss

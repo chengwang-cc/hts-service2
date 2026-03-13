@@ -29,7 +29,11 @@ import {
   CreateLookupConversationDto,
   LookupConversationMessageDto,
   LookupConversationFeedbackDto,
+  RerankDto,
+  SmartClassifyDto,
 } from '../dto';
+import { RerankService } from '../services/rerank.service';
+import { SmartClassifyService } from '../services/smart-classify.service';
 import { Public } from '../decorators';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -45,6 +49,8 @@ export class LookupController {
     private readonly noteResolutionService: NoteResolutionService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
     private readonly queueService: QueueService,
+    private readonly rerankService: RerankService,
+    private readonly smartClassifyService: SmartClassifyService,
   ) {}
 
   @Public()
@@ -60,6 +66,31 @@ export class LookupController {
       results,
       count: results.length,
     };
+  }
+
+  /**
+   * Rerank autocomplete candidates using gpt-5-nano.
+   * Accepts the original user query and the autocomplete candidate list,
+   * returns the same candidates reordered by AI relevance score.
+   */
+  @Public()
+  @Post('rerank')
+  async rerank(@Body() dto: RerankDto) {
+    const ranked = await this.rerankService.rerank(dto.query, dto.candidates);
+    return { query: dto.query, ranked };
+  }
+
+  /**
+   * 3-phase hierarchical smart classification:
+   * Phase 1 — chapter identification via autocomplete (~95% accurate)
+   * Phase 2 — focused semantic search within identified chapters
+   * Phase 3 — AI reranking with domain-aware prompt (material/species/processing)
+   */
+  @Public()
+  @Post('smart-classify')
+  async smartClassify(@Body() dto: SmartClassifyDto) {
+    const result = await this.smartClassifyService.classify(dto.query);
+    return result;
   }
 
   @Public()

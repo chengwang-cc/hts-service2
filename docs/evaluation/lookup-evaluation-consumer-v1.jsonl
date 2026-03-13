@@ -1,0 +1,269 @@
+# HTS consumer-language evaluation set v1 (JSONL)
+# Hand-curated queries using consumer vocabulary (not HTS legal descriptions).
+# Primary metric: chapterTop10 — correct HTS chapter in top-10 results.
+# exactTop10 is secondary; exact codes may vary within the chapter.
+# All endpoints are ["autocomplete","search"] unless otherwise noted.
+# Source: curated 2026-03-06
+
+# ── Chapter 03: Fish and seafood ────────────────────────────────────────────
+{"id":"consumer-ch03-001","query":"fresh salmon fillets","expectedHtsNumber":"0302.12.00.00","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-002","query":"frozen shrimp","expectedHtsNumber":"0306.17.00.10","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-003","query":"canned tuna in oil","expectedHtsNumber":"1604.14.10.00","expectedChapter":"16","acceptableChapters":["16","03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-004","query":"lobster tail frozen","expectedHtsNumber":"0306.11.00.00","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-005","query":"fresh cod fillet","expectedHtsNumber":"0302.51.00.00","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-006","query":"dried squid","expectedHtsNumber":"0305.72.00.00","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-007","query":"smoked salmon","expectedHtsNumber":"0305.41.00.40","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch03-008","query":"oysters fresh","expectedHtsNumber":"0307.11.00.00","expectedChapter":"03","acceptableChapters":["03"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 04: Dairy and eggs ───────────────────────────────────────────────
+{"id":"consumer-ch04-001","query":"butter unsalted","expectedHtsNumber":"0405.10.20.00","expectedChapter":"04","acceptableChapters":["04"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch04-002","query":"cheddar cheese","expectedHtsNumber":"0406.90.18.00","expectedChapter":"04","acceptableChapters":["04"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch04-003","query":"skim milk powder","expectedHtsNumber":"0402.10.50.00","expectedChapter":"04","acceptableChapters":["04"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch04-004","query":"yogurt plain","expectedHtsNumber":"0403.10.50.00","expectedChapter":"04","acceptableChapters":["04"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch04-005","query":"whey protein powder","expectedHtsNumber":"0404.10.11.00","expectedChapter":"04","acceptableChapters":["04"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 08: Fruits and nuts ──────────────────────────────────────────────
+{"id":"consumer-ch08-001","query":"fresh mango","expectedHtsNumber":"0804.50.40.00","expectedChapter":"08","acceptableChapters":["08"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch08-002","query":"dried dates","expectedHtsNumber":"0804.10.40.00","expectedChapter":"08","acceptableChapters":["08"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch08-003","query":"raw almonds","expectedHtsNumber":"0802.11.00.00","expectedChapter":"08","acceptableChapters":["08"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch08-004","query":"fresh avocado","expectedHtsNumber":"0804.40.00.00","expectedChapter":"08","acceptableChapters":["08"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch08-005","query":"cashew nuts roasted","expectedHtsNumber":"0802.31.00.00","expectedChapter":"08","acceptableChapters":["08"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 09: Coffee, tea, spices ─────────────────────────────────────────
+{"id":"consumer-ch09-001","query":"green coffee beans","expectedHtsNumber":"0901.11.00.05","expectedChapter":"09","acceptableChapters":["09"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch09-002","query":"ground black pepper","expectedHtsNumber":"0904.11.00.00","expectedChapter":"09","acceptableChapters":["09"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch09-003","query":"ground cinnamon","expectedHtsNumber":"0906.20.00.00","expectedChapter":"09","acceptableChapters":["09"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch09-004","query":"turmeric powder","expectedHtsNumber":"0910.30.00.00","expectedChapter":"09","acceptableChapters":["09"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch09-005","query":"loose leaf green tea","expectedHtsNumber":"0902.10.10.00","expectedChapter":"09","acceptableChapters":["09"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 18: Cocoa and chocolate ─────────────────────────────────────────
+{"id":"consumer-ch18-001","query":"cocoa powder unsweetened","expectedHtsNumber":"1805.00.00.00","expectedChapter":"18","acceptableChapters":["18"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch18-002","query":"dark chocolate bar","expectedHtsNumber":"1806.32.06.00","expectedChapter":"18","acceptableChapters":["18"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch18-003","query":"milk chocolate chips","expectedHtsNumber":"1806.90.45.00","expectedChapter":"18","acceptableChapters":["18"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 21: Sauces and condiments ───────────────────────────────────────
+{"id":"consumer-ch21-001","query":"soy sauce","expectedHtsNumber":"2103.10.00.00","expectedChapter":"21","acceptableChapters":["21"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch21-002","query":"tomato ketchup","expectedHtsNumber":"2103.20.00.00","expectedChapter":"21","acceptableChapters":["21"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch21-003","query":"mayonnaise","expectedHtsNumber":"2103.90.90.00","expectedChapter":"21","acceptableChapters":["21"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch21-004","query":"chicken broth","expectedHtsNumber":"2104.10.00.00","expectedChapter":"21","acceptableChapters":["21"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 22: Beverages ────────────────────────────────────────────────────
+{"id":"consumer-ch22-001","query":"beer in cans","expectedHtsNumber":"2203.00.00.00","expectedChapter":"22","acceptableChapters":["22"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch22-002","query":"red wine","expectedHtsNumber":"2204.21.50.00","expectedChapter":"22","acceptableChapters":["22"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch22-003","query":"whiskey bourbon","expectedHtsNumber":"2208.30.30.00","expectedChapter":"22","acceptableChapters":["22"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch22-004","query":"mineral water still","expectedHtsNumber":"2201.10.00.00","expectedChapter":"22","acceptableChapters":["22"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 30: Pharmaceuticals ─────────────────────────────────────────────
+{"id":"consumer-ch30-001","query":"aspirin tablets","expectedHtsNumber":"3004.90.91.00","expectedChapter":"30","acceptableChapters":["30"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch30-002","query":"vitamin C supplements","expectedHtsNumber":"3004.50.50.00","expectedChapter":"30","acceptableChapters":["30"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch30-003","query":"ibuprofen pain reliever","expectedHtsNumber":"3004.90.91.00","expectedChapter":"30","acceptableChapters":["30"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch30-004","query":"adhesive bandages","expectedHtsNumber":"3005.10.10.00","expectedChapter":"30","acceptableChapters":["30"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 33: Cosmetics and perfumes ──────────────────────────────────────
+{"id":"consumer-ch33-001","query":"lipstick red","expectedHtsNumber":"3304.10.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-002","query":"mascara waterproof","expectedHtsNumber":"3304.20.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-003","query":"perfume women","expectedHtsNumber":"3303.00.30.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-004","query":"shampoo for oily hair","expectedHtsNumber":"3305.10.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-005","query":"facial moisturizer SPF","expectedHtsNumber":"3304.99.50.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-006","query":"deodorant stick","expectedHtsNumber":"3307.20.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-007","query":"sunscreen SPF 50","expectedHtsNumber":"3304.99.50.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-008","query":"hair conditioner","expectedHtsNumber":"3305.20.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-009","query":"eyeshadow palette","expectedHtsNumber":"3304.20.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch33-010","query":"cologne for men","expectedHtsNumber":"3303.00.30.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 34: Soaps and detergents ────────────────────────────────────────
+{"id":"consumer-ch34-001","query":"bar soap","expectedHtsNumber":"3401.11.50.00","expectedChapter":"34","acceptableChapters":["34"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch34-002","query":"laundry detergent liquid","expectedHtsNumber":"3402.90.50.10","expectedChapter":"34","acceptableChapters":["34"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch34-003","query":"toothpaste whitening","expectedHtsNumber":"3306.10.00.00","expectedChapter":"33","acceptableChapters":["33"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch34-004","query":"dish soap","expectedHtsNumber":"3402.90.10.00","expectedChapter":"34","acceptableChapters":["34"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch34-005","query":"hand soap liquid","expectedHtsNumber":"3401.30.50.00","expectedChapter":"34","acceptableChapters":["34"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 39: Plastics ─────────────────────────────────────────────────────
+{"id":"consumer-ch39-001","query":"phone case silicone","expectedHtsNumber":"3926.90.99.89","expectedChapter":"39","acceptableChapters":["39"],"acceptableHtsNumbers":["3926.90.99.89","3926.90.35.00"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch39-002","query":"acrylic keychain","expectedHtsNumber":"3926.40.00.90","expectedChapter":"39","acceptableChapters":["39"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch39-003","query":"plastic food storage container","expectedHtsNumber":"3924.10.40.00","expectedChapter":"39","acceptableChapters":["39"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch39-004","query":"plastic cutting board","expectedHtsNumber":"3924.10.40.00","expectedChapter":"39","acceptableChapters":["39"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch39-005","query":"garbage bags polyethylene","expectedHtsNumber":"3923.21.00.15","expectedChapter":"39","acceptableChapters":["39"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch39-006","query":"iphone case plastic","expectedHtsNumber":"3926.90.99.89","expectedChapter":"39","acceptableChapters":["39"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 40: Rubber ───────────────────────────────────────────────────────
+{"id":"consumer-ch40-001","query":"latex gloves","expectedHtsNumber":"4015.19.10.00","expectedChapter":"40","acceptableChapters":["40"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch40-002","query":"rubber band","expectedHtsNumber":"4016.99.35.00","expectedChapter":"40","acceptableChapters":["40"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch40-003","query":"silicone baking mat","expectedHtsNumber":"4016.99.55.00","expectedChapter":"40","acceptableChapters":["40"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch40-004","query":"rubber door mat","expectedHtsNumber":"4016.99.55.00","expectedChapter":"40","acceptableChapters":["40","57"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 42: Leather goods and bags ──────────────────────────────────────
+{"id":"consumer-ch42-001","query":"leather wallet mens","expectedHtsNumber":"4202.31.60.00","expectedChapter":"42","acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-002","query":"leather handbag","expectedHtsNumber":"4202.21.90.00","expectedChapter":"42","acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-003","query":"backpack travel","expectedHtsNumber":"4202.92.31.20","expectedChapter":"42","acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-004","query":"laptop bag sleeve","expectedHtsNumber":"4202.12.29.85","expectedChapter":"42","acceptableHtsNumbers":["4202.12.29.85","4202.12.81.70","4202.12.21.50"],"acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-005","query":"tote bag canvas","expectedHtsNumber":"4202.92.15.00","expectedChapter":"42","acceptableHtsNumbers":["4202.92.15.00","4202.92.08.05","4202.92.08.09"],"acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-006","query":"shopping bag cotton","expectedHtsNumber":"4202.92.15.00","expectedChapter":"42","acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch42-007","query":"briefcase leather","expectedHtsNumber":"4202.11.00.90","expectedChapter":"42","acceptableChapters":["42"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 44: Wood ─────────────────────────────────────────────────────────
+{"id":"consumer-ch44-001","query":"plywood sheet","expectedHtsNumber":"4412.39.50.12","expectedChapter":"44","acceptableChapters":["44"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch44-002","query":"bamboo cutting board","expectedHtsNumber":"4419.12.00.00","expectedChapter":"44","acceptableChapters":["44"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch44-003","query":"wooden picture frame","expectedHtsNumber":"4414.00.00.40","expectedChapter":"44","acceptableChapters":["44"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch44-004","query":"oak hardwood flooring","expectedHtsNumber":"4418.71.00.00","expectedChapter":"44","acceptableChapters":["44"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch44-005","query":"pine lumber boards","expectedHtsNumber":"4407.11.00.51","expectedChapter":"44","acceptableChapters":["44"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 48: Paper ────────────────────────────────────────────────────────
+{"id":"consumer-ch48-001","query":"copy paper letter size","expectedHtsNumber":"4802.56.10.00","expectedChapter":"48","acceptableChapters":["48"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch48-002","query":"cardboard shipping box","expectedHtsNumber":"4819.10.00.20","expectedChapter":"48","acceptableChapters":["48"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch48-003","query":"paper towels","expectedHtsNumber":"4818.20.00.00","expectedChapter":"48","acceptableChapters":["48"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch48-004","query":"toilet tissue rolls","expectedHtsNumber":"4803.00.20.00","expectedChapter":"48","acceptableChapters":["48"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch48-005","query":"kraft paper bags","expectedHtsNumber":"4819.30.00.40","expectedChapter":"48","acceptableChapters":["48"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 49: Printed matter ───────────────────────────────────────────────
+{"id":"consumer-ch49-001","query":"comic book","expectedHtsNumber":"4901.99.00.92","expectedChapter":"49","acceptableHtsNumbers":["4901.99.00.92","4901.99.00.93","4902.90.20.00"],"acceptableChapters":["49"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch49-002","query":"manga volume","expectedHtsNumber":"4901.99.00.92","expectedChapter":"49","acceptableHtsNumbers":["4901.99.00.92","4901.99.00.93"],"acceptableChapters":["49"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch49-003","query":"paperback novel","expectedHtsNumber":"4901.99.00.75","expectedChapter":"49","acceptableHtsNumbers":["4901.99.00.75","4901.99.00.65","4901.99.00.93"],"acceptableChapters":["49"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch49-004","query":"magazine monthly","expectedHtsNumber":"4902.10.00.00","expectedChapter":"49","acceptableHtsNumbers":["4902.10.00.00","4902.90.20.00"],"acceptableChapters":["49"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch49-005","query":"graphic novel","expectedHtsNumber":"4901.99.00.93","expectedChapter":"49","acceptableHtsNumbers":["4901.99.00.92","4901.99.00.93"],"acceptableChapters":["49"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 57: Carpets and rugs ─────────────────────────────────────────────
+{"id":"consumer-ch57-001","query":"area rug wool","expectedHtsNumber":"5701.10.90.40","expectedChapter":"57","acceptableChapters":["57"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch57-002","query":"carpet tiles","expectedHtsNumber":"5703.20.20.00","expectedChapter":"57","acceptableChapters":["57"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch57-003","query":"doormat coir","expectedHtsNumber":"5702.10.10.00","expectedChapter":"57","acceptableChapters":["57"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 61: Knitted apparel ──────────────────────────────────────────────
+{"id":"consumer-ch61-001","query":"cotton t-shirt men","expectedHtsNumber":"6109.10.00.12","expectedChapter":"61","acceptableHtsNumbers":["6109.10.00.12","6109.10.00.40","6109.10.00.18"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-002","query":"cotton t-shirt women","expectedHtsNumber":"6109.10.00.40","expectedChapter":"61","acceptableHtsNumbers":["6109.10.00.40","6109.10.00.12"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-003","query":"cotton sweatshirt hoodie","expectedHtsNumber":"6110.20.20.10","expectedChapter":"61","acceptableHtsNumbers":["6110.20.20.10","6110.20.10.10","6110.20.20.41"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-004","query":"cotton socks ankle","expectedHtsNumber":"6115.95.60.10","expectedChapter":"61","acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-005","query":"compression socks","expectedHtsNumber":"6115.10.05.00","expectedChapter":"61","acceptableHtsNumbers":["6115.10.05.00","6115.10.90.10"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-006","query":"plain white tshirt","expectedHtsNumber":"6109.10.00.04","expectedChapter":"61","acceptableHtsNumbers":["6109.10.00.04","6109.10.00.12"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch61-007","query":"tshirt graphic print","expectedHtsNumber":"6109.10.00.12","expectedChapter":"61","acceptableHtsNumbers":["6109.10.00.12","6109.10.00.40"],"acceptableChapters":["61"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 62: Woven apparel ────────────────────────────────────────────────
+{"id":"consumer-ch62-001","query":"mens jeans blue denim","expectedHtsNumber":"6203.42.07.11","expectedChapter":"62","acceptableHtsNumbers":["6203.42.07.11","6203.42.07.06","6203.42.45.06"],"acceptableChapters":["62"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch62-002","query":"mens dress shirt cotton","expectedHtsNumber":"6205.20.20.10","expectedChapter":"62","acceptableChapters":["62"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch62-003","query":"womens blouse woven","expectedHtsNumber":"6206.30.30.10","expectedChapter":"62","acceptableChapters":["62"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch62-004","query":"cargo pants men cotton","expectedHtsNumber":"6203.42.07.16","expectedChapter":"62","acceptableChapters":["62"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch62-005","query":"windbreaker jacket nylon","expectedHtsNumber":"6201.93.30.10","expectedChapter":"62","acceptableChapters":["62"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 63: Home textiles ────────────────────────────────────────────────
+{"id":"consumer-ch63-001","query":"cotton bed sheets queen","expectedHtsNumber":"6302.21.90.05","expectedChapter":"63","acceptableChapters":["63"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch63-002","query":"bath towel cotton","expectedHtsNumber":"6302.60.00.10","expectedChapter":"63","acceptableChapters":["63"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch63-003","query":"fleece blanket","expectedHtsNumber":"6301.40.00.10","expectedChapter":"63","acceptableChapters":["63"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch63-004","query":"shower curtain","expectedHtsNumber":"6303.92.10.00","expectedChapter":"63","acceptableChapters":["63"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch63-005","query":"kitchen dish towel","expectedHtsNumber":"6302.51.10.10","expectedChapter":"63","acceptableChapters":["63"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 64: Footwear ─────────────────────────────────────────────────────
+{"id":"consumer-ch64-001","query":"athletic sneakers running","expectedHtsNumber":"6404.11.20.30","expectedChapter":"64","acceptableHtsNumbers":["6404.11.20.30","6404.11.20.60","6404.11.51.30"],"acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch64-002","query":"leather ankle boots women","expectedHtsNumber":"6403.91.30.80","expectedChapter":"64","acceptableHtsNumbers":["6403.91.30.80","6403.91.60.90"],"acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch64-003","query":"flip flops beach sandals","expectedHtsNumber":"6402.20.00.00","expectedChapter":"64","acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch64-004","query":"mens dress shoes leather","expectedHtsNumber":"6403.51.60.30","expectedChapter":"64","acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch64-005","query":"hiking boots waterproof","expectedHtsNumber":"6403.40.60.00","expectedChapter":"64","acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch64-006","query":"sneakers rubber sole textile upper","expectedHtsNumber":"6404.11.51.30","expectedChapter":"64","acceptableHtsNumbers":["6404.11.51.30","6404.11.20.30","6404.11.61.30"],"acceptableChapters":["64"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 69: Ceramic articles ─────────────────────────────────────────────
+{"id":"consumer-ch69-001","query":"ceramic coffee mug","expectedHtsNumber":"6912.00.48.00","expectedChapter":"69","acceptableChapters":["69"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch69-002","query":"porcelain dinner plate","expectedHtsNumber":"6911.10.38.00","expectedChapter":"69","acceptableChapters":["69"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch69-003","query":"ceramic floor tile glazed","expectedHtsNumber":"6907.21.10.00","expectedChapter":"69","acceptableChapters":["69"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch69-004","query":"stoneware bowl","expectedHtsNumber":"6912.00.44.00","expectedChapter":"69","acceptableChapters":["69"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 71: Jewelry ──────────────────────────────────────────────────────
+{"id":"consumer-ch71-001","query":"gold necklace","expectedHtsNumber":"7113.19.50.21","expectedChapter":"71","acceptableHtsNumbers":["7113.19.50.21","7113.11.10.00"],"acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch71-002","query":"silver earrings","expectedHtsNumber":"7113.11.50.00","expectedChapter":"71","acceptableHtsNumbers":["7113.11.50.00","7113.19.50.30"],"acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch71-003","query":"fashion bracelet imitation","expectedHtsNumber":"7117.19.90.00","expectedChapter":"71","acceptableHtsNumbers":["7117.19.90.00","7117.19.15.00"],"acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch71-004","query":"gold plated necklace","expectedHtsNumber":"7117.19.90.00","expectedChapter":"71","acceptableHtsNumbers":["7117.19.90.00","7113.19.50.21"],"acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch71-005","query":"fashion earrings clip on","expectedHtsNumber":"7117.19.60.00","expectedChapter":"71","acceptableHtsNumbers":["7117.19.60.00","7117.19.90.00"],"acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch71-006","query":"diamond earrings gold","expectedHtsNumber":"7113.19.50.30","expectedChapter":"71","acceptableChapters":["71"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 73: Iron/steel articles ─────────────────────────────────────────
+{"id":"consumer-ch73-001","query":"stainless steel pan","expectedHtsNumber":"7323.93.00.45","expectedChapter":"73","acceptableHtsNumbers":["7323.93.00.45","7323.93.00.60"],"acceptableChapters":["73"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch73-002","query":"cast iron skillet","expectedHtsNumber":"7323.91.00.80","expectedChapter":"73","acceptableChapters":["73"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch73-003","query":"metal keychain","expectedHtsNumber":"7326.20.00.00","expectedChapter":"73","acceptableHtsNumbers":["7326.20.00.00","7326.90.85.00","7326.90.10.00"],"acceptableChapters":["73"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch73-004","query":"steel water bottle","expectedHtsNumber":"7323.93.00.45","expectedChapter":"73","acceptableChapters":["73"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch73-005","query":"wire basket metal","expectedHtsNumber":"7326.20.00.00","expectedChapter":"73","acceptableChapters":["73"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 76: Aluminum ─────────────────────────────────────────────────────
+{"id":"consumer-ch76-001","query":"aluminum foil rolls","expectedHtsNumber":"7607.11.30.00","expectedChapter":"76","acceptableChapters":["76"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch76-002","query":"aluminum ladder","expectedHtsNumber":"7616.99.50.50","expectedChapter":"76","acceptableChapters":["76"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 82: Tools ────────────────────────────────────────────────────────
+{"id":"consumer-ch82-001","query":"screwdriver set","expectedHtsNumber":"8205.40.00.00","expectedChapter":"82","acceptableChapters":["82"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch82-002","query":"hammer claw","expectedHtsNumber":"8205.20.60.00","expectedChapter":"82","acceptableChapters":["82"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch82-003","query":"adjustable wrench","expectedHtsNumber":"8204.11.00.00","expectedChapter":"82","acceptableChapters":["82"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch82-004","query":"drill bits set","expectedHtsNumber":"8207.50.20.60","expectedChapter":"82","acceptableChapters":["82"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch82-005","query":"kitchen knife stainless","expectedHtsNumber":"8211.92.90.00","expectedChapter":"82","acceptableChapters":["82"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 83: Hardware ─────────────────────────────────────────────────────
+{"id":"consumer-ch83-001","query":"padlock combination","expectedHtsNumber":"8301.10.00.00","expectedChapter":"83","acceptableChapters":["83"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch83-002","query":"door hinges stainless","expectedHtsNumber":"8302.10.30.00","expectedChapter":"83","acceptableChapters":["83"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch83-003","query":"drawer pull handle","expectedHtsNumber":"8302.42.30.00","expectedChapter":"83","acceptableChapters":["83"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 84: Machinery and appliances ────────────────────────────────────
+{"id":"consumer-ch84-001","query":"washing machine top loading","expectedHtsNumber":"8450.11.00.40","expectedChapter":"84","acceptableHtsNumbers":["8450.11.00.40","8450.11.00.80"],"acceptableChapters":["84"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-002","query":"refrigerator household","expectedHtsNumber":"8418.10.00.30","expectedChapter":"84","acceptableHtsNumbers":["8418.10.00.20","8418.10.00.30","8418.21.00.20","8418.21.00.30","8418.10.00.80"],"acceptableChapters":["84"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-003","query":"dishwasher household","expectedHtsNumber":"8422.11.00.00","expectedChapter":"84","acceptableChapters":["84"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-004","query":"vacuum cleaner household","expectedHtsNumber":"8508.11.00.00","expectedChapter":"85","acceptableHtsNumbers":["8508.11.00.00","8508.19.00.00"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-005","query":"microwave oven countertop","expectedHtsNumber":"8516.50.00.00","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-006","query":"coffee maker drip","expectedHtsNumber":"8516.71.00.20","expectedChapter":"85","acceptableHtsNumbers":["8516.71.00.20","8516.71.00.40"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-007","query":"electric blender kitchen","expectedHtsNumber":"8509.40.00.00","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-008","query":"air conditioner window unit","expectedHtsNumber":"8415.10.00.30","expectedChapter":"84","acceptableHtsNumbers":["8415.10.00.30","8415.10.00.60"],"acceptableChapters":["84"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-009","query":"espresso machine","expectedHtsNumber":"8516.71.00.20","expectedChapter":"85","acceptableHtsNumbers":["8516.71.00.20","8516.71.00.80"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch84-010","query":"stand mixer kitchen","expectedHtsNumber":"8509.40.00.00","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 85: Electronics ──────────────────────────────────────────────────
+{"id":"consumer-ch85-001","query":"smartphone android","expectedHtsNumber":"8517.13.00.00","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-002","query":"laptop computer portable","expectedHtsNumber":"8471.30.01.00","expectedChapter":"84","acceptableHtsNumbers":["8471.30.01.00","8471.30.00.40"],"acceptableChapters":["84"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-003","query":"LED light bulb","expectedHtsNumber":"8539.52.00.91","expectedChapter":"85","acceptableHtsNumbers":["8539.52.00.20","8539.52.00.91","8539.52.00.40"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-004","query":"bluetooth wireless earbuds","expectedHtsNumber":"8518.30.20.00","expectedChapter":"85","acceptableHtsNumbers":["8518.30.20.00","8518.30.10.00"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-005","query":"HDMI cable 4K","expectedHtsNumber":"8544.42.90.90","expectedChapter":"85","acceptableHtsNumbers":["8544.42.90.90","8544.42.20.00","8544.42.90.10"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-006","query":"USB charger wall adapter","expectedHtsNumber":"8504.40.85.00","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-007","query":"wireless router WiFi","expectedHtsNumber":"8517.62.00.20","expectedChapter":"85","acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-008","query":"solar panel photovoltaic","expectedHtsNumber":"8541.43.00.10","expectedChapter":"85","acceptableHtsNumbers":["8541.43.00.10","8541.43.00.20"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-009","query":"earphones wired headphones","expectedHtsNumber":"8518.30.20.00","expectedChapter":"85","acceptableHtsNumbers":["8518.30.20.00","8518.30.10.00"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch85-010","query":"power bank lithium battery","expectedHtsNumber":"8507.60.00.10","expectedChapter":"85","acceptableHtsNumbers":["8507.60.00.10","8507.60.00.40"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 87: Vehicles ─────────────────────────────────────────────────────
+{"id":"consumer-ch87-001","query":"bicycle adult","expectedHtsNumber":"8712.00.15.00","expectedChapter":"87","acceptableHtsNumbers":["8712.00.15.00","8712.00.25.00","8712.00.35.00"],"acceptableChapters":["87"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch87-002","query":"car battery 12v","expectedHtsNumber":"8507.10.80.00","expectedChapter":"85","acceptableHtsNumbers":["8507.10.80.00"],"acceptableChapters":["85"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch87-003","query":"windshield wiper blades","expectedHtsNumber":"8512.30.00.00","expectedChapter":"85","acceptableChapters":["85","87"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch87-004","query":"motorcycle parts exhaust","expectedHtsNumber":"8714.91.90.00","expectedChapter":"87","acceptableChapters":["87"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 90: Optical and instruments ─────────────────────────────────────
+{"id":"consumer-ch90-001","query":"sunglasses UV protection","expectedHtsNumber":"9004.10.00.00","expectedChapter":"90","acceptableHtsNumbers":["9004.10.00.00","9004.10.00.10","9004.10.00.20"],"acceptableChapters":["90"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch90-002","query":"reading glasses","expectedHtsNumber":"9004.90.00.00","expectedChapter":"90","acceptableHtsNumbers":["9004.90.00.00","9004.90.10.00","9004.90.50.00"],"acceptableChapters":["90"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch90-003","query":"digital thermometer oral","expectedHtsNumber":"9025.11.40.00","expectedChapter":"90","acceptableHtsNumbers":["9025.11.40.00","9025.19.80.40"],"acceptableChapters":["90"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch90-004","query":"bathroom scale digital","expectedHtsNumber":"8423.10.00.00","expectedChapter":"84","acceptableHtsNumbers":["8423.10.00.00"],"acceptableChapters":["84","90"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 91: Watches and clocks ──────────────────────────────────────────
+{"id":"consumer-ch91-001","query":"quartz wristwatch mens","expectedHtsNumber":"9102.11.40.00","expectedChapter":"91","acceptableChapters":["91"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch91-002","query":"alarm clock digital","expectedHtsNumber":"9103.10.20.00","expectedChapter":"91","acceptableChapters":["91"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch91-003","query":"wall clock decorative","expectedHtsNumber":"9105.21.10.40","expectedChapter":"91","acceptableChapters":["91"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 92: Musical instruments ─────────────────────────────────────────
+{"id":"consumer-ch92-001","query":"acoustic guitar","expectedHtsNumber":"9202.90.20.00","expectedChapter":"92","acceptableHtsNumbers":["9202.90.20.00","9202.90.40.00","9202.90.60.00","9202.90.80.00"],"acceptableChapters":["92"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch92-002","query":"violin beginner","expectedHtsNumber":"9202.10.00.00","expectedChapter":"92","acceptableChapters":["92"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch92-003","query":"digital piano keyboard","expectedHtsNumber":"9201.20.00.00","expectedChapter":"92","acceptableHtsNumbers":["9201.20.00.00","9207.10.00.00"],"acceptableChapters":["92"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch92-004","query":"drum set acoustic","expectedHtsNumber":"9206.00.20.00","expectedChapter":"92","acceptableChapters":["92"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 94: Furniture and lighting ──────────────────────────────────────
+{"id":"consumer-ch94-001","query":"office chair ergonomic","expectedHtsNumber":"9401.30.00.30","expectedChapter":"94","acceptableHtsNumbers":["9401.30.00.30","9401.30.00.10","9401.30.00.20"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-002","query":"dining table wooden","expectedHtsNumber":"9403.40.90.40","expectedChapter":"94","acceptableHtsNumbers":["9403.40.90.40","9403.60.80.40","9403.40.90.80"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-003","query":"sofa 3 seat","expectedHtsNumber":"9401.61.40.10","expectedChapter":"94","acceptableHtsNumbers":["9401.61.40.10","9401.61.40.20","9401.71.00.31","9401.71.00.41"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-004","query":"spring mattress queen","expectedHtsNumber":"9404.21.00.13","expectedChapter":"94","acceptableHtsNumbers":["9404.21.00.13","9404.21.00.95"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-005","query":"bookcase shelving wooden","expectedHtsNumber":"9403.30.00.40","expectedChapter":"94","acceptableHtsNumbers":["9403.30.00.40","9403.60.80.93"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-006","query":"floor lamp electric","expectedHtsNumber":"9405.40.20.00","expectedChapter":"94","acceptableHtsNumbers":["9405.40.20.00","9405.40.60.00","9405.40.40.00"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch94-007","query":"desk lamp adjustable","expectedHtsNumber":"9405.40.20.00","expectedChapter":"94","acceptableHtsNumbers":["9405.40.20.00","9405.40.40.00"],"acceptableChapters":["94"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 95: Toys, games, sports ─────────────────────────────────────────
+{"id":"consumer-ch95-001","query":"building blocks construction set","expectedHtsNumber":"9503.00.00.71","expectedChapter":"95","acceptableHtsNumbers":["9503.00.00.71","9503.00.00.73"],"acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-002","query":"board game family","expectedHtsNumber":"9504.90.60.00","expectedChapter":"95","acceptableHtsNumbers":["9504.90.60.00","9504.90.70.00","9504.90.40.00"],"acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-003","query":"playing cards poker","expectedHtsNumber":"9504.40.00.00","expectedChapter":"95","acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-004","query":"video game console","expectedHtsNumber":"9504.50.00.00","expectedChapter":"95","acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-005","query":"stuffed animal plush toy","expectedHtsNumber":"9503.00.00.71","expectedChapter":"95","acceptableHtsNumbers":["9503.00.00.71","9503.00.00.73"],"acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-006","query":"action figure doll","expectedHtsNumber":"9503.00.00.13","expectedChapter":"95","acceptableHtsNumbers":["9503.00.00.11","9503.00.00.13"],"acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-007","query":"yoga mat exercise","expectedHtsNumber":"9506.91.00.30","expectedChapter":"95","acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch95-008","query":"basketball official size","expectedHtsNumber":"9506.62.40.80","expectedChapter":"95","acceptableHtsNumbers":["9506.62.40.80","9506.62.40.40"],"acceptableChapters":["95"],"endpoints":["autocomplete","search"]}
+
+# ── Chapter 96: Miscellaneous ────────────────────────────────────────────────
+{"id":"consumer-ch96-001","query":"ballpoint pen","expectedHtsNumber":"9608.10.00.20","expectedChapter":"96","acceptableHtsNumbers":["9608.10.00.20","9608.10.00.40"],"acceptableChapters":["96"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch96-002","query":"mechanical pencil","expectedHtsNumber":"9608.40.00.00","expectedChapter":"96","acceptableChapters":["96"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch96-003","query":"umbrella rain folding","expectedHtsNumber":"6601.91.00.60","expectedChapter":"66","acceptableHtsNumbers":["6601.91.00.60","6601.99.60.00","6601.91.00.00"],"acceptableChapters":["66"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch96-004","query":"metal zipper garment","expectedHtsNumber":"9607.11.00.00","expectedChapter":"96","acceptableChapters":["96"],"endpoints":["autocomplete","search"]}
+{"id":"consumer-ch96-005","query":"plastic buttons sewing","expectedHtsNumber":"9606.21.40.00","expectedChapter":"96","acceptableHtsNumbers":["9606.21.40.00","9606.21.40.20","9606.21.40.40"],"acceptableChapters":["96"],"endpoints":["autocomplete","search"]}

@@ -78,7 +78,13 @@ export class EmbeddingService implements IEmbeddingService {
     this.redisTtlSec = config.get<number>('REDIS_EMBEDDING_TTL_SECONDS', 30 * 24 * 3600);
     this.redis = new Redis(
       config.get<string>('REDIS_URL', 'redis://localhost:6379'),
-      { lazyConnect: true, enableReadyCheck: false },
+      {
+        lazyConnect: true,
+        enableReadyCheck: false,
+        connectTimeout: 1000,      // fail fast if Redis is unreachable
+        maxRetriesPerRequest: 0,   // don't queue/retry commands — throw immediately
+        retryStrategy: (times) => (times < 3 ? Math.min(times * 200, 1000) : null),
+      },
     );
 
     this.logger.log(

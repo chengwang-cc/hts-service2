@@ -31,6 +31,9 @@ import {
 // Entities - Phase 3
 import { HtsDocumentEntity, KnowledgeChunkEntity } from '@hts/knowledgebase';
 
+// Entities - Phase 5
+import { LookupConversationFeedbackEntity } from '@hts/lookup';
+
 // Core Services (from packages)
 import {
   HtsProcessorService,
@@ -97,6 +100,10 @@ import { DocumentProcessingJobHandler } from './jobs/document-processing.job-han
 import { EmbeddingGenerationJobHandler } from './jobs/embedding-generation.job-handler';
 import { LookupAccuracyReportJobHandler } from './jobs/lookup-accuracy-report.job-handler';
 
+// Services + Job Handlers - Phase 5
+import { LookupRuleAnalysisService } from './services/lookup-rule-analysis.service';
+import { LookupRuleAnalysisJobHandler } from './jobs/lookup-rule-analysis.job-handler';
+
 // Services + Job Handlers - Phase 6
 import { RerankerRetrainService } from './services/reranker-retrain.service';
 import { RerankerRetrainJobHandler } from './jobs/reranker-retrain.job-handler';
@@ -126,6 +133,8 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
       // Phase 3 entities
       HtsDocumentEntity,
       KnowledgeChunkEntity,
+      // Phase 5 entities
+      LookupConversationFeedbackEntity,
       // Phase 6 entities
       RerankerTrainingRunEntity,
     ]),
@@ -178,6 +187,9 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     DocumentProcessingJobHandler,
     EmbeddingGenerationJobHandler,
     LookupAccuracyReportJobHandler,
+    // Services + Job handlers - Phase 5
+    LookupRuleAnalysisService,
+    LookupRuleAnalysisJobHandler,
     // Services + Job handlers - Phase 6
     RerankerRetrainService,
     RerankerRetrainJobHandler,
@@ -209,6 +221,7 @@ export class AdminModule implements OnModuleInit {
     private documentProcessingHandler: DocumentProcessingJobHandler,
     private embeddingGenerationHandler: EmbeddingGenerationJobHandler,
     private lookupAccuracyReportHandler: LookupAccuracyReportJobHandler,
+    private lookupRuleAnalysisHandler: LookupRuleAnalysisJobHandler,
     private rerankerRetrainHandler: RerankerRetrainJobHandler,
   ) {}
 
@@ -240,13 +253,18 @@ export class AdminModule implements OnModuleInit {
       this.lookupAccuracyReportHandler.execute(job),
     );
 
+    await this.queueService.registerHandler('lookup-rule-analysis', (job) =>
+      this.lookupRuleAnalysisHandler.execute(job),
+    );
+
     await this.queueService.registerHandler('reranker-retrain', (job) =>
       this.rerankerRetrainHandler.execute(job),
     );
 
-    this.logger.log('Job handlers registered successfully (7 handlers)');
+    this.logger.log('Job handlers registered successfully (8 handlers)');
 
     await this.configureNightlyLookupAccuracySchedule();
+    await this.configureWeeklyRuleAnalysisSchedule();
     await this.configureMonthlyRerankerRetrainSchedule();
   }
 
@@ -278,6 +296,36 @@ export class AdminModule implements OnModuleInit {
 
     this.logger.log(
       `Nightly lookup accuracy schedule active: cron="${cronExpression}" tz=${timezone}`,
+    );
+  }
+
+  private async configureWeeklyRuleAnalysisSchedule(): Promise<void> {
+    const enabledRaw = process.env.HTS_RULE_ANALYSIS_ENABLED;
+    const enabled =
+      enabledRaw !== undefined
+        ? enabledRaw === 'true'
+        : process.env.NODE_ENV === 'production';
+
+    if (!enabled) {
+      this.logger.log(
+        'Weekly rule analysis schedule disabled (HTS_RULE_ANALYSIS_ENABLED=false).',
+      );
+      return;
+    }
+
+    // Default: every Monday at 07:00 UTC
+    const cronExpression = process.env.HTS_RULE_ANALYSIS_CRON || '0 7 * * 1';
+    const timezone = process.env.HTS_RULE_ANALYSIS_TZ || 'UTC';
+
+    await this.queueService.scheduleJob(
+      'lookup-rule-analysis',
+      cronExpression,
+      { triggeredBy: 'weekly-schedule' },
+      { tz: timezone },
+    );
+
+    this.logger.log(
+      `Weekly rule analysis schedule active: cron="${cronExpression}" tz=${timezone}`,
     );
   }
 

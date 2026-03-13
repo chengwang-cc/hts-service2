@@ -16,6 +16,20 @@ import {
 @Index(['chapter'])
 @Index(['heading'])
 @Index(['parentHtsNumber'])
+// ── Manually-managed indexes ───────────────────────────────────────────────
+// { synchronize: false } tells TypeORM's migration:generate to NEVER emit
+// CREATE INDEX or DROP INDEX for these entries.  They are created by
+// scripts/create-hnsw-index.ts (HNSW) and direct SQL (GIN / partial btree)
+// because TypeORM does not natively support HNSW or partial-index syntax.
+//
+// WARNING: Removing these decorators will cause the next migration:generate
+// run to emit DROP INDEX for all four indexes, breaking semantic and full-text
+// search.  The correct overload is Index(name, { synchronize: false }) —
+// no fields array — per TypeORM 0.3.x Index.d.ts.
+@Index('idx_hts_embedding_dgx_hnsw', { synchronize: false })
+@Index('idx_hts_embedding_openai_hnsw', { synchronize: false })
+@Index('idx_hts_search_vector_gin', { synchronize: false })
+@Index('idx_hts_is_active', { synchronize: false })
 export class HtsEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

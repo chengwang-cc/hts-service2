@@ -150,6 +150,64 @@ async function main(): Promise<void> {
 
     console.log(`Built ${pairs.length} training pairs (skipped ${skipped} short/no-peers)`);
 
+    // ── Consumer-language training pairs (Phase 4) ───────────────────────────────
+    // Each entry in the consumer eval set is a confirmed (query, htsNumber) pair
+    // written in natural consumer language.  Adding these directly as training
+    // pairs bridges the vocabulary gap that causes semantic recall failures.
+    const consumerEvalPath = parseArg('consumer-set') ||
+      path.resolve(__dirname, '../docs/evaluation/lookup-evaluation-consumer-v1.jsonl');
+
+    if (fs.existsSync(consumerEvalPath)) {
+      const consumerLines = fs
+        .readFileSync(consumerEvalPath, 'utf-8')
+        .split('\n')
+        .filter((l) => l.trim());
+      let consumerAdded = 0;
+      let consumerSkipped = 0;
+
+      for (const line of consumerLines) {
+        let entry: { query: string; htsNumber: string } | null = null;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          consumerSkipped++;
+          continue;
+        }
+        if (!entry?.query || !entry?.htsNumber || entry.query.length < 5) {
+          consumerSkipped++;
+          continue;
+        }
+
+        const htsRow = rows.find((r) => r.hts_number === entry!.htsNumber) ||
+          // Fallback: match any leaf under the same 6-digit heading
+          rows.find((r) => r.hts_number.startsWith(entry!.htsNumber.slice(0, 6)));
+        if (!htsRow) {
+          consumerSkipped++;
+          continue;
+        }
+
+        const positive = buildCandidateText(htsRow);
+        const chapterPeers = byChapter.get(htsRow.chapter) ?? [];
+        const negativePool = chapterPeers.filter((peer) => peer.hts_number !== htsRow.hts_number);
+        if (negativePool.length === 0) {
+          consumerSkipped++;
+          continue;
+        }
+
+        const shuffled = shuffleDeterministic(negativePool, entry.query);
+        const negatives = shuffled.slice(0, negativesPerEntry).map((peer) => buildCandidateText(peer));
+        pairs.push({ query: entry.query.slice(0, 200), positive, negatives });
+        consumerAdded++;
+      }
+
+      console.log(
+        `Added ${consumerAdded} consumer-language training pairs from ${consumerEvalPath}` +
+          ` (skipped ${consumerSkipped})`,
+      );
+    } else {
+      console.log(`Consumer eval set not found at ${consumerEvalPath} — skipping consumer pairs`);
+    }
+
     // Also add pairs from lookup_conversation_feedback if any exist
     const feedbackResult = await client.query(`
       SELECT

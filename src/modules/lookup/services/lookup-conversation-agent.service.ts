@@ -446,6 +446,8 @@ export class LookupConversationAgentService {
   }> {
     await this.requireSession(conversationId, organizationId);
 
+    let feedbackMetadata: Record<string, any> | null = null;
+
     if (payload.messageId) {
       const message = await this.messageRepository.findOne({
         where: { id: payload.messageId, sessionId: conversationId },
@@ -455,6 +457,27 @@ export class LookupConversationAgentService {
           `Message ${payload.messageId} not found in conversation ${conversationId}`,
         );
       }
+
+      // Find the user message that preceded this assistant reply — its text is
+      // the original search query for which we want to log intent rules.
+      const userMessage = await this.messageRepository
+        .createQueryBuilder('m')
+        .where('m.sessionId = :sessionId', { sessionId: conversationId })
+        .andWhere('m.role = :role', { role: 'user' })
+        .andWhere('m.createdAt <= :ts', { ts: message.createdAt })
+        .orderBy('m.createdAt', 'DESC')
+        .limit(1)
+        .getOne();
+
+      const userQuery: string | undefined =
+        typeof userMessage?.contentJson?.text === 'string'
+          ? userMessage.contentJson.text
+          : undefined;
+
+      if (userQuery) {
+        const matchedRuleIds = this.searchService.computeMatchedRuleIds(userQuery);
+        feedbackMetadata = { matchedRuleIds, queryText: userQuery };
+      }
     }
 
     const feedback = this.feedbackRepository.create({
@@ -463,7 +486,7 @@ export class LookupConversationAgentService {
       isCorrect: payload.isCorrect,
       chosenHts: payload.chosenHts || null,
       comment: payload.comment || null,
-      metadata: null,
+      metadata: feedbackMetadata,
     });
 
     const saved = await this.feedbackRepository.save(feedback);

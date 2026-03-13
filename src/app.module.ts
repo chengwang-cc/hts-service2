@@ -24,6 +24,7 @@ import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
+import { BatchModule } from './modules/batch/batch.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
@@ -55,6 +56,8 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
               :false,
             //: { rejectUnauthorized: false },
         logging: (process.env?.DB_LOGGING ?? 'false') === 'true',
+        // Limit pool size so pg-boss + app together stay under max_connections
+        extra: { max: parseInt(process.env?.DB_POOL_MAX ?? '8') },
       }),
       dataSourceFactory: async (options: any) => {
         const dataSource = new DataSource(options);
@@ -140,6 +143,9 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Test module (E2E testing endpoints)
     TestModule,
+
+    // Batch module (async bulk HTS lookup)
+    BatchModule,
   ],
   controllers: [AppController],
   providers: [
