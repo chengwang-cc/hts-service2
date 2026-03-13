@@ -38,6 +38,10 @@ export class UrlMetadata {
   productName?: string;
   price?: string;
   currency?: string;
+  extractionMethod?: string;
+  usedBrowser?: boolean;
+  usedVision?: boolean;
+  renderedImageUrl?: string;
 }
 
 export class ClassifyUrlResponseDto {

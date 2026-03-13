@@ -1,9 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { load } from 'cheerio';
-import puppeteer from 'puppeteer';
+import { load, type CheerioAPI } from 'cheerio';
+import puppeteer, { type Page } from 'puppeteer';
 import { OpenAiService } from '@hts/core';
+import type {
+  ResponseInput,
+  ResponseInputImage,
+  ResponseInputText,
+} from 'openai/resources/responses/responses';
 import {
   ClassifyUrlResponseDto,
   UrlType,
@@ -20,11 +25,41 @@ interface OpenGraphData {
   currency?: string;
 }
 
+interface StructuredProductData {
+  name?: string;
+  description?: string;
+  image?: string;
+  price?: string;
+  currency?: string;
+}
+
+interface PageFetchResult {
+  html: string;
+  method: 'http' | 'puppeteer';
+  renderedTitle?: string;
+  renderedText?: string;
+  screenshot?: Buffer | null;
+  primaryImageUrl?: string | null;
+}
+
+interface ExtractedProductDetails {
+  productName?: string;
+  description?: string;
+  extractionMethod: string;
+  usedVision: boolean;
+}
+
+interface AiProductExtraction {
+  productName: string | null;
+  description: string | null;
+  isProductPage: boolean;
+  confidence: number;
+}
+
 @Injectable()
 export class UrlClassifierService {
   private readonly logger = new Logger(UrlClassifierService.name);
 
-  // List of internal/private IPs to block (SSRF prevention)
   private readonly BLOCKED_HOSTS = [
     'localhost',
     '127.0.0.1',
@@ -32,9 +67,9 @@ export class UrlClassifierService {
     /^10\./,
     /^172\.(1[6-9]|2[0-9]|3[01])\./,
     /^192\.168\./,
-    /^169\.254\./, // Link-local
-    /^::1$/, // IPv6 localhost
-    /^fe80:/, // IPv6 link-local
+    /^169\.254\./,
+    /^::1$/,
+    /^fe80:/,
   ];
 
   private readonly IMAGE_EXTENSIONS = [
@@ -58,20 +93,36 @@ export class UrlClassifierService {
     'image/svg+xml',
   ];
 
-  private readonly MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB
-  private readonly REQUEST_TIMEOUT = 8000; // 8 seconds
+  private readonly PRODUCT_SELECTORS = [
+    '[itemtype*="Product"]',
+    '[data-product-id]',
+    '.product',
+    '.product-detail',
+    '.product-info',
+    '.product-description',
+    '#productDescription',
+    '#feature-bullets',
+    '[itemprop="name"]',
+    '[itemprop="description"]',
+    '[itemprop="price"]',
+  ];
+
+  private readonly MAX_HTML_SIZE = 5 * 1024 * 1024;
+  private readonly REQUEST_TIMEOUT = 8000;
+  private readonly browserEnabled: boolean;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly openAiService: OpenAiService,
-  ) {}
+  ) {
+    this.browserEnabled =
+      (process.env.WEB_SCRAPING_DISABLED ?? 'false') !== 'true' &&
+      !process.env.JEST_WORKER_ID &&
+      process.env.NODE_ENV !== 'test';
+  }
 
-  /**
-   * Main method to classify a URL and determine its type
-   */
   async classifyUrl(url: string): Promise<ClassifyUrlResponseDto> {
     try {
-      // Step 1: Validate URL is not internal/private (SSRF prevention)
       if (!this.isAllowedUrl(url)) {
         return {
           type: UrlType.INVALID,
@@ -79,18 +130,15 @@ export class UrlClassifierService {
         };
       }
 
-      // Step 2: Check if it's a direct image URL by extension
       if (this.isImageExtension(url)) {
-        this.logger.log(`Direct image URL detected: ${url}`);
+        this.logger.log(`Direct image URL detected by pathname: ${url}`);
         return {
           type: UrlType.IMAGE,
           imageUrl: url,
         };
       }
 
-      // Step 3: Try HEAD request to check Content-Type
       const contentType = await this.getContentType(url);
-
       if (contentType?.startsWith('image/')) {
         this.logger.log(`Image URL detected by Content-Type: ${url}`);
         return {
@@ -99,77 +147,73 @@ export class UrlClassifierService {
         };
       }
 
-      // Step 4: Fetch HTML content and parse
-      const html = await this.fetchHtml(url);
+      let page = await this.fetchHtmlOverHttp(url);
+      let ogData = this.extractOpenGraph(page.html, url);
+      let structuredData = this.extractStructuredProductData(page.html, url);
 
-      if (!html) {
-        return {
-          type: UrlType.INVALID,
-          error: 'Unable to fetch webpage content',
-        };
+      if (
+        page.method === 'http' &&
+        this.shouldUseBrowserFallback(page.html, ogData, structuredData)
+      ) {
+        const renderedPage = await this.fetchHtmlWithPuppeteer(url);
+        if (renderedPage) {
+          page = renderedPage;
+          ogData = this.extractOpenGraph(page.html, url);
+          structuredData = this.extractStructuredProductData(page.html, url);
+        }
       }
 
-      // Step 5: Extract OpenGraph and metadata
-      const ogData = this.extractOpenGraph(html);
-
-      // Step 6: Detect if it's a product page
-      const isProduct = this.detectProductPage(html, ogData);
-
-      if (isProduct && ogData.image) {
-        this.logger.log(`Product page detected: ${url}`);
-        return {
-          type: UrlType.PRODUCT,
-          imageUrl: ogData.image,
-          metadata: {
-            title: ogData.title,
-            description: ogData.description,
-            siteName: ogData.siteName,
-            productName: ogData.title,
-            price: ogData.price,
-            currency: ogData.currency,
-          },
-        };
-      }
-
-      if (ogData.image) {
-        this.logger.log(`Webpage with OG image detected: ${url}`);
-        return {
-          type: UrlType.WEBPAGE,
-          imageUrl: ogData.image,
-          metadata: {
-            title: ogData.title,
-            description: ogData.description,
-            siteName: ogData.siteName,
-          },
-        };
-      }
-
-      // No image found - extract product description for text-based classification
-      this.logger.log(
-        `No image found, extracting product description from ${url}`,
-      );
-
-      // Check if this is actually a product page
-      const isLikelyProductPage = this.detectProductPage(html, ogData);
-
-      const productDescription = await this.extractProductDescription(
-        html,
+      const isProductPage = this.detectProductPage(
+        page.html,
         ogData,
+        structuredData ?? undefined,
+      );
+      const extracted = await this.extractProductDetails(
+        page.html,
+        ogData,
+        structuredData,
+        page,
       );
 
-      if (productDescription) {
+      const metadata: UrlMetadata = {
+        title: structuredData?.name || ogData.title || page.renderedTitle,
+        description:
+          structuredData?.description ||
+          extracted.description ||
+          ogData.description,
+        siteName: ogData.siteName,
+        productName:
+          extracted.productName ||
+          structuredData?.name ||
+          ogData.title ||
+          page.renderedTitle,
+        price: structuredData?.price || ogData.price,
+        currency: structuredData?.currency || ogData.currency,
+        extractionMethod: extracted.extractionMethod,
+        usedBrowser: page.method === 'puppeteer',
+        usedVision: extracted.usedVision,
+        renderedImageUrl: page.primaryImageUrl ?? undefined,
+      };
+
+      const imageUrl =
+        structuredData?.image || ogData.image || page.primaryImageUrl || undefined;
+
+      if (imageUrl) {
         return {
-          type: UrlType.WEBPAGE,
-          metadata: {
-            title: ogData.title,
-            description: productDescription,
-            siteName: ogData.siteName,
-          },
+          type: isProductPage ? UrlType.PRODUCT : UrlType.WEBPAGE,
+          imageUrl,
+          metadata,
         };
       }
 
-      // No image and no usable description found
-      if (!isLikelyProductPage) {
+      if (this.isUsefulDescription(metadata.description)) {
+        return {
+          type: isProductPage ? UrlType.PRODUCT : UrlType.WEBPAGE,
+          metadata,
+        };
+      }
+
+      if (!isProductPage) {
         return {
           type: UrlType.INVALID,
           error:
@@ -187,7 +231,6 @@ export class UrlClassifierService {
         error.stack,
       );
 
-      // Return user-friendly error messages
       if (error.code === 'ENOTFOUND') {
         return { type: UrlType.INVALID, error: 'URL not found' };
       }
@@ -200,6 +243,9 @@ export class UrlClassifierService {
       if (error.response?.status === 403) {
         return { type: UrlType.INVALID, error: 'Access denied (403)' };
       }
+      if (error.response?.status === 429) {
+        return { type: UrlType.INVALID, error: 'Access rate limited by source website' };
+      }
 
       return {
         type: UrlType.INVALID,
@@ -208,33 +254,28 @@ export class UrlClassifierService {
     }
   }
 
-  /**
-   * Check if URL has image extension
-   */
   private isImageExtension(url: string): boolean {
-    const urlLower = url.toLowerCase();
-    return this.IMAGE_EXTENSIONS.some((ext) => urlLower.endsWith(ext));
+    try {
+      const pathname = new URL(url).pathname.toLowerCase();
+      return this.IMAGE_EXTENSIONS.some((ext) => pathname.endsWith(ext));
+    } catch {
+      return false;
+    }
   }
 
-  /**
-   * Validate URL is not internal/private (SSRF prevention)
-   */
   private isAllowedUrl(url: string): boolean {
     try {
       const parsed = new URL(url);
 
-      // Only allow HTTP/HTTPS
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return false;
       }
 
-      // Allow localhost in test/development mode for E2E testing
       if (process.env.ALLOW_LOCALHOST_URLS === 'true') {
         this.logger.debug(`Allowing localhost URL for testing: ${url}`);
         return true;
       }
 
-      // Check against blocked hosts
       const hostname = parsed.hostname;
       return !this.BLOCKED_HOSTS.some((pattern) => {
         if (typeof pattern === 'string') {
@@ -242,14 +283,11 @@ export class UrlClassifierService {
         }
         return pattern.test(hostname);
       });
-    } catch (error) {
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Get Content-Type via HEAD request
-   */
   private async getContentType(url: string): Promise<string | null> {
     try {
       const response = await firstValueFrom(
@@ -261,17 +299,30 @@ export class UrlClassifierService {
       );
 
       return response.headers['content-type']?.split(';')[0] || null;
+    } catch (headError) {
+      this.logger.debug(`HEAD request failed for ${url}: ${headError.message}`);
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          timeout: 5000,
+          maxRedirects: 5,
+          validateStatus: (status) => status < 400,
+          responseType: 'stream',
+        }),
+      );
+
+      const contentType = response.headers['content-type']?.split(';')[0] || null;
+      response.data?.destroy?.();
+      return contentType;
     } catch (error) {
-      this.logger.debug(`HEAD request failed for ${url}: ${error.message}`);
+      this.logger.debug(`GET probe failed for ${url}: ${error.message}`);
       return null;
     }
   }
 
-  /**
-   * Fetch HTML content from URL
-   * Falls back to Puppeteer if axios fails with 403 (common for e-commerce sites)
-   */
-  private async fetchHtml(url: string): Promise<string | null> {
+  private async fetchHtmlOverHttp(url: string): Promise<PageFetchResult> {
     try {
       const response = await firstValueFrom(
         this.httpService.get(url, {
@@ -301,18 +352,19 @@ export class UrlClassifierService {
           contentType.includes(allowed),
         )
       ) {
-        this.logger.warn(`Unsupported content type: ${contentType}`);
-        return null;
+        throw new Error(`Unsupported content type: ${contentType}`);
       }
 
-      return response.data;
+      return {
+        html: response.data,
+        method: 'http',
+      };
     } catch (error) {
-      // If we get a 403 (Forbidden), try with Puppeteer
-      if (error.response?.status === 403) {
-        this.logger.log(
-          `Axios blocked with 403, falling back to Puppeteer for ${url}`,
-        );
-        return this.fetchHtmlWithPuppeteer(url);
+      if (this.shouldRetryInBrowser(error)) {
+        const rendered = await this.fetchHtmlWithPuppeteer(url);
+        if (rendered) {
+          return rendered;
+        }
       }
 
       this.logger.error(`Failed to fetch HTML from ${url}: ${error.message}`);
@@ -320,10 +372,31 @@ export class UrlClassifierService {
     }
   }
 
-  /**
-   * Fetch HTML using Puppeteer (for sites that block simple HTTP requests)
-   */
-  private async fetchHtmlWithPuppeteer(url: string): Promise<string | null> {
+  private shouldRetryInBrowser(error: any): boolean {
+    if (!this.browserEnabled) {
+      return false;
+    }
+
+    const status = error?.response?.status;
+    return (
+      status === 403 ||
+      status === 429 ||
+      status === 503 ||
+      error?.code === 'ECONNABORTED' ||
+      error?.message?.includes('Unsupported content type')
+    );
+  }
+
+  private async fetchHtmlWithPuppeteer(
+    url: string,
+  ): Promise<PageFetchResult | null> {
+    if (!this.browserEnabled) {
+      this.logger.warn(
+        `Puppeteer fallback requested for ${url} but browser mode is disabled`,
+      );
+      return null;
+    }
+
     let browser;
     try {
       this.logger.log(`Launching Puppeteer for ${url}`);
@@ -340,31 +413,64 @@ export class UrlClassifierService {
       });
 
       const page = await browser.newPage();
-
-      // Set a realistic viewport and user agent
-      await page.setViewport({ width: 1920, height: 1080 });
+      await page.setViewport({ width: 1440, height: 1600 });
       await page.setUserAgent(
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       );
-
-      // Navigate with timeout
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: this.REQUEST_TIMEOUT,
+        timeout: Math.max(this.REQUEST_TIMEOUT, 12_000),
       });
 
-      // Wait additional 2 seconds for dynamic content to load
-      this.logger.log('Waiting 2 seconds for dynamic content...');
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Get the HTML content
-      const html = await page.content();
-
-      this.logger.log(
-        `Successfully fetched HTML with Puppeteer (${html.length} bytes)`,
+      await this.dismissCookieBanners(page);
+      await this.waitForProductSignals(page);
+      await this.autoScroll(page);
+      await page.waitForNetworkIdle({ idleTime: 800, timeout: 4000 }).catch(
+        () => undefined,
       );
 
-      return html;
+      const html = await page.content();
+      const renderedTitle = await page.title();
+      const renderedText = await page.evaluate(() =>
+        (document.body?.innerText || '').replace(/\s+/g, ' ').trim(),
+      );
+      const primaryImageUrl = await page.evaluate(() => {
+        const images = Array.from(document.images)
+          .map((img) => {
+            const rect = img.getBoundingClientRect();
+            return {
+              src: img.currentSrc || img.src || '',
+              area: Math.max(rect.width, img.naturalWidth || 0) *
+                Math.max(rect.height, img.naturalHeight || 0),
+            };
+          })
+          .filter((img) => img.src && img.area > 40_000)
+          .sort((a, b) => b.area - a.area);
+
+        return images[0]?.src || null;
+      });
+      const screenshot = Buffer.from(
+        await page.screenshot({
+          type: 'jpeg',
+          quality: 65,
+          fullPage: false,
+        }),
+      );
+
+      await page.close();
+
+      this.logger.log(
+        `Fetched rendered page with Puppeteer (${html.length} bytes)`,
+      );
+
+      return {
+        html,
+        method: 'puppeteer',
+        renderedTitle,
+        renderedText,
+        screenshot,
+        primaryImageUrl,
+      };
     } catch (error) {
       this.logger.error(
         `Puppeteer failed to fetch ${url}: ${error.message}`,
@@ -373,19 +479,69 @@ export class UrlClassifierService {
       throw error;
     } finally {
       if (browser) {
-        await browser.close();
+        await browser.close().catch(() => undefined);
       }
     }
   }
 
-  /**
-   * Extract OpenGraph metadata from HTML
-   */
-  private extractOpenGraph(html: string): OpenGraphData {
+  private async dismissCookieBanners(page: Page): Promise<void> {
+    await page
+      .evaluate(() => {
+        const patterns = [
+          'accept',
+          'accept all',
+          'agree',
+          'allow all',
+          'got it',
+          'continue',
+        ];
+        const isVisible = (element: Element) => {
+          const rect = (element as HTMLElement).getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const candidates = Array.from(
+          document.querySelectorAll('button, [role="button"], a'),
+        );
+        for (const candidate of candidates) {
+          const text = candidate.textContent?.trim().toLowerCase() || '';
+          if (text && patterns.some((pattern) => text === pattern || text.includes(pattern))) {
+            if (isVisible(candidate)) {
+              (candidate as HTMLElement).click();
+            }
+          }
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  private async waitForProductSignals(page: Page): Promise<void> {
+    const selector = this.PRODUCT_SELECTORS.join(', ');
+    await page.waitForSelector(selector, { timeout: 4000 }).catch(() => undefined);
+  }
+
+  private async autoScroll(page: Page): Promise<void> {
+    await page
+      .evaluate(async () => {
+        for (let index = 0; index < 4; index += 1) {
+          window.scrollTo({
+            top: Math.min(
+              document.body.scrollHeight,
+              Math.round(window.innerHeight * (index + 1) * 0.8),
+            ),
+            behavior: 'auto',
+          });
+          await new Promise((resolve) => setTimeout(resolve, 450));
+        }
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      })
+      .catch(() => undefined);
+  }
+
+  private extractOpenGraph(html: string, sourceUrl: string): OpenGraphData {
     const $ = load(html);
     const ogData: OpenGraphData = {};
 
-    // Extract OpenGraph tags
     ogData.title =
       $('meta[property="og:title"]').attr('content') ||
       $('meta[name="twitter:title"]').attr('content') ||
@@ -398,18 +554,19 @@ export class UrlClassifierService {
       $('meta[name="description"]').attr('content') ||
       undefined;
 
-    ogData.image =
+    ogData.image = this.normalizeResolvedUrl(
       $('meta[property="og:image"]').attr('content') ||
-      $('meta[property="og:image:url"]').attr('content') ||
-      $('meta[name="twitter:image"]').attr('content') ||
-      undefined;
+        $('meta[property="og:image:url"]').attr('content') ||
+        $('meta[name="twitter:image"]').attr('content') ||
+        undefined,
+      sourceUrl,
+    );
 
     ogData.siteName =
       $('meta[property="og:site_name"]').attr('content') || undefined;
 
     ogData.type = $('meta[property="og:type"]').attr('content') || undefined;
 
-    // Extract product-specific metadata
     ogData.price =
       $('meta[property="product:price:amount"]').attr('content') ||
       $('meta[property="og:price:amount"]').attr('content') ||
@@ -423,133 +580,272 @@ export class UrlClassifierService {
     return ogData;
   }
 
-  /**
-   * Detect if the page is a product page
-   */
-  private detectProductPage(html: string, ogData: OpenGraphData): boolean {
-    // Check OpenGraph type
+  private detectProductPage(
+    html: string,
+    ogData: OpenGraphData,
+    structuredData?: StructuredProductData,
+  ): boolean {
     if (ogData.type === 'product') {
       return true;
     }
 
-    // Check for product-specific metadata
+    if (
+      structuredData?.name ||
+      structuredData?.description ||
+      structuredData?.price ||
+      structuredData?.currency
+    ) {
+      return true;
+    }
+
     if (ogData.price || ogData.currency) {
       return true;
     }
 
-    // Check for common product page patterns
+    const $ = load(html);
+    $('script, style, noscript, template').remove();
+    const sanitizedHtml = $.html();
+
     const productIndicators = [
-      // Product metadata
       /<meta property="product:/i,
       /<script type="application\/ld\+json">.*"@type":\s*"Product"/is,
-
-      // Common e-commerce platforms
-      /id="dp-container"/i, // Amazon
+      /id="dp-container"/i,
       /data-product-id/i,
       /class="[^"]*product[^"]*"/i,
-
-      // Product actions
       /<button[^>]*add[^>]*cart/i,
       /<button[^>]*buy[^>]*now/i,
-
-      // Price indicators
       /class="[^"]*price[^"]*"/i,
       /itemprop="price"/i,
     ];
 
-    return productIndicators.some((pattern) => pattern.test(html));
+    return productIndicators.some((pattern) => pattern.test(sanitizedHtml));
   }
 
-  /**
-   * Extract product description from HTML using OpenAI
-   * Intelligently extracts only relevant product text to minimize AI costs
-   */
-  private async extractProductDescription(
+  private shouldUseBrowserFallback(
     html: string,
     ogData: OpenGraphData,
-  ): Promise<string | null> {
-    this.logger.log('Extracting product info using AI...');
+    structuredData: StructuredProductData | null,
+  ): boolean {
+    if (!this.browserEnabled) {
+      return false;
+    }
 
-    try {
-      const $ = load(html);
+    const $ = load(html);
+    const scriptCount = $('script').length;
+    $('script, style, noscript, template').remove();
+    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+    const hasShellMarkers =
+      /id="__next"|id="root"|data-reactroot|__NUXT__|window\.__INITIAL_STATE__|<noscript>/i.test(
+        html,
+      );
+    const lacksSignals =
+      !ogData.title &&
+      !ogData.description &&
+      !ogData.image &&
+      !structuredData?.name &&
+      !structuredData?.description;
 
-      // Priority 1: Extract focused product content
-      const productTexts: string[] = [];
+    return (
+      bodyText.length < 180 ||
+      (lacksSignals && scriptCount > 8) ||
+      (lacksSignals && hasShellMarkers)
+    );
+  }
 
-      // Add title if available
-      if (ogData.title) {
-        productTexts.push(`Title: ${ogData.title}`);
+  private async extractProductDetails(
+    html: string,
+    ogData: OpenGraphData,
+    structuredData: StructuredProductData | null,
+    page: PageFetchResult,
+  ): Promise<ExtractedProductDetails> {
+    if (this.isUsefulDescription(structuredData?.description)) {
+      return {
+        productName: structuredData?.name || ogData.title,
+        description: structuredData?.description,
+        extractionMethod: 'structured-data',
+        usedVision: false,
+      };
+    }
+
+    if (this.isUsefulDescription(ogData.description) && ogData.type === 'product') {
+      return {
+        productName: structuredData?.name || ogData.title,
+        description: ogData.description,
+        extractionMethod: 'open-graph',
+        usedVision: false,
+      };
+    }
+
+    const $ = load(html);
+    const combinedText = this.extractFocusedProductText(
+      $,
+      ogData,
+      structuredData,
+      page.renderedText,
+    );
+
+    if (!combinedText) {
+      return {
+        productName: structuredData?.name || ogData.title || page.renderedTitle,
+        extractionMethod: 'none',
+        usedVision: false,
+      };
+    }
+
+    const aiExtraction = await this.extractProductDetailsWithAi(
+      combinedText,
+      page.screenshot ?? null,
+      {
+        pageTitle: page.renderedTitle || ogData.title,
+        siteName: ogData.siteName,
+      },
+    );
+
+    if (this.isUsefulDescription(aiExtraction?.description ?? undefined)) {
+      return {
+        productName:
+          aiExtraction?.productName ||
+          structuredData?.name ||
+          ogData.title ||
+          page.renderedTitle,
+        description: aiExtraction?.description || undefined,
+        extractionMethod: page.screenshot ? 'rendered-page-ai' : 'html-ai',
+        usedVision: Boolean(page.screenshot),
+      };
+    }
+
+    return {
+      productName: structuredData?.name || ogData.title || page.renderedTitle,
+      extractionMethod: 'selector-text',
+      usedVision: false,
+    };
+  }
+
+  private extractFocusedProductText(
+    $: CheerioAPI,
+    ogData: OpenGraphData,
+    structuredData: StructuredProductData | null,
+    renderedText?: string,
+  ): string {
+    const productTexts: string[] = [];
+
+    if (structuredData?.name) {
+      productTexts.push(`Product name: ${structuredData.name}`);
+    }
+    if (ogData.title) {
+      productTexts.push(`Title: ${ogData.title}`);
+    }
+    if (structuredData?.description) {
+      productTexts.push(`Structured description: ${structuredData.description}`);
+    }
+
+    for (const selector of this.PRODUCT_SELECTORS.concat(['h1'])) {
+      const element = $(selector).first();
+      if (element.length === 0) {
+        continue;
       }
 
-      // Extract from product-specific selectors (most relevant first)
-      const productSelectors = [
-        'h1', // Product title
-        '[itemprop="name"]', // Schema.org product name
-        '[itemprop="description"]', // Schema.org description
-        '.product-description',
-        '#productDescription',
-        '#feature-bullets',
-        '.product-details',
-        '[class*="product-info"]',
-        '[class*="description"]',
+      const text = element.text().replace(/\s+/g, ' ').trim();
+      if (text.length > 20 && text.length < 2500) {
+        productTexts.push(text);
+      }
+
+      if (productTexts.join(' ').length > 1800) {
+        break;
+      }
+    }
+
+    if (renderedText) {
+      productTexts.push(renderedText.substring(0, 2000));
+    }
+
+    const combinedText = productTexts
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 3500);
+
+    return combinedText.length >= 50 ? combinedText : '';
+  }
+
+  private async extractProductDetailsWithAi(
+    combinedText: string,
+    screenshot: Buffer | null,
+    context: { pageTitle?: string; siteName?: string },
+  ): Promise<AiProductExtraction | null> {
+    try {
+      const promptText = [
+        'Extract product information from this rendered product page.',
+        'Focus on the actual product being sold or described.',
+        'Ignore cookie banners, navigation, shipping notices, upsells, and unrelated recommendations.',
+        context.pageTitle ? `Page title: ${context.pageTitle}` : '',
+        context.siteName ? `Site name: ${context.siteName}` : '',
+        '',
+        'Relevant page text:',
+        combinedText,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const inputParts: Array<ResponseInputText | ResponseInputImage> = [
+        {
+          type: 'input_text',
+          text: promptText,
+        },
       ];
 
-      for (const selector of productSelectors) {
-        const element = $(selector).first();
-        if (element.length > 0) {
-          const text = element.text().trim();
-          if (text && text.length > 20 && text.length < 2000) {
-            productTexts.push(text);
-            // Stop after getting ~1500 chars of relevant text
-            if (productTexts.join(' ').length > 1500) break;
-          }
-        }
+      if (screenshot) {
+        inputParts.push({
+          type: 'input_image',
+          image_url: `data:image/jpeg;base64,${screenshot.toString('base64')}`,
+          detail: 'auto',
+        });
       }
 
-      // Combine and clean the text
-      const combinedText = productTexts
-        .join(' ')
-        .replace(/\s+/g, ' ') // Normalize whitespace
-        .replace(/\n+/g, ' ') // Remove newlines
-        .trim()
-        .substring(0, 2500); // Limit to 2500 chars (much less than before)
+      const input: ResponseInput = [
+        {
+          type: 'message',
+          role: 'user',
+          content: inputParts,
+        },
+      ];
 
-      if (!combinedText || combinedText.length < 50) {
-        this.logger.warn('Not enough relevant product text to analyze');
+      const response = await this.openAiService.response(input, {
+        model: screenshot ? 'gpt-4o' : 'gpt-5-mini',
+        instructions:
+          'You extract product names and customs-ready descriptions from ecommerce pages. Be precise, terse, and ignore page chrome.',
+        store: false,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'url_product_extraction',
+            schema: {
+              type: 'object',
+              properties: {
+                productName: { type: ['string', 'null'] },
+                description: { type: ['string', 'null'] },
+                isProductPage: { type: 'boolean' },
+                confidence: { type: 'number', minimum: 0, maximum: 1 },
+              },
+              required: [
+                'productName',
+                'description',
+                'isProductPage',
+                'confidence',
+              ],
+              additionalProperties: false,
+            },
+            strict: true,
+          },
+        },
+      });
+
+      const outputText = (response as any).output_text?.trim();
+      if (!outputText) {
         return null;
       }
 
-      this.logger.log(
-        `Extracted ${combinedText.length} chars of focused product text, sending to OpenAI...`,
-      );
-
-      // Use OpenAI to extract product information
-      const prompt = `Extract product information from this webpage text. Return a concise product description (2-3 sentences) suitable for customs classification.
-
-Webpage text:
-${combinedText}
-
-Respond with ONLY the product description, nothing else.`;
-
-      const response = await this.openAiService.response(prompt, {
-        model: 'gpt-5-nano', // Ultra-fast and cheap model optimized for extraction
-        instructions:
-          'You are a product information extractor. Extract only the key product details in 2-3 sentences.',
-        store: false,
-        // Note: temperature not set - gpt-5-nano uses default value only
-      });
-
-      const description = (response as any).output_text?.trim();
-
-      if (description && description.length > 30) {
-        this.logger.log(
-          `AI extracted description: ${description.substring(0, 100)}...`,
-        );
-        return description;
-      }
-
-      this.logger.warn('AI did not return a valid description');
-      return null;
+      return JSON.parse(outputText) as AiProductExtraction;
     } catch (error) {
       this.logger.error(
         `Failed to extract description with AI: ${error.message}`,
@@ -558,44 +854,111 @@ Respond with ONLY the product description, nothing else.`;
     }
   }
 
-  /**
-   * Extract product description from JSON-LD structured data
-   */
-  private extractJsonLdDescription($: any): string | null {
+  private extractStructuredProductData(
+    html: string,
+    sourceUrl: string,
+  ): StructuredProductData | null {
+    const $ = load(html);
     const scripts = $('script[type="application/ld+json"]');
 
-    for (let i = 0; i < scripts.length; i++) {
+    for (let index = 0; index < scripts.length; index += 1) {
       try {
-        const jsonText = $(scripts[i]).html();
-        if (!jsonText) continue;
+        const jsonText = $(scripts[index]).html();
+        if (!jsonText) {
+          continue;
+        }
 
-        const data = JSON.parse(jsonText);
+        const parsed = JSON.parse(jsonText);
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        const queue = [...items];
 
-        // Handle both single objects and arrays
-        const items = Array.isArray(data) ? data : [data];
-
-        for (const item of items) {
-          // Look for Product type
-          if (item['@type'] === 'Product' && item.description) {
-            return item.description;
+        while (queue.length > 0) {
+          const item = queue.shift();
+          if (!item || typeof item !== 'object') {
+            continue;
           }
 
-          // Some sites nest the product data
-          if (item['@graph']) {
-            const product = item['@graph'].find(
-              (node: any) => node['@type'] === 'Product',
-            );
-            if (product?.description) {
-              return product.description;
-            }
+          if (Array.isArray(item['@graph'])) {
+            queue.push(...item['@graph']);
+          }
+
+          const itemType = Array.isArray(item['@type'])
+            ? item['@type'].join(' ')
+            : item['@type'];
+
+          if (
+            typeof itemType === 'string' &&
+            itemType.toLowerCase().includes('product')
+          ) {
+            const offers = Array.isArray(item.offers)
+              ? item.offers[0]
+              : item.offers || {};
+            const imageValue = Array.isArray(item.image)
+              ? item.image[0]
+              : item.image;
+
+            return {
+              name: this.asTrimmedString(item.name),
+              description: this.asTrimmedString(item.description),
+              image: this.normalizeResolvedUrl(
+                this.asTrimmedString(imageValue),
+                sourceUrl,
+              ),
+              price: this.asTrimmedString(
+                item.price || offers?.price || item.lowPrice,
+              ),
+              currency: this.asTrimmedString(
+                item.priceCurrency || offers?.priceCurrency,
+              ),
+            };
           }
         }
-      } catch (error) {
-        // Invalid JSON, skip
+      } catch {
         continue;
       }
     }
 
     return null;
+  }
+
+  private asTrimmedString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim()
+      ? value.trim()
+      : undefined;
+  }
+
+  private normalizeResolvedUrl(
+    value: string | undefined,
+    sourceUrl: string,
+  ): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    try {
+      return new URL(value, sourceUrl).toString();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isUsefulDescription(value: string | undefined): boolean {
+    if (!value) {
+      return false;
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length < 30) {
+      return false;
+    }
+
+    const genericPatterns = [
+      /^shop now/i,
+      /^buy now/i,
+      /^learn more/i,
+      /^click here/i,
+    ];
+
+    return !genericPatterns.some((pattern) => pattern.test(normalized));
   }
 }
