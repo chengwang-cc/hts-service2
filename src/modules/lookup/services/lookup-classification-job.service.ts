@@ -484,7 +484,10 @@ export class LookupClassificationJobService {
         downloadedImage.buffer,
         downloadedImage.contentType,
       )
-        ? await this.rasterizeImageUrlToJpeg(imageUrl)
+        ? await this.rasterizeImageBufferToJpeg(
+            downloadedImage.buffer,
+            downloadedImage.contentType,
+          )
         : downloadedImage.buffer;
       const analysis = await this.visionService.analyzeProductImage(
         imageBuffer,
@@ -583,7 +586,10 @@ export class LookupClassificationJobService {
     );
   }
 
-  private async rasterizeImageUrlToJpeg(imageUrl: string): Promise<Buffer> {
+  private async rasterizeImageBufferToJpeg(
+    imageBuffer: Buffer,
+    contentType: string,
+  ): Promise<Buffer> {
     let browser: Browser | null = null;
     try {
       browser = await puppeteer.launch({
@@ -597,10 +603,11 @@ export class LookupClassificationJobService {
       });
       const page = await browser.newPage();
       await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 1 });
-      await page.goto(imageUrl, {
-        waitUntil: 'networkidle2',
-        timeout: 20_000,
-      });
+      const dataUrl = `data:${contentType || 'image/avif'};base64,${imageBuffer.toString('base64')}`;
+      await page.setContent(
+        `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#fff;"><img id="source-image" src="${dataUrl}" style="max-width:100%;max-height:100%;object-fit:contain;" /></body></html>`,
+        { waitUntil: 'load' },
+      );
       const imageElement = await page.waitForSelector('img', { timeout: 5_000 }).catch(
         () => null,
       );
@@ -610,7 +617,7 @@ export class LookupClassificationJobService {
       await page.close().catch(() => undefined);
       return Buffer.from(screenshot);
     } catch (error) {
-      this.logger.warn(`Image rasterization failed for ${imageUrl}: ${error.message}`);
+      this.logger.warn(`Image rasterization failed for content-type ${contentType}: ${error.message}`);
       throw error;
     } finally {
       if (browser) {
