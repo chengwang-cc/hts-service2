@@ -23,6 +23,14 @@ type LookupClassificationJobResult = {
   data: Omit<ClassificationResult, 'source'> & {
     source?: Record<string, unknown> | null;
   };
+  timings?: {
+    queueMs?: number | null;
+    processingMs?: number | null;
+    totalMs?: number | null;
+    visionMs?: number | null;
+    classificationMs?: number | null;
+    imageDownloadMs?: number | null;
+  };
 };
 
 @Injectable()
@@ -123,6 +131,24 @@ export class LookupClassificationJobService {
       startedAt: job.startedAt?.toISOString() ?? null,
       completedAt: job.completedAt?.toISOString() ?? null,
       result: (job.resultJson as LookupClassificationJobResult | null)?.data ?? null,
+      timings:
+        (job.resultJson as LookupClassificationJobResult | null)?.timings ?? {
+          queueMs:
+            job.startedAt != null
+              ? Math.max(0, job.startedAt.getTime() - job.createdAt.getTime())
+              : null,
+          processingMs:
+            job.startedAt != null && job.completedAt != null
+              ? Math.max(0, job.completedAt.getTime() - job.startedAt.getTime())
+              : null,
+          totalMs:
+            job.completedAt != null
+              ? Math.max(0, job.completedAt.getTime() - job.createdAt.getTime())
+              : null,
+          visionMs: null,
+          classificationMs: null,
+          imageDownloadMs: null,
+        },
     };
   }
 
@@ -135,9 +161,10 @@ export class LookupClassificationJobService {
       return;
     }
 
+    const startedAt = job.startedAt ?? new Date();
     await this.jobRepository.update(job.id, {
       status: 'processing',
-      startedAt: job.startedAt ?? new Date(),
+      startedAt,
       errorMessage: null,
     });
 
@@ -147,10 +174,19 @@ export class LookupClassificationJobService {
           ? await this.classifyFromUrl(job.organizationId, job.sourceUrl!)
           : await this.classifyFromImage(job.organizationId, job);
 
+      const completedAt = new Date();
       await this.jobRepository.update(job.id, {
         status: 'completed',
-        completedAt: new Date(),
-        resultJson: result as any,
+        completedAt,
+        resultJson: {
+          ...result,
+          timings: {
+            ...result.timings,
+            queueMs: Math.max(0, startedAt.getTime() - job.createdAt.getTime()),
+            processingMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
+            totalMs: Math.max(0, completedAt.getTime() - job.createdAt.getTime()),
+          },
+        } as any,
         errorMessage: null,
         imageData: null,
       });
@@ -171,6 +207,7 @@ export class LookupClassificationJobService {
     organizationId: string,
     url: string,
   ): Promise<LookupClassificationJobResult> {
+    const startedAt = Date.now();
     const urlResult = await this.urlClassifierService.classifyUrl(url);
 
     if (urlResult.type === UrlType.INVALID) {
@@ -182,6 +219,8 @@ export class LookupClassificationJobService {
     let productDescription: string;
     let visionUsed = false;
     let detectedProduct: Record<string, unknown> | null = null;
+    let visionMs: number | null = null;
+    let imageDownloadMs: number | null = null;
     const metadataProductDescription = [
       urlResult.metadata?.productName,
       urlResult.metadata?.description,
@@ -195,13 +234,16 @@ export class LookupClassificationJobService {
         urlResult.metadata?.extractionMethod === 'rendered-page-ai');
 
     if (urlResult.type === UrlType.IMAGE) {
-      const analysis = await this.analyzeProductImageWithFallback(url, {
+      const analysisResult = await this.analyzeProductImageWithFallback(url, {
         url,
         title: urlResult.metadata?.title,
       });
+      const analysis = analysisResult.analysis;
       if (!analysis.products.length) {
         throw new BadRequestException('No product detected in the image');
       }
+      visionMs = analysis.processingTime ?? analysisResult.elapsedMs;
+      imageDownloadMs = analysisResult.imageDownloadMs;
       const product = analysis.products[0];
       productDescription = [
         product.name,
@@ -229,13 +271,16 @@ export class LookupClassificationJobService {
     } else if (urlResult.imageUrl || urlResult.metadata?.previewImageUrl) {
       const previewImageUrl =
         urlResult.imageUrl ?? urlResult.metadata?.previewImageUrl;
-      const analysis = await this.analyzeProductImageWithFallback(
+      const analysisResult = await this.analyzeProductImageWithFallback(
         previewImageUrl!,
         {
           url,
           title: urlResult.metadata?.title,
         },
       );
+      const analysis = analysisResult.analysis;
+      visionMs = analysis.processingTime ?? analysisResult.elapsedMs;
+      imageDownloadMs = analysisResult.imageDownloadMs;
       const visionDescription = analysis.products[0]
         ? [
             analysis.products[0].name,
@@ -295,6 +340,10 @@ export class LookupClassificationJobService {
         },
       },
     );
+    const classificationMs = Math.max(
+      0,
+      Date.now() - startedAt - (visionMs ?? 0),
+    );
 
     const { source: persistedSource, ...classificationData } = classification;
 
@@ -310,6 +359,11 @@ export class LookupClassificationJobService {
           productDescription,
         } as Record<string, unknown>,
       },
+      timings: {
+        visionMs,
+        classificationMs,
+        imageDownloadMs,
+      },
     };
   }
 
@@ -317,6 +371,7 @@ export class LookupClassificationJobService {
     organizationId: string,
     job: LookupClassificationJobEntity,
   ): Promise<LookupClassificationJobResult> {
+    const startedAt = Date.now();
     if (!job.imageData?.length) {
       throw new BadRequestException('Classification image payload is missing');
     }
@@ -360,6 +415,10 @@ export class LookupClassificationJobService {
         },
       },
     );
+    const classificationMs = Math.max(
+      0,
+      Date.now() - startedAt - (analysis.processingTime ?? 0),
+    );
 
     const { source: persistedSource, ...classificationData } = classification;
 
@@ -380,22 +439,51 @@ export class LookupClassificationJobService {
           },
         } as Record<string, unknown>,
       },
+      timings: {
+        visionMs: analysis.processingTime ?? null,
+        classificationMs,
+        imageDownloadMs: null,
+      },
     };
   }
 
   private async analyzeProductImageWithFallback(
     imageUrl: string,
     context?: { url?: string; title?: string },
-  ) {
+  ): Promise<{
+    analysis: Awaited<ReturnType<VisionService['analyzeProductImage']>>;
+    elapsedMs: number;
+    imageDownloadMs: number | null;
+  }> {
+    const startedAt = Date.now();
+    let imageDownloadMs: number | null = null;
     try {
-      return await this.visionService.analyzeProductImage(imageUrl, context);
+      const analysis = await this.visionService.analyzeProductImage(
+        imageUrl,
+        context,
+      );
+      return {
+        analysis,
+        elapsedMs: Date.now() - startedAt,
+        imageDownloadMs,
+      };
     } catch (error) {
       if (!this.shouldRetryVisionWithDownloadedBuffer(imageUrl, error)) {
         throw error;
       }
 
+      const downloadStartedAt = Date.now();
       const imageBuffer = await this.downloadImageBuffer(imageUrl);
-      return this.visionService.analyzeProductImage(imageBuffer, context);
+      imageDownloadMs = Date.now() - downloadStartedAt;
+      const analysis = await this.visionService.analyzeProductImage(
+        imageBuffer,
+        context,
+      );
+      return {
+        analysis,
+        elapsedMs: Date.now() - startedAt,
+        imageDownloadMs,
+      };
     }
   }
 
@@ -407,10 +495,17 @@ export class LookupClassificationJobService {
       error instanceof Error ? error.message : String(error ?? '');
 
     return (
-      imageUrl.startsWith('http://127.0.0.1') ||
-      imageUrl.startsWith('http://localhost') ||
-      /error while downloading/i.test(message) ||
-      /status code:\s*407/i.test(message)
+      /^https?:\/\//i.test(imageUrl) &&
+      !/not an image|too large/i.test(message) &&
+      (
+        imageUrl.startsWith('http://127.0.0.1') ||
+        imageUrl.startsWith('http://localhost') ||
+        /error while downloading/i.test(message) ||
+        /status code:\s*(403|404|407|408|409|410|429|5\d\d)/i.test(message) ||
+        /hotlink|forbidden|proxy|cdn|timeout|timed out|network|fetch failed|connection/i.test(
+          message,
+        )
+      )
     );
   }
 
@@ -421,7 +516,7 @@ export class LookupClassificationJobService {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
 
     if (!response.ok) {

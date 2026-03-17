@@ -1071,7 +1071,7 @@ export class UrlClassifierService {
       ];
 
       const response = await this.openAiService.response(input, {
-        model: screenshot ? 'gpt-4o' : 'gpt-5-mini',
+        model: 'gpt-5-mini',
         instructions:
           'You extract product names and customs-ready descriptions from ecommerce pages. Be precise, terse, and ignore page chrome.',
         store: false,

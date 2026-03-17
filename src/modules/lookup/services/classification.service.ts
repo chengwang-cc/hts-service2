@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { OpenAiService, EmbeddingService, HtsEntity } from '@hts/core';
 import { ProductClassificationEntity } from '../entities/product-classification.entity';
+import { SearchService } from './search.service';
 
 export interface ClassificationResult {
   id?: string;
@@ -31,6 +32,14 @@ export interface ClassificationSourceRecord {
   sourceEvidence?: Record<string, unknown> | null;
 }
 
+interface SearchFirstClassification {
+  result: ClassificationResult;
+  normalizedQuery: string;
+  searchPhrases: string[];
+  headingHints: string[];
+  strategy: 'search-first';
+}
+
 interface HeadingCandidate {
   htsNumber: string;
   description: string;
@@ -48,6 +57,9 @@ export class ClassificationService {
   private readonly logger = new Logger(ClassificationService.name);
   private readonly REVIEW_CONFIDENCE_THRESHOLD = 0.62;
   private readonly ESCALATE_CONFIDENCE_THRESHOLD = 0.45;
+  private readonly SEARCH_FIRST_SCORE_THRESHOLD = 0.86;
+  private readonly SEARCH_FIRST_MIN_SCORE = 0.78;
+  private readonly SEARCH_FIRST_MARGIN_THRESHOLD = 0.06;
   private readonly RRF_K = 40;
   private readonly GENERIC_LEAF_LABELS = new Set([
     'other',
@@ -66,6 +78,7 @@ export class ClassificationService {
     private readonly htsRepository: Repository<HtsEntity>,
     private readonly openAiService: OpenAiService,
     private readonly embeddingService: EmbeddingService,
+    private readonly searchService: SearchService,
   ) {}
 
   async classifyProduct(
@@ -74,6 +87,22 @@ export class ClassificationService {
     source?: ClassificationSourceRecord,
   ): Promise<ClassificationResult> {
     try {
+      const searchFirst = await this.trySearchFirstClassification(description);
+      if (searchFirst) {
+        return this.persistClassificationResult(
+          searchFirst.result,
+          description,
+          organizationId,
+          source,
+          {
+            strategy: searchFirst.strategy,
+            normalizedQuery: searchFirst.normalizedQuery,
+            searchPhrases: searchFirst.searchPhrases,
+            headingHints: searchFirst.headingHints,
+          },
+        );
+      }
+
       // Step 1: Run DB search + AI knowledge prediction in parallel (no added latency)
       const { dbCandidates, aiPredictions } =
         await this.searchHeadingsForContext(description, 20);
@@ -143,42 +172,154 @@ export class ClassificationService {
         needsReview,
       };
 
-      // Persist for authenticated organizations only
-      if (organizationId) {
-        const entity = await this.classificationRepository.save(
-          this.classificationRepository.create({
-            organizationId,
-            productName: description.substring(0, 500),
-            description,
-            suggestedHts: result.htsCode,
-            confidence: result.confidence,
-            status: 'PENDING_CONFIRMATION',
-            inputMethod: source?.inputMethod ?? 'TEXT',
-            sourceUrl: source?.sourceUrl ?? null,
-            sourceImageUrl: source?.sourceImageUrl ?? null,
-            sourceImageHash: source?.sourceImageHash ?? null,
-            sourceEvidence: source?.sourceEvidence ?? null,
-            aiSuggestions: [aiResult, ...candidates.slice(0, 5)],
-          }),
-        );
-        result.id = entity.id;
-        result.createdAt = entity.createdAt.toISOString();
-        result.source = {
-          inputMethod: entity.inputMethod as ClassificationSourceRecord['inputMethod'],
-          sourceUrl: entity.sourceUrl,
-          sourceImageUrl: entity.sourceImageUrl,
-          sourceImageHash: entity.sourceImageHash,
-          sourceEvidence: entity.sourceEvidence,
-        };
-      } else if (source) {
-        result.source = source;
-      }
-
-      return result;
+      return this.persistClassificationResult(
+        result,
+        description,
+        organizationId,
+        source,
+        {
+          strategy: 'llm-heading-selection',
+          aiHeadingSelection: aiResult,
+          aiPredictions,
+          dbCandidates: dbCandidates.slice(0, 10),
+        },
+      );
     } catch (error) {
       this.logger.error(`Classification failed: ${error.message}`);
       throw error;
     }
+  }
+
+  private async trySearchFirstClassification(
+    description: string,
+  ): Promise<SearchFirstClassification | null> {
+    const searchResult = await this.searchService.searchWithStandardization(
+      description,
+      10,
+    );
+    const candidates = (searchResult.results ?? []) as Array<{
+      htsNumber: string;
+      description: string;
+      score: number;
+      chapter?: string | null;
+    }>;
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const top = candidates[0];
+    const second = candidates[1];
+    const margin = Math.max(0, top.score - (second?.score ?? 0));
+    const strongTopScore = top.score >= this.SEARCH_FIRST_SCORE_THRESHOLD;
+    const strongMargin =
+      top.score >= this.SEARCH_FIRST_MIN_SCORE &&
+      margin >= this.SEARCH_FIRST_MARGIN_THRESHOLD;
+    const crossChapterMargin =
+      Boolean(second) &&
+      second.chapter &&
+      top.chapter &&
+      second.chapter !== top.chapter &&
+      top.score >= this.SEARCH_FIRST_MIN_SCORE &&
+      margin >= this.SEARCH_FIRST_MARGIN_THRESHOLD / 2;
+    const genericTop = this.isGenericLeafDescription(top.description ?? '');
+
+    if ((!strongTopScore && !strongMargin && !crossChapterMargin) || genericTop) {
+      return null;
+    }
+
+    const confidence = Math.min(
+      0.99,
+      Math.max(0.55, top.score + Math.min(0.12, margin)),
+    );
+    const needsReview =
+      confidence < this.REVIEW_CONFIDENCE_THRESHOLD || margin < 0.03;
+    const result: ClassificationResult = {
+      htsCode: top.htsNumber,
+      description: top.description ?? '',
+      confidence,
+      reasoning:
+        `Selected from normalized hybrid search using "${searchResult.standardizedQuery}". ` +
+        `Top score ${top.score.toFixed(3)}${second ? `, margin ${margin.toFixed(3)} over ${second.htsNumber}` : ''}.`,
+      chapter:
+        top.chapter ?? (top.htsNumber.replace(/\./g, '').substring(0, 2) || null),
+      candidates: candidates.map((candidate) => ({
+        htsCode: candidate.htsNumber,
+        description: candidate.description ?? '',
+        score: candidate.score ?? 0,
+      })),
+      alternatives: candidates.slice(1, 4).map((candidate) => ({
+        htsCode: candidate.htsNumber,
+        description: candidate.description ?? '',
+        score: candidate.score ?? 0,
+      })),
+      needsReview,
+    };
+
+    return {
+      result,
+      normalizedQuery: searchResult.standardizedQuery,
+      searchPhrases: searchResult.searchPhrases,
+      headingHints: searchResult.headingHints,
+      strategy: 'search-first',
+    };
+  }
+
+  private async persistClassificationResult(
+    result: ClassificationResult,
+    description: string,
+    organizationId: string,
+    source?: ClassificationSourceRecord,
+    additionalEvidence?: Record<string, unknown>,
+  ): Promise<ClassificationResult> {
+    const mergedSourceEvidence = source
+      ? {
+          ...(source.sourceEvidence ?? {}),
+          ...(additionalEvidence ?? {}),
+        }
+      : additionalEvidence;
+
+    if (organizationId) {
+      const entity = await this.classificationRepository.save(
+        this.classificationRepository.create({
+          organizationId,
+          productName: description.substring(0, 500),
+          description,
+          suggestedHts: result.htsCode,
+          confidence: result.confidence,
+          status: 'PENDING_CONFIRMATION',
+          inputMethod: source?.inputMethod ?? 'TEXT',
+          sourceUrl: source?.sourceUrl ?? null,
+          sourceImageUrl: source?.sourceImageUrl ?? null,
+          sourceImageHash: source?.sourceImageHash ?? null,
+          sourceEvidence: mergedSourceEvidence ?? null,
+          aiSuggestions: [
+            {
+              htsCode: result.htsCode,
+              confidence: result.confidence,
+              reasoning: result.reasoning,
+            },
+            ...result.candidates.slice(0, 5),
+          ],
+        }),
+      );
+      result.id = entity.id;
+      result.createdAt = entity.createdAt.toISOString();
+      result.source = {
+        inputMethod: entity.inputMethod as ClassificationSourceRecord['inputMethod'],
+        sourceUrl: entity.sourceUrl,
+        sourceImageUrl: entity.sourceImageUrl,
+        sourceImageHash: entity.sourceImageHash,
+        sourceEvidence: entity.sourceEvidence,
+      };
+    } else if (source || mergedSourceEvidence) {
+      result.source = {
+        ...(source ?? { inputMethod: 'TEXT' }),
+        sourceEvidence: mergedSourceEvidence ?? source?.sourceEvidence ?? null,
+      };
+    }
+
+    return result;
   }
 
   private async requestHeadingSelection(

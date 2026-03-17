@@ -103,7 +103,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-4o',
+      model = 'gpt-5-mini',
       instructions,
       temperature,
       max_output_tokens,
@@ -185,7 +185,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-4o',
+      model = 'gpt-5-mini',
       instructions,
       temperature = 0.7,
       max_output_tokens,
@@ -266,7 +266,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): AsyncIterable<ResponseStreamEvent> {
     const {
-      model = 'gpt-4o',
+      model = 'gpt-5-mini',
       temperature = 0.7,
       max_output_tokens,
       top_p,
@@ -313,7 +313,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): Promise<ChatCompletion> {
-    const { model = 'gpt-4o', temperature = 0.7, max_tokens, top_p } = options;
+    const { model = 'gpt-5-mini', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const startTime = Date.now();
@@ -363,7 +363,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): AsyncIterable<ChatCompletionChunk> {
-    const { model = 'gpt-4o', temperature = 0.7, max_tokens, top_p } = options;
+    const { model = 'gpt-5-mini', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const stream = await this.client.chat.completions.create({
@@ -508,7 +508,7 @@ export class OpenAiService {
     promptTokens: number,
     completionTokens: number,
   ): number {
-    const pricing = this.pricing[model] || this.pricing['gpt-4o'];
+    const pricing = this.pricing[model] || this.pricing['gpt-5-mini'];
     const inputCost = (promptTokens / 1_000_000) * pricing.input;
     const outputCost = (completionTokens / 1_000_000) * pricing.output;
     return inputCost + outputCost;

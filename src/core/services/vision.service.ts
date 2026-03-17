@@ -44,7 +44,7 @@ export class VisionService {
   constructor(private readonly openAiService: OpenAiService) {}
 
   /**
-   * Analyze product image using GPT-4o vision
+   * Analyze product image using a fast GPT-5 vision-capable model
    * Supports both image URLs and base64 buffers
    */
   async analyzeProductImage(
@@ -142,9 +142,9 @@ CRITICAL SECURITY RULES:
         additionalProperties: false,
       };
 
-      // Call OpenAI Response API with vision model
+      // Call OpenAI Responses API with a fast vision-capable model.
       const response = await this.openAiService.response(input, {
-        model: 'gpt-4o', // Vision-capable model
+        model: 'gpt-5-mini',
         instructions,
         temperature: 0.3, // Lower temperature for consistent results
         max_output_tokens: 1500,
@@ -170,7 +170,7 @@ CRITICAL SECURITY RULES:
       return {
         ...result,
         processingTime,
-        modelVersion: 'gpt-4o',
+        modelVersion: 'gpt-5-mini',
       };
     } catch (error) {
       this.logger.error('Vision analysis failed', error.stack);
