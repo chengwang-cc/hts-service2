@@ -65,6 +65,8 @@ export class ClassificationService {
   private readonly logger = new Logger(ClassificationService.name);
   private readonly REVIEW_CONFIDENCE_THRESHOLD = 0.62;
   private readonly ESCALATE_CONFIDENCE_THRESHOLD = 0.45;
+  private readonly OPENAI_SHORT_TIMEOUT_MS = 10_000;
+  private readonly OPENAI_BACKGROUND_TIMEOUT_MS = 8_000;
   private readonly SEARCH_FIRST_SCORE_THRESHOLD = 0.86;
   private readonly SEARCH_FIRST_MIN_SCORE = 0.78;
   private readonly SEARCH_FIRST_MARGIN_THRESHOLD = 0.06;
@@ -146,6 +148,29 @@ export class ClassificationService {
     private readonly embeddingService: EmbeddingService,
     private readonly searchService: SearchService,
   ) {}
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T> {
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutHandle = setTimeout(
+            () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
 
   async classifyProduct(
     description: string,
@@ -493,8 +518,9 @@ export class ClassificationService {
       .join('\n');
 
     try {
-      const response = await this.openAiService.response(
-        `Product description: "${productDescription}"
+      const response = await this.withTimeout(
+        this.openAiService.response(
+          `Product description: "${productDescription}"
 Normalized query: "${normalizedQuery}"
 
 Choose the single best HTS candidate from this list:
@@ -506,31 +532,34 @@ Rules:
 - Use the product description, not just the search rank.
 
 Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "..." }`,
-        {
-          model: 'gpt-5-mini',
-          instructions:
-            'You are an HTS tariff expert. Select the most accurate candidate from the provided shortlist and explain why.',
-          store: false,
-          text: {
-            format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'grounded_search_selection',
-                schema: {
-                  type: 'object',
-                  properties: {
-                    index: { type: 'number' },
-                    confidence: { type: 'number' },
-                    reasoning: { type: 'string' },
+          {
+            model: 'gpt-5-nano',
+            instructions:
+              'You are an HTS tariff expert. Select the most accurate candidate from the provided shortlist and explain why.',
+            store: false,
+            text: {
+              format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'grounded_search_selection',
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      index: { type: 'number' },
+                      confidence: { type: 'number' },
+                      reasoning: { type: 'string' },
+                    },
+                    required: ['index', 'confidence', 'reasoning'],
+                    additionalProperties: false,
                   },
-                  required: ['index', 'confidence', 'reasoning'],
-                  additionalProperties: false,
+                  strict: true,
                 },
-                strict: true,
               },
             },
           },
-        },
+        ),
+        this.OPENAI_BACKGROUND_TIMEOUT_MS,
+        'Grounded search candidate selection',
       );
 
       const outputText = (response as any).output_text || '';
