@@ -135,15 +135,15 @@ export class LookupClassificationJobService {
         (job.resultJson as LookupClassificationJobResult | null)?.timings ?? {
           queueMs:
             job.startedAt != null
-              ? Math.max(0, job.startedAt.getTime() - job.createdAt.getTime())
+              ? this.safeDurationMs(job.startedAt, job.createdAt, 60 * 60 * 1000)
               : null,
           processingMs:
             job.startedAt != null && job.completedAt != null
-              ? Math.max(0, job.completedAt.getTime() - job.startedAt.getTime())
+              ? this.safeDurationMs(job.completedAt, job.startedAt)
               : null,
           totalMs:
             job.completedAt != null
-              ? Math.max(0, job.completedAt.getTime() - job.createdAt.getTime())
+              ? this.safeDurationMs(job.completedAt, job.createdAt, 60 * 60 * 1000)
               : null,
           visionMs: null,
           classificationMs: null,
@@ -182,9 +182,9 @@ export class LookupClassificationJobService {
           ...result,
           timings: {
             ...result.timings,
-            queueMs: Math.max(0, startedAt.getTime() - job.createdAt.getTime()),
-            processingMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
-            totalMs: Math.max(0, completedAt.getTime() - job.createdAt.getTime()),
+            queueMs: this.safeDurationMs(startedAt, job.createdAt, 60 * 60 * 1000),
+            processingMs: this.safeDurationMs(completedAt, startedAt),
+            totalMs: this.safeDurationMs(completedAt, job.createdAt, 60 * 60 * 1000),
           },
         } as any,
         errorMessage: null,
@@ -543,5 +543,17 @@ export class LookupClassificationJobService {
     }
 
     return buffer;
+  }
+
+  private safeDurationMs(
+    end: Date,
+    start: Date,
+    maxAllowedMs: number = 15 * 60 * 1000,
+  ): number | null {
+    const diff = end.getTime() - start.getTime();
+    if (!Number.isFinite(diff) || diff < 0 || diff > maxAllowedMs) {
+      return null;
+    }
+    return diff;
   }
 }

@@ -146,7 +146,6 @@ CRITICAL SECURITY RULES:
       const response = await this.openAiService.response(input, {
         model: 'gpt-5-mini',
         instructions,
-        temperature: 0.3, // Lower temperature for consistent results
         max_output_tokens: 1500,
         text: {
           format: {

@@ -37,7 +37,15 @@ interface SearchFirstClassification {
   normalizedQuery: string;
   searchPhrases: string[];
   headingHints: string[];
-  strategy: 'search-first';
+  strategy: 'search-first' | 'grounded-search-selection';
+}
+
+interface SearchFirstCandidate {
+  htsNumber: string;
+  description: string;
+  score: number;
+  chapter?: string | null;
+  fullDescription?: string[] | null;
 }
 
 interface HeadingCandidate {
@@ -60,6 +68,64 @@ export class ClassificationService {
   private readonly SEARCH_FIRST_SCORE_THRESHOLD = 0.86;
   private readonly SEARCH_FIRST_MIN_SCORE = 0.78;
   private readonly SEARCH_FIRST_MARGIN_THRESHOLD = 0.06;
+  private readonly IMAGE_SEARCH_FIRST_SCORE_THRESHOLD = 0.9;
+  private readonly IMAGE_SEARCH_FIRST_MARGIN_THRESHOLD = 0.1;
+  private readonly SEARCH_FIRST_GROUNDING_STOP_WORDS = new Set([
+    'a',
+    'an',
+    'and',
+    'ankle',
+    'apparel',
+    'black',
+    'blue',
+    'bottom',
+    'bottoms',
+    'casual',
+    'clothing',
+    'cropped',
+    'daily',
+    'digital',
+    'everyday',
+    'featuring',
+    'for',
+    'gray',
+    'green',
+    'in',
+    'instant',
+    'kit',
+    'kitchen',
+    'leg',
+    'long',
+    'men',
+    'mens',
+    'modern',
+    'of',
+    'on',
+    'orange',
+    'pants',
+    'pink',
+    'pull',
+    'read',
+    'red',
+    'set',
+    'side',
+    'straight',
+    'style',
+    'suitable',
+    'the',
+    'their',
+    'to',
+    'unisex',
+    'use',
+    'waistband',
+    'wear',
+    'white',
+    'wide',
+    'with',
+    'women',
+    'womens',
+    'yellow',
+  ]);
   private readonly RRF_K = 40;
   private readonly GENERIC_LEAF_LABELS = new Set([
     'other',
@@ -87,7 +153,13 @@ export class ClassificationService {
     source?: ClassificationSourceRecord,
   ): Promise<ClassificationResult> {
     try {
-      const searchFirst = await this.trySearchFirstClassification(description);
+      const isImageDerived =
+        source?.inputMethod === 'IMAGE_UPLOAD' ||
+        source?.inputMethod === 'IMAGE_URL';
+      const searchFirst = await this.trySearchFirstClassification(
+        description,
+        source,
+      );
       if (searchFirst) {
         return this.persistClassificationResult(
           searchFirst.result,
@@ -101,6 +173,25 @@ export class ClassificationService {
             headingHints: searchFirst.headingHints,
           },
         );
+      }
+
+      if (isImageDerived) {
+        const groundedSearchSelection =
+          await this.tryGroundedSearchCandidateClassification(description);
+        if (groundedSearchSelection) {
+          return this.persistClassificationResult(
+            groundedSearchSelection.result,
+            description,
+            organizationId,
+            source,
+            {
+              strategy: groundedSearchSelection.strategy,
+              normalizedQuery: groundedSearchSelection.normalizedQuery,
+              searchPhrases: groundedSearchSelection.searchPhrases,
+              headingHints: groundedSearchSelection.headingHints,
+            },
+          );
+        }
       }
 
       // Step 1: Run DB search + AI knowledge prediction in parallel (no added latency)
@@ -192,30 +283,38 @@ export class ClassificationService {
 
   private async trySearchFirstClassification(
     description: string,
+    source?: ClassificationSourceRecord,
   ): Promise<SearchFirstClassification | null> {
     const searchResult = await this.searchService.searchWithStandardization(
       description,
       10,
     );
-    const candidates = (searchResult.results ?? []) as Array<{
-      htsNumber: string;
-      description: string;
-      score: number;
-      chapter?: string | null;
-    }>;
+    const candidates = (searchResult.results ?? []) as SearchFirstCandidate[];
 
     if (candidates.length === 0) {
       return null;
     }
 
+    const isImageDerived =
+      source?.inputMethod === 'IMAGE_UPLOAD' ||
+      source?.inputMethod === 'IMAGE_URL';
     const top = candidates[0];
     const second = candidates[1];
     const margin = Math.max(0, top.score - (second?.score ?? 0));
-    const strongTopScore = top.score >= this.SEARCH_FIRST_SCORE_THRESHOLD;
+    const strongTopScore = top.score >= (
+      isImageDerived
+        ? this.IMAGE_SEARCH_FIRST_SCORE_THRESHOLD
+        : this.SEARCH_FIRST_SCORE_THRESHOLD
+    );
     const strongMargin =
       top.score >= this.SEARCH_FIRST_MIN_SCORE &&
-      margin >= this.SEARCH_FIRST_MARGIN_THRESHOLD;
+      margin >= (
+        isImageDerived
+          ? this.IMAGE_SEARCH_FIRST_MARGIN_THRESHOLD
+          : this.SEARCH_FIRST_MARGIN_THRESHOLD
+      );
     const crossChapterMargin =
+      !isImageDerived &&
       Boolean(second) &&
       second.chapter &&
       top.chapter &&
@@ -223,8 +322,17 @@ export class ClassificationService {
       top.score >= this.SEARCH_FIRST_MIN_SCORE &&
       margin >= this.SEARCH_FIRST_MARGIN_THRESHOLD / 2;
     const genericTop = this.isGenericLeafDescription(top.description ?? '');
+    const groundedTop = this.isSearchFirstCandidateGrounded(
+      searchResult.standardizedQuery,
+      top,
+      isImageDerived,
+    );
 
-    if ((!strongTopScore && !strongMargin && !crossChapterMargin) || genericTop) {
+    if (
+      (!strongTopScore && !strongMargin && !crossChapterMargin) ||
+      genericTop ||
+      !groundedTop
+    ) {
       return null;
     }
 
@@ -263,6 +371,194 @@ export class ClassificationService {
       headingHints: searchResult.headingHints,
       strategy: 'search-first',
     };
+  }
+
+  private async tryGroundedSearchCandidateClassification(
+    description: string,
+  ): Promise<SearchFirstClassification | null> {
+    const searchResult = await this.searchService.searchWithStandardization(
+      description,
+      8,
+    );
+    const candidates = (searchResult.results ?? []) as SearchFirstCandidate[];
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const choice = await this.pickGroundedSearchCandidate(
+      description,
+      searchResult.standardizedQuery,
+      candidates,
+    );
+    if (!choice) {
+      return null;
+    }
+
+    const chosenCandidate = candidates[choice.index];
+    if (!chosenCandidate) {
+      return null;
+    }
+
+    const result: ClassificationResult = {
+      htsCode: chosenCandidate.htsNumber,
+      description: chosenCandidate.description ?? '',
+      confidence: choice.confidence,
+      reasoning: choice.reasoning,
+      chapter:
+        chosenCandidate.chapter ??
+        (chosenCandidate.htsNumber.replace(/\./g, '').substring(0, 2) || null),
+      candidates: candidates.map((candidate) => ({
+        htsCode: candidate.htsNumber,
+        description: candidate.description ?? '',
+        score: candidate.score ?? 0,
+      })),
+      alternatives: candidates
+        .filter((candidate) => candidate.htsNumber !== chosenCandidate.htsNumber)
+        .slice(0, 3)
+        .map((candidate) => ({
+          htsCode: candidate.htsNumber,
+          description: candidate.description ?? '',
+          score: candidate.score ?? 0,
+        })),
+      needsReview:
+        choice.confidence < this.REVIEW_CONFIDENCE_THRESHOLD ||
+        this.isGenericLeafDescription(chosenCandidate.description ?? ''),
+    };
+
+    return {
+      result,
+      normalizedQuery: searchResult.standardizedQuery,
+      searchPhrases: searchResult.searchPhrases,
+      headingHints: searchResult.headingHints,
+      strategy: 'grounded-search-selection',
+    };
+  }
+
+  private isSearchFirstCandidateGrounded(
+    normalizedQuery: string,
+    candidate: SearchFirstCandidate,
+    requireStrongGrounding: boolean,
+  ): boolean {
+    const informativeTokens = this.extractGroundingTokens(normalizedQuery);
+    if (informativeTokens.length === 0) {
+      return !requireStrongGrounding;
+    }
+
+    const candidateText = [
+      candidate.description,
+      ...(candidate.fullDescription ?? []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    const overlapCount = informativeTokens.filter((token) =>
+      candidateText.includes(token),
+    ).length;
+    const overlapRatio = overlapCount / informativeTokens.length;
+
+    if (requireStrongGrounding) {
+      return overlapCount >= 2 || overlapRatio >= 0.45;
+    }
+
+    return overlapCount >= 1 || overlapRatio >= 0.3;
+  }
+
+  private extractGroundingTokens(input: string): string[] {
+    const tokens = (input || '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    return [
+      ...new Set(
+        tokens.filter(
+          (token) =>
+            token.length >= 4 &&
+            !this.SEARCH_FIRST_GROUNDING_STOP_WORDS.has(token),
+        ),
+      ),
+    ];
+  }
+
+  private async pickGroundedSearchCandidate(
+    productDescription: string,
+    normalizedQuery: string,
+    candidates: SearchFirstCandidate[],
+  ): Promise<{ index: number; confidence: number; reasoning: string } | null> {
+    const candidateList = candidates
+      .map((candidate, index) => {
+        const label =
+          candidate.fullDescription && candidate.fullDescription.length > 0
+            ? candidate.fullDescription.join(' › ')
+            : candidate.description;
+        return `${index + 1}. ${candidate.htsNumber} — ${label}`;
+      })
+      .join('\n');
+
+    try {
+      const response = await this.openAiService.response(
+        `Product description: "${productDescription}"
+Normalized query: "${normalizedQuery}"
+
+Choose the single best HTS candidate from this list:
+${candidateList}
+
+Rules:
+- Prefer the most specific candidate that matches the actual product.
+- Avoid generic "Other" entries when a named entry clearly fits better.
+- Use the product description, not just the search rank.
+
+Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "..." }`,
+        {
+          model: 'gpt-5-mini',
+          instructions:
+            'You are an HTS tariff expert. Select the most accurate candidate from the provided shortlist and explain why.',
+          store: false,
+          text: {
+            format: {
+              type: 'json_schema',
+              json_schema: {
+                name: 'grounded_search_selection',
+                schema: {
+                  type: 'object',
+                  properties: {
+                    index: { type: 'number' },
+                    confidence: { type: 'number' },
+                    reasoning: { type: 'string' },
+                  },
+                  required: ['index', 'confidence', 'reasoning'],
+                  additionalProperties: false,
+                },
+                strict: true,
+              },
+            },
+          },
+        },
+      );
+
+      const outputText = (response as any).output_text || '';
+      if (!outputText) {
+        return null;
+      }
+
+      const parsed = JSON.parse(outputText) as {
+        index: number;
+        confidence: number;
+        reasoning: string;
+      };
+      const index = Math.max(0, Math.round(parsed.index) - 1);
+      if (index >= candidates.length) {
+        return null;
+      }
+
+      return {
+        index,
+        confidence: Math.max(0, Math.min(1, parsed.confidence ?? 0)),
+        reasoning: parsed.reasoning || 'Selected from grounded search candidates.',
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Grounded search candidate selection failed: ${err.message}`,
+      );
+      return null;
+    }
   }
 
   private async persistClassificationResult(
