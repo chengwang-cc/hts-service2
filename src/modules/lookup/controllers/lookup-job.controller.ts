@@ -1,6 +1,22 @@
-import { Controller, Post, Get, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Param,
+  Post,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { RuleCoverageService } from '../services/rule-coverage.service';
 import { TestSampleGenerationService } from '../services/test-sample-generation.service';
+import { LookupDatasetCurationJobService } from '../services/lookup-dataset-curation-job.service';
+import { LookupDatasetCurationJobDto } from '../dto/lookup-dataset-curation-job.dto';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 
 /**
  * Admin endpoints for triggering and monitoring the two AI-driven background jobs:
@@ -16,6 +32,7 @@ export class LookupJobController {
   constructor(
     private readonly ruleCoverageService: RuleCoverageService,
     private readonly testSampleService: TestSampleGenerationService,
+    private readonly lookupDatasetCurationJobService: LookupDatasetCurationJobService,
   ) {}
 
   /**
@@ -78,5 +95,58 @@ export class LookupJobController {
     remaining: number;
   }> {
     return this.testSampleService.getStatus();
+  }
+
+  @Post('dataset-curation')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (
+          !file.originalname.match(/\.csv$/i) &&
+          file.mimetype !== 'text/csv' &&
+          file.mimetype !== 'application/vnd.ms-excel'
+        ) {
+          return cb(new BadRequestException('Only CSV files are accepted'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async createDatasetCurationJob(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: LookupDatasetCurationJobDto,
+  ) {
+    return this.lookupDatasetCurationJobService.createJob(user, file, dto);
+  }
+
+  @Get('dataset-curation/:jobId')
+  async getDatasetCurationJob(
+    @CurrentUser() user: any,
+    @Param('jobId') jobId: string,
+  ) {
+    return this.lookupDatasetCurationJobService.getJob(jobId, user.organizationId);
+  }
+
+  @Get('dataset-curation/:jobId/artifacts/:artifact')
+  async downloadDatasetCurationArtifact(
+    @CurrentUser() user: any,
+    @Param('jobId') jobId: string,
+    @Param('artifact')
+    artifact: 'standardized' | 'rejected' | 'eval' | 'audit' | 'summary',
+    @Res() res: Response,
+  ) {
+    const download = await this.lookupDatasetCurationJobService.getArtifact(
+      jobId,
+      user.organizationId,
+      artifact,
+    );
+    res.setHeader('Content-Type', download.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${download.filename}"`,
+    );
+    res.send(download.body);
   }
 }

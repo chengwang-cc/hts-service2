@@ -20,6 +20,20 @@ export class QueryNormalizationService {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly cacheTtlMs = 30 * 60 * 1000;
   private readonly timeoutMs = 1200;
+  private readonly boundaryStopwords = new Set([
+    'a',
+    'an',
+    'and',
+    'for',
+    'from',
+    'in',
+    'of',
+    'on',
+    'or',
+    'the',
+    'to',
+    'with',
+  ]);
   private readonly colorTerms = new Set([
     'black',
     'white',
@@ -276,7 +290,8 @@ export class QueryNormalizationService {
     const normalizedQuery = query
       .toLowerCase()
       .replace(/\b\d+(?:[./-]\d+)+(?:\b|$)/g, ' ')
-      .replace(/\b\d+(?:st|nd|rd|th|mm|cm|in|oz|lb|lbs|kg|g|ml|l|ga|yd|yards?|months?)\b/gi, ' ')
+      .replace(/\b\d+(?:[.,]\d+)?\s*(?:mm|cm|in|inch|inches|oz|ounce|ounces|lb|lbs|kg|g|gram|grams|ml|cl|l|liter|litre|ga|yd|yards?|months?|mos?|years?|yrs?)\b/gi, ' ')
+      .replace(/\b\d+(?:[.,]\d+)?\s*%\s*/gi, ' ')
       .replace(/[|/]/g, ' ')
       .replace(/[^a-z0-9% -]+/g, ' ')
       .replace(/\s+/g, ' ')
@@ -285,19 +300,24 @@ export class QueryNormalizationService {
     const tokens = normalizedQuery
       .split(/\s+/)
       .filter(Boolean);
-    const ignoreTerms = tokens.filter((token) => this.isHeuristicNoiseToken(token));
+    const ignoreTerms = tokens.filter(
+      (token) =>
+        this.isHeuristicNoiseToken(token) || this.boundaryStopwords.has(token),
+    );
     const keyTerms = tokens
       .filter(
         (token) =>
           token.length > 1 &&
           !/^\d+$/.test(token) &&
           !/^[a-z]+\d+[a-z0-9]*$/i.test(token) &&
+          !this.boundaryStopwords.has(token) &&
           !this.isHeuristicNoiseToken(token),
       )
       .slice(0, 12);
     const searchPhrases = this.buildHeuristicSearchPhrases(keyTerms);
-    const condensedQuery =
-      keyTerms.length > 0 ? keyTerms.join(' ') : normalizedQuery;
+    const condensedQuery = this.cleanPhrase(
+      keyTerms.length > 0 ? keyTerms.join(' ') : normalizedQuery,
+    );
 
     if (!normalizedQuery || keyTerms.length === 0) {
       return null;
@@ -381,10 +401,26 @@ export class QueryNormalizationService {
   }
 
   private cleanPhrase(value: string): string {
-    return String(value || '')
+    const cleaned = String(value || '')
       .trim()
+      .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|ml|cl|l|liter|litre|count|ct|pk|pcs?|pieces?|servings?)\b/gi, ' ')
+      .replace(/\b\d+(?:[.,]\d+)?\s*(?:months?|mos?|years?|yrs?)\b/gi, ' ')
+      .replace(/\b\d+(?:[.,]\d+)?\s*%\s*/gi, ' ')
       .replace(/\s+/g, ' ')
       .replace(/^["']+|["']+$/g, '');
+
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    while (tokens.length > 0 && this.boundaryStopwords.has(tokens[0].toLowerCase())) {
+      tokens.shift();
+    }
+    while (
+      tokens.length > 0 &&
+      this.boundaryStopwords.has(tokens[tokens.length - 1].toLowerCase())
+    ) {
+      tokens.pop();
+    }
+
+    return tokens.join(' ');
   }
 
   private isHeuristicNoiseToken(token: string): boolean {
@@ -502,6 +538,20 @@ export class QueryNormalizationService {
       }
     }
 
+    if (
+      keyTerms.includes('coffee') &&
+      keyTerms.some((token) =>
+        ['packaged', 'jar', 'bottle', 'can', 'pouch', 'bag'].includes(token),
+      ) &&
+      !keyTerms.some((token) =>
+        ['bean', 'beans', 'maker', 'mug', 'cup', 'grinder'].includes(token),
+      )
+    ) {
+      phrases.add('coffee extracts essences concentrates');
+      phrases.add('packaged for retail sale');
+      phrases.add('instant coffee packaged for retail sale');
+    }
+
     if (keyTerms.some((token) => homeTextileTokens.includes(token))) {
       phrases.add(
         keyTerms.filter((token) => !['gift', 'decor', 'vintage'].includes(token)).join(' '),
@@ -524,6 +574,18 @@ export class QueryNormalizationService {
 
     if (has('sheet') || has('sheets')) {
       hints.add('6302');
+    }
+
+    if (
+      has('coffee') &&
+      keyTerms.some((token) =>
+        ['packaged', 'jar', 'bottle', 'can', 'pouch', 'bag'].includes(token),
+      ) &&
+      !keyTerms.some((token) =>
+        ['bean', 'beans', 'maker', 'mug', 'cup', 'grinder'].includes(token),
+      )
+    ) {
+      hints.add('2101');
     }
 
     if (has('lace') && has('trim')) {

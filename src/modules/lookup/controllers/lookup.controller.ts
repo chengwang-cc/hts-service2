@@ -56,15 +56,19 @@ export class LookupController {
   @Public()
   @Post('search')
   async search(@Body() searchDto: SearchDto) {
-    const results = await this.searchService.hybridSearch(
+    const searchResult = await this.searchService.searchWithStandardization(
       searchDto.query,
       searchDto.limit || 20,
     );
 
     return {
       query: searchDto.query,
-      results,
-      count: results.length,
+      normalizedQuery: searchResult.standardizedQuery,
+      standardizedQuery: searchResult.standardizedQuery,
+      searchPhrases: searchResult.searchPhrases,
+      headingHints: searchResult.headingHints,
+      results: searchResult.results,
+      count: searchResult.results.length,
     };
   }
 

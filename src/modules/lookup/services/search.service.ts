@@ -34,6 +34,14 @@ interface SearchRetrievalPlan {
   headingHints: string[];
 }
 
+export interface StandardizedSearchResult {
+  originalQuery: string;
+  standardizedQuery: string;
+  searchPhrases: string[];
+  headingHints: string[];
+  results: any[];
+}
+
 
 @Injectable()
 export class SearchService {
@@ -2471,6 +2479,29 @@ export class SearchService {
 
   async hybridSearch(query: string, limit: number = 20): Promise<any[]> {
     const plan = await this.buildSearchRetrievalPlan(query);
+    return this.hybridSearchWithPlan(plan, limit);
+  }
+
+  async searchWithStandardization(
+    query: string,
+    limit: number = 20,
+  ): Promise<StandardizedSearchResult> {
+    const plan = await this.buildSearchRetrievalPlan(query);
+    const results = await this.hybridSearchWithPlan(plan, limit);
+
+    return {
+      originalQuery: query,
+      standardizedQuery: plan.semanticQuery || plan.baseQuery,
+      searchPhrases: plan.keywordQueries,
+      headingHints: plan.headingHints,
+      results,
+    };
+  }
+
+  private async hybridSearchWithPlan(
+    plan: SearchRetrievalPlan,
+    limit: number = 20,
+  ): Promise<any[]> {
     const normalizedQuery = plan.baseQuery;
     const safeLimit = this.clampLimit(limit, 20);
     if (!normalizedQuery) {
@@ -2533,6 +2564,10 @@ export class SearchService {
           normalizedQuery,
           entry,
         );
+        const packagedCommodityAdjustment = this.computePackagedCoffeeAdjustment(
+          normalizedQuery,
+          entry,
+        );
         const headingHintBoost = this.computeHeadingHintBoost(
           entry.htsNumber,
           plan.headingHints,
@@ -2553,6 +2588,7 @@ export class SearchService {
           coverage * 0.7 +
           phraseBoost +
           retailPackagingBoost +
+          packagedCommodityAdjustment +
           headingHintBoost +
           specificityBoost -
           genericPenalty +
@@ -3840,6 +3876,41 @@ export class SearchService {
     if (text.includes('retail sale')) {
       return 0.45;
     }
+    return 0;
+  }
+
+  private computePackagedCoffeeAdjustment(
+    query: string,
+    entry: CandidateEntry,
+  ): number {
+    if (
+      !/\bcoffee\b/i.test(query) ||
+      !/\b(packaged?|retail|jar|bottle|can|pouch|bag)\b/i.test(query) ||
+      /\b(bean|beans|maker|mug|cup|grinder|roasted|decaffeinated)\b/i.test(query)
+    ) {
+      return 0;
+    }
+
+    const text = this.buildEntryText(entry);
+
+    if (
+      entry.htsNumber.startsWith('2101.11') &&
+      text.includes('packaged for retail sale')
+    ) {
+      return 0.95;
+    }
+
+    if (entry.chapter === '70' && text.includes('containers')) {
+      return -0.55;
+    }
+
+    if (
+      entry.chapter === '09' &&
+      (text.includes('coffee substitutes') || text.includes('husks and skins'))
+    ) {
+      return -0.8;
+    }
+
     return 0;
   }
 

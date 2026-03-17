@@ -1,0 +1,83 @@
+{
+  "input": "/Users/cheng/projects/cc/hts/hts-service/docs/evaluation/chit-chats-live-eval.csv",
+  "outCsv": "/Users/cheng/projects/cc/hts/hts-service/docs/evaluation/chit-chats-manual-audit.csv",
+  "subsetSize": 300,
+  "probedCandidates": 900,
+  "pendingAudits": 300,
+  "topPriorityFlags": [
+    [
+      "top10_miss",
+      295
+    ],
+    [
+      "top1_mismatch",
+      276
+    ],
+    [
+      "slow_search",
+      254
+    ],
+    [
+      "long_query",
+      237
+    ],
+    [
+      "high_noise",
+      218
+    ],
+    [
+      "multi_label",
+      55
+    ],
+    [
+      "multi_source",
+      44
+    ],
+    [
+      "moderate_noise",
+      38
+    ],
+    [
+      "high_value_chapter_71",
+      34
+    ],
+    [
+      "high_value_chapter_61",
+      34
+    ],
+    [
+      "high_value_chapter_42",
+      33
+    ],
+    [
+      "short_query",
+      31
+    ],
+    [
+      "no_results",
+      24
+    ],
+    [
+      "high_value_chapter_62",
+      18
+    ],
+    [
+      "high_value_chapter_95",
+      17
+    ],
+    [
+      "many_contributors",
+      11
+    ],
+    [
+      "high_value_chapter_64",
+      11
+    ],
+    [
+      "high_value_chapter_85",
+      7
+    ]
+  ],
+  "exactTop1InSubset": 0,
+  "exactTop10InSubset": 5
+}

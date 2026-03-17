@@ -2,15 +2,26 @@
   "input": "/Users/cheng/Downloads/Chit Chats HTS Codes and Descriptions.csv",
   "totalRows": 39775,
   "invalidHtsRows": 0,
-  "emptyDescriptionRows": 0,
-  "uniqueStandardizedRows": 37694,
-  "uniqueStandardizedQueries": 36008,
+  "emptyDescriptionRows": 5,
+  "uniqueStandardizedRows": 36171,
+  "uniqueStandardizedQueries": 34406,
   "uniqueHtsNumbers": 2528,
-  "ambiguousQueries": 1073,
+  "ambiguousQueries": 1102,
   "rowsWithHtml": 7982,
   "rowsWithMeasure": 1088,
   "rowsWithCount": 511,
   "rowsWithOptions": 11774,
-  "evalRowsBeforeValidation": 4976,
-  "evalRows": 2438
+  "retainedStandardizedRows": 9417,
+  "rejectedStandardizedRows": 26754,
+  "retainedStandardizedQueries": 9178,
+  "qualityFlagCounts": {
+    "low_token_count": 1064,
+    "no_semantic_overlap": 26512,
+    "weak_catalog_fragment": 10539,
+    "model_number": 4473,
+    "variant_only": 6,
+    "material_only": 15
+  },
+  "evalRowsBeforeValidation": 2581,
+  "evalRows": 1951
 }

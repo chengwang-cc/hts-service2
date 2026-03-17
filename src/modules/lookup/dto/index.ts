@@ -6,3 +6,4 @@ export * from './lookup-conversation-message.dto';
 export * from './lookup-conversation-feedback.dto';
 export * from './rerank.dto';
 export * from './smart-classify.dto';
+export * from './lookup-dataset-curation-job.dto';

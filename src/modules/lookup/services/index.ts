@@ -4,6 +4,7 @@ export * from './url-classifier.service';
 export * from './rate-limit.service';
 export * from './lookup-conversation-agent.service';
 export * from './lookup-classification-job.service';
+export * from './lookup-dataset-curation-job.service';
 export * from './grounded-verifier.service';
 export * from './query-normalization.service';
 export * from './intent-rules';

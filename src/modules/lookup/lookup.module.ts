@@ -5,6 +5,7 @@ import { HttpModule } from '@nestjs/axios';
 import {
   ProductClassificationEntity,
   LookupClassificationJobEntity,
+  LookupDatasetCurationJobEntity,
   ApiUsageEntity,
   LookupConversationSessionEntity,
   LookupConversationMessageEntity,
@@ -14,6 +15,7 @@ import {
   UrlClassifierService,
   LookupConversationAgentService,
   LookupClassificationJobService,
+  LookupDatasetCurationJobService,
   RateLimitService,
   RateLimitGuard,
   LookupController,
@@ -44,6 +46,7 @@ import { QueueService } from '../queue/queue.service';
 
 export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
 const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
+const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
 
 /**
  * Lookup Wrapper Module
@@ -62,6 +65,7 @@ const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
       LookupClassificationJobEntity,
+      LookupDatasetCurationJobEntity,
       ApiUsageEntity,
       LookupConversationSessionEntity,
       LookupConversationMessageEntity,
@@ -81,6 +85,7 @@ const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
     UrlClassifierService,
     LookupConversationAgentService,
     LookupClassificationJobService,
+    LookupDatasetCurationJobService,
     RateLimitService,
     RateLimitGuard,
     UsageTrackingService,
@@ -101,6 +106,7 @@ const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
     UrlClassifierService,
     LookupConversationAgentService,
     LookupClassificationJobService,
+    LookupDatasetCurationJobService,
     RateLimitService,
     GroundedVerifierService,
     IntentRuleService,
@@ -119,6 +125,7 @@ export class LookupModule implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
     private readonly lookupClassificationJobService: LookupClassificationJobService,
+    private readonly lookupDatasetCurationJobService: LookupDatasetCurationJobService,
     private readonly ruleCoverageService: RuleCoverageService,
     private readonly testSampleService: TestSampleGenerationService,
     private readonly debugService: IntentRuleDebugService,
@@ -158,6 +165,18 @@ export class LookupModule implements OnModuleInit {
           'LOOKUP_CLASSIFICATION_QUEUE_CONCURRENCY',
           2,
         ),
+      },
+    );
+
+    await this.queueService.registerHandler(
+      LOOKUP_DATASET_CURATION_QUEUE,
+      async (job) => {
+        const { jobId } = job.data as { jobId: string };
+        await this.lookupDatasetCurationJobService.processJob(jobId);
+      },
+      {
+        teamSize: 1,
+        teamConcurrency: 1,
       },
     );
 

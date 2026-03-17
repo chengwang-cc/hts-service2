@@ -22,6 +22,9 @@ interface StandardizedRow {
   standardizedQuery: string;
   noiseFlags: string[];
   noiseScore: number;
+  qualityFlags: string[];
+  qualityScore: number;
+  evalEligible: boolean;
 }
 
 interface EvalRow {
@@ -34,6 +37,12 @@ interface EvalRow {
   ambiguity: 'single_label' | 'multi_label';
   contributingStandardizedRows: number;
   maxNoiseScore: number;
+}
+
+interface RowQualityAssessment {
+  qualityFlags: string[];
+  qualityScore: number;
+  evalEligible: boolean;
 }
 
 interface HtsDetail {
@@ -77,43 +86,130 @@ const ARTICLE_TOKENS = new Set([
   'apron',
   'bag',
   'bags',
+  'belt',
+  'belts',
   'blank',
+  'blanket',
+  'blankets',
   'bottle',
   'bottles',
   'bracelet',
+  'bra',
+  'bras',
   'cap',
   'caps',
+  'card',
+  'cards',
+  'case',
+  'cases',
+  'cd',
+  'cds',
+  'chain',
+  'chains',
   'cloth',
+  'comic',
+  'comics',
   'cord',
+  'dress',
+  'dresses',
   'dishcloth',
+  'dvd',
+  'dvds',
+  'earring',
+  'earrings',
   'fabric',
   'footwear',
   'glove',
   'gloves',
+  'hoodie',
   'hose',
+  'jewelry',
   'jacket',
   'keychain',
   'keychains',
+  'leggings',
+  'mat',
+  'mats',
   'mug',
   'mugs',
   'necklace',
+  'necklaces',
   'pants',
+  'panties',
+  'patch',
+  'patches',
+  'pillow',
+  'pillows',
   'plaque',
+  'poster',
+  'posters',
   'poplin',
   'rivet',
   'rivets',
+  'ring',
+  'rings',
   'rope',
   'scarf',
+  'sandals',
+  'shirt',
+  'shirts',
   'shoes',
   'shoe',
+  'shorts',
+  'skirt',
+  'skirts',
+  'sneaker',
+  'sneakers',
+  'sock',
+  'socks',
   'strap',
   'straps',
+  'sweater',
+  'sweaters',
   'thread',
   'threads',
+  'towel',
+  'towels',
   'toy',
   'toys',
   'trousers',
+  'wig',
+  'wigs',
   'yarn',
+]);
+
+const GENERIC_VARIANT_TOKENS = new Set([
+  'assorted',
+  'black',
+  'blue',
+  'brown',
+  'coastal',
+  'cream',
+  'dark',
+  'gold',
+  'green',
+  'grey',
+  'ivory',
+  'khaki',
+  'lavender',
+  'light',
+  'limited',
+  'mini',
+  'natural',
+  'new',
+  'orange',
+  'pink',
+  'purple',
+  'red',
+  'sample',
+  'samples',
+  'silver',
+  'small',
+  'tall',
+  'teal',
+  'vintage',
+  'white',
+  'yellow',
 ]);
 
 const TOKEN_SYNONYMS: Record<string, string[]> = {
@@ -225,9 +321,16 @@ function standardizeQuery(value: string): string {
   const noHtml = standardizeDescription(value);
   const normalized = noHtml
     .toLowerCase()
+    .replace(/\b\d+\s*-\s*\d+\s*(?:months?|mos?|years?|yrs?)\b/gi, ' ')
+    .replace(/\b\d+\s*(?:months?|mos?|years?|yrs?)\b/gi, ' ')
+    .replace(/^\s*\d+\s*(?:x|pairs?|pcs?|pieces?)\b/gi, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?(?:mm|cm|m|ft|in|inch|inches|yd|yard|yards)?\b/gi, ' ')
     .replace(/\((?:[^)]*\b\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|ml|cl|l|liter|litre|count|ct|pk|pcs?|pieces?|servings?)\b[^)]*)\)/gi, ' ')
     .replace(/\b(?:box|pack|set|bundle)\s+of\s+\d+\b/gi, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*%\s*/gi, ' ')
     .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|ml|cl|l|liter|litre|count|ct|pk|pcs?|pieces?|servings?)\b/gi, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:mm|cm|m|meter|meters|ft|feet|inch|inches|in|yd|yds|yard|yards)\b/gi, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*x\s*\d+(?:[.,]\d+)?(?:\s*x\s*\d+(?:[.,]\d+)?)?\b/gi, ' ')
     .replace(/\b(?:whole bean|ground|grind size|roast level)\b\s*:\s*/gi, ' ')
     .replace(/["“”]/g, ' ')
     .replace(/[&+]/g, ' and ')
@@ -241,7 +344,19 @@ function standardizeQuery(value: string): string {
 
   const tokens = normalized.split(' ').filter(Boolean);
   const dedupedTokens: string[] = [];
-  for (const token of tokens) {
+  const trimmedTokens = tokens.filter((token) => !/^\d+(?:[.,]\d+)?$/.test(token));
+  while (trimmedTokens.length > 0 && STOP_WORDS.has(trimmedTokens[0])) {
+    trimmedTokens.shift();
+  }
+  while (
+    trimmedTokens.length > 0 &&
+    (STOP_WORDS.has(trimmedTokens[trimmedTokens.length - 1]) ||
+      /^\d+(?:[.,]\d+)?$/.test(trimmedTokens[trimmedTokens.length - 1]))
+  ) {
+    trimmedTokens.pop();
+  }
+
+  for (const token of trimmedTokens) {
     if (dedupedTokens[dedupedTokens.length - 1] !== token) {
       dedupedTokens.push(token);
     }
@@ -308,6 +423,110 @@ function buildExpandedTokenSet(tokens: string[]): Set<string> {
 function isMaterialOnlyQuery(tokens: string[]): boolean {
   const nonMaterial = tokens.filter((token) => !MATERIAL_TOKENS.has(token));
   return nonMaterial.length === 0;
+}
+
+function hasModelNumberPattern(query: string): boolean {
+  return /\b[a-z]*\d[a-z0-9-]*\b/i.test(query);
+}
+
+function assessRowQuality(
+  row: StandardizedRow,
+  detail: HtsDetail | undefined,
+): RowQualityAssessment {
+  if (!detail) {
+    return {
+      qualityFlags: ['missing_hts_detail'],
+      qualityScore: 0,
+      evalEligible: false,
+    };
+  }
+
+  const queryTokens = extractTokens(row.standardizedQuery);
+  const detailTokens = new Set(
+    extractTokens(
+      `${detail.description || ''} ${(detail.fullDescription || []).join(' ')}`.trim(),
+    ),
+  );
+  const expandedQueryTokens = buildExpandedTokenSet(queryTokens);
+  const overlapTokens = [...expandedQueryTokens].filter((token) => detailTokens.has(token));
+  const overlapNonMaterialCount = overlapTokens.filter(
+    (token) => !MATERIAL_TOKENS.has(token),
+  ).length;
+  const nonMaterialTokens = queryTokens.filter((token) => !MATERIAL_TOKENS.has(token));
+  const hasArticleToken = queryTokens.some((token) => ARTICLE_TOKENS.has(token));
+  const onlyGenericVariantTokens =
+    nonMaterialTokens.length > 0 &&
+    nonMaterialTokens.every((token) => GENERIC_VARIANT_TOKENS.has(token));
+
+  const qualityFlags: string[] = [];
+
+  if (queryTokens.length < 2) {
+    qualityFlags.push('low_token_count');
+  }
+
+  if (isMaterialOnlyQuery(queryTokens)) {
+    qualityFlags.push('material_only');
+  }
+
+  if (hasModelNumberPattern(row.standardizedQuery)) {
+    qualityFlags.push('model_number');
+  }
+
+  if (overlapNonMaterialCount === 0) {
+    qualityFlags.push('no_semantic_overlap');
+  }
+
+  if (!hasArticleToken && queryTokens.length <= 4 && overlapNonMaterialCount < 2) {
+    qualityFlags.push('weak_catalog_fragment');
+  }
+
+  if (onlyGenericVariantTokens) {
+    qualityFlags.push('variant_only');
+  }
+
+  let qualityScore = 100;
+  for (const flag of qualityFlags) {
+    switch (flag) {
+      case 'low_token_count':
+        qualityScore -= 45;
+        break;
+      case 'material_only':
+        qualityScore -= 45;
+        break;
+      case 'model_number':
+        qualityScore -= 25;
+        break;
+      case 'no_semantic_overlap':
+        qualityScore -= 45;
+        break;
+      case 'weak_catalog_fragment':
+        qualityScore -= 30;
+        break;
+      case 'variant_only':
+        qualityScore -= 30;
+        break;
+      default:
+        qualityScore -= 10;
+        break;
+    }
+  }
+
+  qualityScore = Math.max(0, qualityScore);
+
+  const evalEligible =
+    queryTokens.length >= 2 &&
+    !isMaterialOnlyQuery(queryTokens) &&
+    overlapNonMaterialCount >= 1 &&
+    !(hasModelNumberPattern(row.standardizedQuery) && overlapNonMaterialCount < 2) &&
+    !(!hasArticleToken && queryTokens.length <= 4 && overlapNonMaterialCount < 2) &&
+    !onlyGenericVariantTokens &&
+    qualityScore >= 60;
+
+  return {
+    qualityFlags,
+    qualityScore,
+    evalEligible,
+  };
 }
 
 function isEvalEligible(query: string, detail: HtsDetail | undefined): boolean {
@@ -489,6 +708,10 @@ async function main(): Promise<void> {
     process.cwd(),
     parseArg('eval-out') || 'docs/evaluation/chit-chats-live-eval.csv',
   );
+  const rejectedOut = resolve(
+    process.cwd(),
+    parseArg('rejected-out') || 'docs/evaluation/chit-chats-standardized-rejected.csv',
+  );
   const statsOut = resolve(
     process.cwd(),
     parseArg('stats-out') || 'docs/evaluation/chit-chats-standardized.stats.json',
@@ -520,6 +743,10 @@ async function main(): Promise<void> {
     rowsWithMeasure: 0,
     rowsWithCount: 0,
     rowsWithOptions: 0,
+    retainedStandardizedRows: 0,
+    rejectedStandardizedRows: 0,
+    retainedStandardizedQueries: 0,
+    qualityFlagCounts: {} as Record<string, number>,
     evalRowsBeforeValidation: 0,
     evalRows: 0,
   };
@@ -558,6 +785,9 @@ async function main(): Promise<void> {
         standardizedQuery,
         noiseFlags,
         noiseScore: noiseFlags.length,
+        qualityFlags: [],
+        qualityScore: 0,
+        evalEligible: false,
       });
     }
   }
@@ -582,24 +812,45 @@ async function main(): Promise<void> {
     [...new Set(standardizedRows.map((row) => row.canonicalHtsNumber))],
   );
 
-  const eligibleRows = standardizedRows.filter((row) =>
-    isEvalEligible(row.standardizedQuery, htsDetails.get(row.canonicalHtsNumber)),
-  );
+  const assessedRows = standardizedRows.map((row) => {
+    const assessment = assessRowQuality(row, htsDetails.get(row.canonicalHtsNumber));
+    return {
+      ...row,
+      qualityFlags: assessment.qualityFlags,
+      qualityScore: assessment.qualityScore,
+      evalEligible: assessment.evalEligible &&
+        isEvalEligible(row.standardizedQuery, htsDetails.get(row.canonicalHtsNumber)),
+    };
+  });
+
+  const retainedRows = assessedRows.filter((row) => row.qualityScore >= 60);
+  const rejectedRows = assessedRows.filter((row) => row.qualityScore < 60);
+  const eligibleRows = assessedRows.filter((row) => row.evalEligible);
   const evalRows = pickEvalRows(eligibleRows, maxPerCode);
+
+  for (const row of assessedRows) {
+    for (const flag of row.qualityFlags) {
+      stats.qualityFlagCounts[flag] = (stats.qualityFlagCounts[flag] || 0) + 1;
+    }
+  }
 
   stats.uniqueStandardizedRows = standardizedRows.length;
   stats.uniqueStandardizedQueries = queryToCodes.size;
   stats.uniqueHtsNumbers = new Set(standardizedRows.map((row) => row.canonicalHtsNumber)).size;
   stats.ambiguousQueries = [...queryToCodes.values()].filter((codes) => codes.size > 1).length;
-  stats.evalRowsBeforeValidation = pickEvalRows(standardizedRows, maxPerCode).length;
+  stats.retainedStandardizedRows = retainedRows.length;
+  stats.rejectedStandardizedRows = rejectedRows.length;
+  stats.retainedStandardizedQueries = new Set(retainedRows.map((row) => row.standardizedQuery)).size;
+  stats.evalRowsBeforeValidation = pickEvalRows(retainedRows, maxPerCode).length;
   stats.evalRows = evalRows.length;
 
   await mkdir(dirname(standardizedOut), { recursive: true });
   await mkdir(dirname(evalOut), { recursive: true });
+  await mkdir(dirname(rejectedOut), { recursive: true });
   await mkdir(dirname(statsOut), { recursive: true });
 
   const standardizedCsv = csvStringify(
-    standardizedRows.map((row) => ({
+    retainedRows.map((row) => ({
       query_id: row.queryId,
       canonical_hts_number: row.canonicalHtsNumber,
       canonical_hts_digits: row.canonicalHtsDigits,
@@ -608,6 +859,26 @@ async function main(): Promise<void> {
       standardized_query: row.standardizedQuery,
       noise_flags: row.noiseFlags.join('|'),
       noise_score: row.noiseScore,
+      quality_flags: row.qualityFlags.join('|'),
+      quality_score: row.qualityScore,
+      eval_eligible: row.evalEligible,
+    })),
+    { header: true },
+  );
+
+  const rejectedCsv = csvStringify(
+    rejectedRows.map((row) => ({
+      query_id: row.queryId,
+      canonical_hts_number: row.canonicalHtsNumber,
+      canonical_hts_digits: row.canonicalHtsDigits,
+      original_description: row.originalDescription,
+      standardized_description: row.standardizedDescription,
+      standardized_query: row.standardizedQuery,
+      noise_flags: row.noiseFlags.join('|'),
+      noise_score: row.noiseScore,
+      quality_flags: row.qualityFlags.join('|'),
+      quality_score: row.qualityScore,
+      eval_eligible: row.evalEligible,
     })),
     { header: true },
   );
@@ -629,6 +900,7 @@ async function main(): Promise<void> {
 
   await writeFile(standardizedOut, standardizedCsv, 'utf-8');
   await writeFile(evalOut, evalCsv, 'utf-8');
+  await writeFile(rejectedOut, rejectedCsv, 'utf-8');
   await writeFile(statsOut, `${JSON.stringify(stats, null, 2)}\n`, 'utf-8');
 
   console.log(
@@ -636,6 +908,7 @@ async function main(): Promise<void> {
       {
         standardizedOut,
         evalOut,
+        rejectedOut,
         statsOut,
         stats,
       },
