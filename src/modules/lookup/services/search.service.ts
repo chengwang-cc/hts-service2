@@ -2568,6 +2568,10 @@ export class SearchService {
           normalizedQuery,
           entry,
         );
+        const coffeePodAdjustment = this.computeCoffeePodAdjustment(
+          normalizedQuery,
+          entry,
+        );
         const headingHintBoost = this.computeHeadingHintBoost(
           entry.htsNumber,
           plan.headingHints,
@@ -2589,6 +2593,7 @@ export class SearchService {
           phraseBoost +
           retailPackagingBoost +
           packagedCommodityAdjustment +
+          coffeePodAdjustment +
           headingHintBoost +
           specificityBoost -
           genericPenalty +
@@ -2894,6 +2899,7 @@ export class SearchService {
         const coverage = this.computeCoverageScore(expandedTokens, text);
         const phraseBoost = this.computePhraseBoost(query, text);
         const retailPackagingBoost = this.computeRetailPackagingBoost(query, entry);
+        const coffeePodAdjustment = this.computeCoffeePodAdjustment(query, entry);
         const specificityBoost = this.computeSpecificityBoost(htsNumber);
         const genericPenalty = this.computeGenericPenalty(
           entry.description,
@@ -2917,6 +2923,7 @@ export class SearchService {
             coverage * 0.85 +
             phraseBoost +
             retailPackagingBoost +
+            coffeePodAdjustment +
             specificityBoost -
             genericPenalty +
             intentBoost -
@@ -3236,6 +3243,9 @@ export class SearchService {
       .replace(/\btranformer\b/gi, 'transformer')
       .replace(/\bcomic[\s-]?books?\b/gi, 'comic book')
       .replace(/\bt[\s-]?shirts?\b/gi, 'tshirt')
+      .replace(/\bkeurig\s+coffee\s+k[\s-]?cups?\b/gi, 'coffee pod')
+      .replace(/\bkeurig\s+k[\s-]?cups?\b/gi, 'coffee pod')
+      .replace(/\bk[\s-]?cups?\b/gi, 'coffee pod')
       .trim()
       .replace(/\s+/g, ' ');
   }
@@ -3892,6 +3902,19 @@ export class SearchService {
     }
 
     const text = this.buildEntryText(entry);
+    const giftLike = /\b(gift|gifting|gifted|favor|favour)\b/i.test(query);
+
+    if (entry.htsNumber === '2101.11.21.31' && giftLike) {
+      return 1.18;
+    }
+
+    if (entry.htsNumber === '2101.11.21.26' && !giftLike) {
+      return 1.08;
+    }
+
+    if (entry.htsNumber === '2101.11.21.26' && giftLike) {
+      return 0.82;
+    }
 
     if (
       entry.htsNumber.startsWith('2101.11') &&
@@ -3909,6 +3932,51 @@ export class SearchService {
       (text.includes('coffee substitutes') || text.includes('husks and skins'))
     ) {
       return -0.8;
+    }
+
+    return 0;
+  }
+
+  private computeCoffeePodAdjustment(
+    query: string,
+    entry: CandidateEntry,
+  ): number {
+    if (
+      !/\bcoffee\b/i.test(query) ||
+      !/\b(pod|pods|capsule|capsules|k-cup)\b/i.test(query)
+    ) {
+      return 0;
+    }
+
+    const text = this.buildEntryText(entry);
+    const giftLike = /\b(gift|gifting|gifted|favor|favour)\b/i.test(query);
+
+    if (entry.htsNumber === '2101.11.21.26') {
+      return giftLike ? 1.02 : 1.22;
+    }
+
+    if (entry.htsNumber === '2101.11.21.31') {
+      return giftLike ? 1.2 : 1.0;
+    }
+
+    if (entry.htsNumber.startsWith('2101.11')) {
+      return text.includes('packaged for retail sale') ? 1.15 : 0.95;
+    }
+
+    if (
+      entry.chapter === '09' &&
+      /\b(not decaffeinated|decaffeinated|coffee substitutes|husks and skins|certified organic)\b/i.test(
+        text,
+      )
+    ) {
+      return -1.05;
+    }
+
+    if (
+      (entry.chapter === '84' || entry.chapter === '85') &&
+      /\bmaker|machine|brewer|grinder\b/i.test(text)
+    ) {
+      return -0.55;
     }
 
     return 0;
