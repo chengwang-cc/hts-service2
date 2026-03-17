@@ -290,4 +290,91 @@ describe('UrlClassifierService', () => {
       }),
     ]);
   });
+
+  it('uses browser-derived product candidates for rendered listing pages', async () => {
+    const lowSignalHtml =
+      '<!doctype html><html><head><title>Loading</title></head><body><div id="root"></div></body></html>';
+
+    httpService.head.mockReturnValue(
+      of({
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+        },
+      }),
+    );
+    httpService.get.mockReturnValue(
+      of({
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+        },
+        data: lowSignalHtml,
+      }),
+    );
+    openAiService.response.mockResolvedValue({
+      output_text: JSON.stringify({
+        productName: null,
+        description: 'Rendered catalog page for drinkware and tabletop accessories.',
+        isProductPage: false,
+        confidence: 0.88,
+      }),
+    });
+
+    Object.defineProperty(service, 'browserEnabled', {
+      value: true,
+      configurable: true,
+    });
+    jest.spyOn(service as never, 'fetchHtmlWithPuppeteer' as never).mockResolvedValue({
+      html: '<!doctype html><html><body><main><article class="product-card"></article></main></body></html>',
+      method: 'puppeteer',
+      renderedTitle: 'Rendered Catalog',
+      renderedText:
+        'Insulated Stainless Steel Water Bottle Reusable bottle for beverages. Ceramic Coffee Mug Glazed ceramic mug with handle.',
+      focusedTextSegments: [
+        'Insulated Stainless Steel Water Bottle',
+        'Reusable stainless steel bottle for beverages with screw cap.',
+        'Ceramic Coffee Mug',
+        'Glazed ceramic mug with handle for hot beverages.',
+      ],
+      browserProductCandidates: [
+        {
+          name: 'Insulated Stainless Steel Water Bottle',
+          description:
+            'Reusable stainless steel bottle for beverages with screw cap.',
+          image: 'https://shop.example.com/images/bottle-rendered.png',
+          price: '$24.99',
+          currency: 'USD',
+          source: 'rendered-dom',
+        },
+        {
+          name: 'Ceramic Coffee Mug',
+          description: 'Glazed ceramic mug with handle for hot beverages.',
+          image: 'https://shop.example.com/images/mug-rendered.png',
+          price: '$12.50',
+          currency: 'USD',
+          source: 'rendered-dom',
+        },
+      ],
+      screenshot: Buffer.from('fixture-image'),
+      primaryImageUrl: null,
+    } as never);
+
+    const result = await service.classifyUrl('https://shop.example.com/rendered-catalog');
+
+    expect(result.type).toBe(UrlType.WEBPAGE);
+    expect(result.metadata?.usedBrowser).toBe(true);
+    expect(result.metadata?.isMultiProductPage).toBe(true);
+    expect(result.metadata?.productCount).toBe(2);
+    expect(result.metadata?.productCandidates).toEqual([
+      expect.objectContaining({
+        productName: 'Insulated Stainless Steel Water Bottle',
+        imageUrl: 'https://shop.example.com/images/bottle-rendered.png',
+        source: 'rendered-dom',
+      }),
+      expect.objectContaining({
+        productName: 'Ceramic Coffee Mug',
+        imageUrl: 'https://shop.example.com/images/mug-rendered.png',
+        source: 'rendered-dom',
+      }),
+    ]);
+  });
 });

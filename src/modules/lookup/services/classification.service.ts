@@ -177,10 +177,11 @@ export class ClassificationService {
     organizationId: string,
     source?: ClassificationSourceRecord,
   ): Promise<ClassificationResult> {
+    let imageFallbackSelection: SearchFirstClassification | null = null;
+    const isImageDerived =
+      source?.inputMethod === 'IMAGE_UPLOAD' ||
+      source?.inputMethod === 'IMAGE_URL';
     try {
-      const isImageDerived =
-        source?.inputMethod === 'IMAGE_UPLOAD' ||
-        source?.inputMethod === 'IMAGE_URL';
       const searchFirst = await this.trySearchFirstClassification(
         description,
         source,
@@ -201,19 +202,22 @@ export class ClassificationService {
       }
 
       if (isImageDerived) {
-        const groundedSearchSelection =
+        imageFallbackSelection =
           await this.tryGroundedSearchCandidateClassification(description);
-        if (groundedSearchSelection) {
+        if (
+          imageFallbackSelection &&
+          this.shouldAcceptGroundedSearchSelection(imageFallbackSelection)
+        ) {
           return this.persistClassificationResult(
-            groundedSearchSelection.result,
+            imageFallbackSelection.result,
             description,
             organizationId,
             source,
             {
-              strategy: groundedSearchSelection.strategy,
-              normalizedQuery: groundedSearchSelection.normalizedQuery,
-              searchPhrases: groundedSearchSelection.searchPhrases,
-              headingHints: groundedSearchSelection.headingHints,
+              strategy: imageFallbackSelection.strategy,
+              normalizedQuery: imageFallbackSelection.normalizedQuery,
+              searchPhrases: imageFallbackSelection.searchPhrases,
+              headingHints: imageFallbackSelection.headingHints,
             },
           );
         }
@@ -301,6 +305,31 @@ export class ClassificationService {
         },
       );
     } catch (error) {
+      if (isImageDerived && imageFallbackSelection) {
+        this.logger.warn(
+          `Classification degraded to grounded search fallback after error: ${error.message}`,
+        );
+        return this.persistClassificationResult(
+          {
+            ...imageFallbackSelection.result,
+            confidence: Math.min(imageFallbackSelection.result.confidence, 0.35),
+            needsReview: true,
+            reasoning:
+              `${imageFallbackSelection.result.reasoning} ` +
+              `Returned grounded search fallback after classification error: ${error.message}`,
+          },
+          description,
+          organizationId,
+          source,
+          {
+            strategy: imageFallbackSelection.strategy,
+            normalizedQuery: imageFallbackSelection.normalizedQuery,
+            searchPhrases: imageFallbackSelection.searchPhrases,
+            headingHints: imageFallbackSelection.headingHints,
+            fallbackDueToError: error.message,
+          },
+        );
+      }
       this.logger.error(`Classification failed: ${error.message}`);
       throw error;
     }
@@ -459,6 +488,15 @@ export class ClassificationService {
     };
   }
 
+  private shouldAcceptGroundedSearchSelection(
+    selection: SearchFirstClassification,
+  ): boolean {
+    return (
+      selection.result.confidence >= 0.2 &&
+      !this.isGenericLeafDescription(selection.result.description ?? '')
+    );
+  }
+
   private isSearchFirstCandidateGrounded(
     normalizedQuery: string,
     candidate: SearchFirstCandidate,
@@ -507,6 +545,12 @@ export class ClassificationService {
     normalizedQuery: string,
     candidates: SearchFirstCandidate[],
   ): Promise<{ index: number; confidence: number; reasoning: string } | null> {
+    const fallbackChoice = {
+      index: 0,
+      confidence: 0.12,
+      reasoning:
+        'Selected the top normalized search candidate as a bounded fallback.',
+    };
     const candidateList = candidates
       .map((candidate, index) => {
         const label =
@@ -564,7 +608,7 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
 
       const outputText = (response as any).output_text || '';
       if (!outputText) {
-        return null;
+        return fallbackChoice;
       }
 
       const parsed = JSON.parse(outputText) as {
@@ -574,7 +618,7 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
       };
       const index = Math.max(0, Math.round(parsed.index) - 1);
       if (index >= candidates.length) {
-        return null;
+        return fallbackChoice;
       }
 
       return {
@@ -586,7 +630,10 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
       this.logger.warn(
         `Grounded search candidate selection failed: ${err.message}`,
       );
-      return null;
+      return {
+        ...fallbackChoice,
+        reasoning: `${fallbackChoice.reasoning} Reason: ${err.message}`,
+      };
     }
   }
 
@@ -652,30 +699,34 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
     instructions: string,
     model: 'gpt-5-nano' | 'gpt-5-mini',
   ): Promise<{ htsCode: string; confidence: number; reasoning: string }> {
-    const response = await this.openAiService.response(input, {
-      model,
-      instructions,
-      store: false,
-      text: {
-        format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'classification_response',
-            schema: {
-              type: 'object',
-              properties: {
-                htsCode: { type: 'string' },
-                confidence: { type: 'number' },
-                reasoning: { type: 'string' },
+    const response = await this.withTimeout(
+      this.openAiService.response(input, {
+        model,
+        instructions,
+        store: false,
+        text: {
+          format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'classification_response',
+              schema: {
+                type: 'object',
+                properties: {
+                  htsCode: { type: 'string' },
+                  confidence: { type: 'number' },
+                  reasoning: { type: 'string' },
+                },
+                required: ['htsCode', 'confidence', 'reasoning'],
+                additionalProperties: false,
               },
-              required: ['htsCode', 'confidence', 'reasoning'],
-              additionalProperties: false,
+              strict: true,
             },
-            strict: true,
           },
         },
-      },
-    });
+      }),
+      this.OPENAI_SHORT_TIMEOUT_MS,
+      `Heading selection (${model})`,
+    );
 
     const outputText = (response as any).output_text || '';
     if (!outputText) {
@@ -767,8 +818,9 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
     description: string,
   ): Promise<HeadingCandidate[]> {
     try {
-      const response = await this.openAiService.response(
-        `What are the most likely HTS (US Harmonized Tariff Schedule) codes for this product: "${description}"?
+      const response = await this.withTimeout(
+        this.openAiService.response(
+          `What are the most likely HTS (US Harmonized Tariff Schedule) codes for this product: "${description}"?
 
 Provide 1-3 predictions ordered by confidence.
 Return 6-digit subheading codes when you know the specific subheading; otherwise return 4-digit heading codes.
@@ -788,41 +840,44 @@ Examples (correct classifications):
 - "olive oil" → 1509 (olive oil)
 - "household dishwasher" → 8422.11 (household dishwashers)
 - "fresh roasted coffee beans" → 0901.21 (roasted coffee, not decaffeinated)`,
-        {
-          model: 'gpt-5-nano',
-          instructions:
-            'You are a US Harmonized Tariff Schedule expert. Return 1-3 most likely HTS codes (4 or 6 digit) from your training knowledge. Pay special attention to the distinction between 8509 (electromechanical — motor-driven: blenders, food processors) and 8516 (electrothermic — heating: coffee makers, rice cookers, irons).',
-          store: false,
-          text: {
-            format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'heading_predictions',
-                schema: {
-                  type: 'object',
-                  properties: {
-                    predictions: {
-                      type: 'array',
-                      items: {
-                        type: 'object',
-                        properties: {
-                          htsCode: { type: 'string' },
-                          description: { type: 'string' },
-                          confidence: { type: 'number' },
+          {
+            model: 'gpt-5-nano',
+            instructions:
+              'You are a US Harmonized Tariff Schedule expert. Return 1-3 most likely HTS codes (4 or 6 digit) from your training knowledge. Pay special attention to the distinction between 8509 (electromechanical — motor-driven: blenders, food processors) and 8516 (electrothermic — heating: coffee makers, rice cookers, irons).',
+            store: false,
+            text: {
+              format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'heading_predictions',
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      predictions: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            htsCode: { type: 'string' },
+                            description: { type: 'string' },
+                            confidence: { type: 'number' },
+                          },
+                          required: ['htsCode', 'description', 'confidence'],
+                          additionalProperties: false,
                         },
-                        required: ['htsCode', 'description', 'confidence'],
-                        additionalProperties: false,
                       },
                     },
+                    required: ['predictions'],
+                    additionalProperties: false,
                   },
-                  required: ['predictions'],
-                  additionalProperties: false,
+                  strict: true,
                 },
-                strict: true,
               },
             },
           },
-        },
+        ),
+        this.OPENAI_BACKGROUND_TIMEOUT_MS,
+        'AI heading prediction',
       );
 
       const outputText = (response as any).output_text || '';
@@ -1581,36 +1636,40 @@ Return JSON: { htsCode, confidence, reasoning }.`;
       .join('\n');
 
     try {
-      const response = await this.openAiService.response(
-        `Product: "${productDescription}"
+      const response = await this.withTimeout(
+        this.openAiService.response(
+          `Product: "${productDescription}"
 Classification reasoning: ${headingReasoning}
 
 Choose the single best HTS code from these options:
 ${list}
 
 Return JSON: { "index": <1-based number> }`,
-        {
-          model,
-          instructions:
-            'You are an HTS tariff expert. Pick the most accurate leaf-level HTS code for the given product. ' +
-            'Return only the 1-based index of the best option as JSON.',
-          store: false,
-          text: {
-            format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'leaf_pick',
-                schema: {
-                  type: 'object',
-                  properties: { index: { type: 'number' } },
-                  required: ['index'],
-                  additionalProperties: false,
+          {
+            model,
+            instructions:
+              'You are an HTS tariff expert. Pick the most accurate leaf-level HTS code for the given product. ' +
+              'Return only the 1-based index of the best option as JSON.',
+            store: false,
+            text: {
+              format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'leaf_pick',
+                  schema: {
+                    type: 'object',
+                    properties: { index: { type: 'number' } },
+                    required: ['index'],
+                    additionalProperties: false,
+                  },
+                  strict: true,
                 },
-                strict: true,
               },
             },
           },
-        },
+        ),
+        this.OPENAI_SHORT_TIMEOUT_MS,
+        `Leaf selection (${model})`,
       );
 
       const outputText = (response as any).output_text || '';

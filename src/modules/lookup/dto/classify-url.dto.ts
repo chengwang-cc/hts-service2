@@ -61,5 +61,5 @@ export class UrlProductCandidate {
   imageUrl?: string;
   price?: string;
   currency?: string;
-  source?: 'structured-data' | 'dom';
+  source?: 'structured-data' | 'dom' | 'rendered-dom';
 }

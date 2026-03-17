@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { SearchService } from '@hts/lookup';
+import { SearchService } from '../../lookup/services/search.service';
 import { SmartClassifyService } from '../../lookup/services/smart-classify.service';
 import { QueueService } from '../../queue/queue.service';
 import { BatchJobService, BATCH_COORDINATOR_QUEUE, BATCH_ITEM_QUEUE } from './batch-job.service';
@@ -62,8 +62,8 @@ export class BatchWorkerService implements OnModuleInit {
       return;
     }
 
-    const item = await this.batchJobService.getItem(itemId);
-    if (!item || item.status !== 'pending') return;
+    const item = await this.batchJobService.claimPendingItem(itemId);
+    if (!item) return;
 
     const start = Date.now();
 
@@ -109,7 +109,11 @@ export class BatchWorkerService implements OnModuleInit {
     query: string,
     start: number,
   ): Promise<void> {
-    const results = await this.searchService.autocomplete(query, 5);
+    const searchResult = await this.searchService.searchWithStandardization(
+      query,
+      5,
+    );
+    const results = searchResult.results || [];
     const top = results[0] as any;
 
     await this.batchJobService.recordItemResult(jobId, itemId, {
@@ -118,6 +122,12 @@ export class BatchWorkerService implements OnModuleInit {
       fullDescription: top?.fullDescription ?? undefined,
       confidence: top?.score ?? undefined,
       topResults: results,
+      phases: {
+        normalizedQuery:
+          searchResult.standardizedQuery || query.trim(),
+        searchPhrases: searchResult.searchPhrases || [],
+        headingHints: searchResult.headingHints || [],
+      },
       processingMs: Date.now() - start,
     });
   }

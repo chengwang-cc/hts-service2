@@ -294,13 +294,33 @@ export class BatchJobService {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) return;
     if (job.processedItems >= job.totalItems) {
-      const finalStatus = job.failedItems === job.totalItems ? 'failed' : 'completed';
-      await this.jobRepo.update(jobId, { status: finalStatus, completedAt: new Date() });
+      const finalStatus =
+        job.status === 'cancelled'
+          ? 'cancelled'
+          : job.failedItems === job.totalItems
+            ? 'failed'
+            : 'completed';
+      await this.jobRepo.update(jobId, {
+        status: finalStatus,
+        completedAt: job.completedAt ?? new Date(),
+      });
       this.logger.log(`[Job ${jobId}] Complete: status=${finalStatus}`);
     }
   }
 
-  async getItem(itemId: string): Promise<BatchJobItemEntity | null> {
+  async claimPendingItem(itemId: string): Promise<BatchJobItemEntity | null> {
+    const claimed = await this.itemRepo
+      .createQueryBuilder()
+      .update(BatchJobItemEntity)
+      .set({ status: 'running', completedAt: null })
+      .where('id = :itemId', { itemId })
+      .andWhere('status = :status', { status: 'pending' })
+      .execute();
+
+    if (!claimed.affected) {
+      return null;
+    }
+
     return this.itemRepo.findOne({ where: { id: itemId } });
   }
 

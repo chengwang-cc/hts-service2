@@ -35,7 +35,7 @@ interface StructuredProductData {
 }
 
 interface ProductCandidate extends StructuredProductData {
-  source: 'structured-data' | 'dom';
+  source: 'structured-data' | 'dom' | 'rendered-dom';
 }
 
 interface PageFetchResult {
@@ -45,6 +45,8 @@ interface PageFetchResult {
   renderedText?: string;
   screenshot?: Buffer | null;
   primaryImageUrl?: string | null;
+  focusedTextSegments?: string[];
+  browserProductCandidates?: ProductCandidate[];
 }
 
 interface ExtractedProductDetails {
@@ -189,6 +191,7 @@ export class UrlClassifierService {
         page.html,
         url,
         structuredCandidates,
+        page.browserProductCandidates ?? [],
       );
 
       const isProductPage = this.detectProductPage(
@@ -512,18 +515,14 @@ export class UrlClassifierService {
         timeout: this.BROWSER_NAVIGATION_TIMEOUT,
       });
 
-      await this.dismissCookieBanners(page);
-      await this.waitForProductSignals(page);
-      await this.autoScroll(page);
-      await page.waitForNetworkIdle({ idleTime: 800, timeout: 4000 }).catch(
-        () => undefined,
-      );
+      await this.stabilizeRenderedPage(page);
 
       const html = await page.content();
       const renderedTitle = await page.title();
       const renderedText = await page.evaluate(() =>
         (document.body?.innerText || '').replace(/\s+/g, ' ').trim(),
       );
+      const renderedSignals = await this.extractRenderedSignals(page);
       const primaryImageUrl = await page.evaluate(() => {
         const PRODUCT_IMAGE_SELECTORS = [
           '#landingImage',
@@ -617,6 +616,8 @@ export class UrlClassifierService {
         renderedText,
         screenshot,
         primaryImageUrl,
+        focusedTextSegments: renderedSignals.focusedTextSegments,
+        browserProductCandidates: renderedSignals.productCandidates,
       };
     } catch (error) {
       this.logger.error(
@@ -662,15 +663,43 @@ export class UrlClassifierService {
       .catch(() => undefined);
   }
 
-  private async waitForProductSignals(page: Page): Promise<void> {
-    const selector = this.PRODUCT_SELECTORS.join(', ');
-    await page.waitForSelector(selector, { timeout: 4000 }).catch(() => undefined);
+  private async stabilizeRenderedPage(page: Page): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await this.dismissCookieBanners(page);
+      await this.waitForProductSignals(page, attempt === 0 ? 4500 : 2500);
+      await this.autoScroll(page, attempt === 0 ? 5 : 3);
+      await page.waitForNetworkIdle({ idleTime: 800, timeout: 4000 }).catch(
+        () => undefined,
+      );
+
+      const hasUsefulSignals = await page
+        .evaluate((selectors) => {
+          const visibleText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+          return (
+            selectors.some((selector) => document.querySelector(selector)) ||
+            visibleText.length > 400
+          );
+        }, this.PRODUCT_SELECTORS)
+        .catch(() => false);
+
+      if (hasUsefulSignals) {
+        break;
+      }
+    }
   }
 
-  private async autoScroll(page: Page): Promise<void> {
+  private async waitForProductSignals(
+    page: Page,
+    timeoutMs = 4000,
+  ): Promise<void> {
+    const selector = this.PRODUCT_SELECTORS.join(', ');
+    await page.waitForSelector(selector, { timeout: timeoutMs }).catch(() => undefined);
+  }
+
+  private async autoScroll(page: Page, steps = 4): Promise<void> {
     await page
-      .evaluate(async () => {
-        for (let index = 0; index < 4; index += 1) {
+      .evaluate(async (stepCount) => {
+        for (let index = 0; index < stepCount; index += 1) {
           window.scrollTo({
             top: Math.min(
               document.body.scrollHeight,
@@ -681,8 +710,170 @@ export class UrlClassifierService {
           await new Promise((resolve) => setTimeout(resolve, 450));
         }
         window.scrollTo({ top: 0, behavior: 'auto' });
-      })
+      }, steps)
       .catch(() => undefined);
+  }
+
+  private async extractRenderedSignals(page: Page): Promise<{
+    focusedTextSegments: string[];
+    productCandidates: ProductCandidate[];
+  }> {
+    const raw = await page
+      .evaluate(() => {
+        const normalize = (value: string | null | undefined) =>
+          (value || '').replace(/\s+/g, ' ').trim();
+        const isVisible = (element: Element | null) => {
+          if (!(element instanceof HTMLElement)) {
+            return false;
+          }
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== 'hidden' &&
+            style.display !== 'none'
+          );
+        };
+        const pushUnique = (target: string[], value: string, maxLength = 600) => {
+          const normalized = normalize(value);
+          if (
+            normalized.length >= 20 &&
+            normalized.length <= maxLength &&
+            !target.includes(normalized)
+          ) {
+            target.push(normalized);
+          }
+        };
+
+        const focusedTextSegments: string[] = [];
+        const textSelectors = [
+          'h1',
+          '[itemprop="name"]',
+          '[itemprop="description"]',
+          '#productDescription',
+          '#feature-bullets',
+          '.product-description',
+          '.product-detail',
+          '.product-info',
+          '.pdp',
+          '#centerCol',
+          '#ppd',
+          'main article',
+          'main section',
+        ];
+
+        for (const selector of textSelectors) {
+          for (const node of Array.from(document.querySelectorAll(selector)).slice(0, 4)) {
+            if (!isVisible(node)) {
+              continue;
+            }
+            pushUnique(focusedTextSegments, node.textContent || '', 1800);
+          }
+        }
+
+        for (const listItem of Array.from(document.querySelectorAll('li, dt, dd')).slice(0, 30)) {
+          if (!isVisible(listItem)) {
+            continue;
+          }
+          pushUnique(focusedTextSegments, listItem.textContent || '', 260);
+        }
+
+        for (const row of Array.from(document.querySelectorAll('table tr')).slice(0, 16)) {
+          if (!isVisible(row)) {
+            continue;
+          }
+          const cells = Array.from(row.querySelectorAll('th, td'))
+            .map((cell) => normalize(cell.textContent))
+            .filter(Boolean);
+          if (cells.length >= 2) {
+            pushUnique(focusedTextSegments, `${cells[0]}: ${cells.slice(1).join(' ')}`, 260);
+          }
+        }
+
+        const candidateSelectors = [
+          '[itemtype*="Product"]',
+          '[data-product-id]',
+          '.product-card',
+          '.product',
+          'article.product',
+          'li.product',
+          '[data-testid*="product"]',
+        ];
+        const productCandidates: Array<{
+          name?: string;
+          description?: string;
+          image?: string;
+          price?: string;
+          currency?: string;
+          source: 'rendered-dom';
+        }> = [];
+        const seenNames = new Set<string>();
+
+        for (const selector of candidateSelectors) {
+          for (const node of Array.from(document.querySelectorAll(selector)).slice(0, 20)) {
+            if (!isVisible(node)) {
+              continue;
+            }
+            const element = node as HTMLElement;
+            const name = normalize(
+              element.querySelector('[itemprop="name"], h1, h2, h3, .product-name, .product-title')
+                ?.textContent,
+            );
+            const description = normalize(
+              element.querySelector(
+                '[itemprop="description"], .product-description, .description, p, li',
+              )?.textContent,
+            );
+            const image =
+              (element.querySelector('img') as HTMLImageElement | null)?.currentSrc ||
+              (element.querySelector('img') as HTMLImageElement | null)?.src ||
+              '';
+            const price = normalize(
+              element.querySelector('[itemprop="price"], .price, [data-price]')?.textContent,
+            );
+            const currency =
+              (element.querySelector('[itemprop="priceCurrency"]') as HTMLElement | null)?.getAttribute(
+                'content',
+              ) || undefined;
+
+            if (!name || seenNames.has(name.toLowerCase())) {
+              continue;
+            }
+            seenNames.add(name.toLowerCase());
+            productCandidates.push({
+              name,
+              description: description || undefined,
+              image: image || undefined,
+              price: price || undefined,
+              currency,
+              source: 'rendered-dom',
+            });
+          }
+
+          if (productCandidates.length >= 3) {
+            break;
+          }
+        }
+
+        return { focusedTextSegments, productCandidates };
+      })
+      .catch(() => ({
+        focusedTextSegments: [],
+        productCandidates: [],
+      }));
+
+    return {
+      focusedTextSegments: raw.focusedTextSegments.slice(0, 24),
+      productCandidates: raw.productCandidates.map((candidate) => ({
+        name: candidate.name,
+        description: candidate.description,
+        image: candidate.image,
+        price: candidate.price,
+        currency: candidate.currency,
+        source: 'rendered-dom' as const,
+      })),
+    };
   }
 
   private extractOpenGraph(html: string, sourceUrl: string): OpenGraphData {
@@ -829,12 +1020,13 @@ export class UrlClassifierService {
     }
 
     const $ = load(html);
-    const combinedText = this.extractFocusedProductText(
-      $,
-      ogData,
-      structuredData,
-      page.renderedText,
-    );
+      const combinedText = this.extractFocusedProductText(
+        $,
+        ogData,
+        structuredData,
+        page.renderedText,
+        page.focusedTextSegments ?? [],
+      );
 
     if (!combinedText) {
       return {
@@ -877,6 +1069,7 @@ export class UrlClassifierService {
     html: string,
     sourceUrl: string,
     structuredCandidates: StructuredProductData[],
+    renderedCandidates: ProductCandidate[] = [],
   ): ProductCandidate[] {
     const deduped = new Map<string, ProductCandidate>();
     const addCandidate = (candidate: ProductCandidate) => {
@@ -915,6 +1108,14 @@ export class UrlClassifierService {
       addCandidate({
         ...candidate,
         source: 'structured-data',
+      });
+    }
+
+    for (const candidate of renderedCandidates) {
+      addCandidate({
+        ...candidate,
+        image: this.normalizeResolvedUrl(candidate.image, sourceUrl),
+        source: 'rendered-dom',
       });
     }
 
@@ -986,6 +1187,7 @@ export class UrlClassifierService {
     ogData: OpenGraphData,
     structuredData: StructuredProductData | null,
     renderedText?: string,
+    renderedSegments: string[] = [],
   ): string {
     const productTexts: string[] = [];
 
@@ -1011,6 +1213,16 @@ export class UrlClassifierService {
       }
 
       if (productTexts.join(' ').length > 1800) {
+        break;
+      }
+    }
+
+    for (const segment of renderedSegments) {
+      if (segment.length > 20 && segment.length < 2500) {
+        productTexts.push(segment);
+      }
+
+      if (productTexts.join(' ').length > 2200) {
         break;
       }
     }
