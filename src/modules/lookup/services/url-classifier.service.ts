@@ -114,7 +114,16 @@ export class UrlClassifierService {
 
   private readonly MAX_HTML_SIZE = 5 * 1024 * 1024;
   private readonly REQUEST_TIMEOUT = 8000;
+  private readonly BROWSER_NAVIGATION_TIMEOUT = 30000;
   private readonly browserEnabled: boolean;
+  private readonly BROWSER_FIRST_HOST_PATTERNS = [
+    /(^|\.)amazon\./i,
+    /(^|\.)walmart\./i,
+    /(^|\.)bestbuy\./i,
+    /(^|\.)ebay\./i,
+    /(^|\.)etsy\./i,
+    /(^|\.)wayfair\./i,
+  ];
 
   constructor(
     private readonly httpService: HttpService,
@@ -152,7 +161,7 @@ export class UrlClassifierService {
         };
       }
 
-      let page = await this.fetchHtmlOverHttp(url);
+      let page = await this.fetchPage(url);
       let ogData = this.extractOpenGraph(page.html, url);
       let structuredCandidates = this.extractStructuredProductCandidates(
         page.html,
@@ -213,6 +222,8 @@ export class UrlClassifierService {
         extractionMethod: extracted.extractionMethod,
         usedBrowser: page.method === 'puppeteer',
         usedVision: extracted.usedVision,
+        previewImageUrl:
+          structuredData?.image || ogData.image || page.primaryImageUrl || undefined,
         renderedImageUrl: page.primaryImageUrl ?? undefined,
         isMultiProductPage,
         productCount: productCandidates.length || undefined,
@@ -242,7 +253,6 @@ export class UrlClassifierService {
       if (imageUrl) {
         return {
           type: responseType,
-          imageUrl,
           metadata,
         };
       }
@@ -363,6 +373,23 @@ export class UrlClassifierService {
     }
   }
 
+  private async fetchPage(url: string): Promise<PageFetchResult> {
+    if (this.shouldPreferBrowserFetch(url)) {
+      try {
+        const rendered = await this.fetchHtmlWithPuppeteer(url);
+        if (rendered) {
+          return rendered;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Browser-first fetch failed for ${url}, falling back to HTTP: ${error.message}`,
+        );
+      }
+    }
+
+    return this.fetchHtmlOverHttp(url);
+  }
+
   private async fetchHtmlOverHttp(url: string): Promise<PageFetchResult> {
     try {
       const response = await firstValueFrom(
@@ -428,6 +455,28 @@ export class UrlClassifierService {
     );
   }
 
+  private shouldPreferBrowserFetch(url: string): boolean {
+    if (!this.browserEnabled) {
+      return false;
+    }
+
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      const pathname = parsed.pathname.toLowerCase();
+
+      if (
+        this.BROWSER_FIRST_HOST_PATTERNS.some((pattern) => pattern.test(hostname))
+      ) {
+        return true;
+      }
+
+      return this.looksLikeProductDetailPath(pathname);
+    } catch {
+      return false;
+    }
+  }
+
   private async fetchHtmlWithPuppeteer(
     url: string,
   ): Promise<PageFetchResult | null> {
@@ -460,7 +509,7 @@ export class UrlClassifierService {
       );
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: Math.max(this.REQUEST_TIMEOUT, 12_000),
+        timeout: this.BROWSER_NAVIGATION_TIMEOUT,
       });
 
       await this.dismissCookieBanners(page);
@@ -476,19 +525,76 @@ export class UrlClassifierService {
         (document.body?.innerText || '').replace(/\s+/g, ' ').trim(),
       );
       const primaryImageUrl = await page.evaluate(() => {
-        const images = Array.from(document.images)
-          .map((img) => {
-            const rect = img.getBoundingClientRect();
-            return {
-              src: img.currentSrc || img.src || '',
-              area: Math.max(rect.width, img.naturalWidth || 0) *
-                Math.max(rect.height, img.naturalHeight || 0),
-            };
-          })
-          .filter((img) => img.src && img.area > 40_000)
-          .sort((a, b) => b.area - a.area);
+        const PRODUCT_IMAGE_SELECTORS = [
+          '#landingImage',
+          '#imgBlkFront',
+          '#imgTagWrapperId img',
+          '[data-old-hires]',
+          '[data-a-dynamic-image]',
+          '[data-zoom-image]',
+          '[itemprop="image"]',
+          'main img',
+          'article img',
+        ];
+        const LOGO_PATTERN = /logo|sprite|icon|badge|prime|header|footer|nav|avatar/i;
 
-        return images[0]?.src || null;
+        const scoreImage = (img: HTMLImageElement, selectorBonus: number) => {
+          const rect = img.getBoundingClientRect();
+          const width = Math.max(rect.width, img.naturalWidth || 0);
+          const height = Math.max(rect.height, img.naturalHeight || 0);
+          const area = width * height;
+          const src = img.currentSrc || img.src || '';
+          const alt = img.alt || '';
+          const className = img.className || '';
+          const id = img.id || '';
+          const signalText = [src, alt, className, id].join(' ');
+
+          if (!src || area < 20_000) {
+            return null;
+          }
+
+          let score = area + selectorBonus;
+          if (LOGO_PATTERN.test(signalText)) {
+            score -= 500_000;
+          }
+          if (alt && /product|pants|shirt|dress|bottle|mug|bag/i.test(alt)) {
+            score += 120_000;
+          }
+
+          return { src, score };
+        };
+
+        const candidates = new Map<string, number>();
+        for (const selector of PRODUCT_IMAGE_SELECTORS) {
+          for (const node of document.querySelectorAll(selector)) {
+            if (!(node instanceof HTMLImageElement)) {
+              continue;
+            }
+            const candidate = scoreImage(node, 250_000);
+            if (!candidate) {
+              continue;
+            }
+            candidates.set(
+              candidate.src,
+              Math.max(candidates.get(candidate.src) ?? 0, candidate.score),
+            );
+          }
+        }
+
+        for (const node of Array.from(document.images)) {
+          const candidate = scoreImage(node, 0);
+          if (!candidate) {
+            continue;
+          }
+          candidates.set(
+            candidate.src,
+            Math.max(candidates.get(candidate.src) ?? 0, candidate.score),
+          );
+        }
+
+        return [...candidates.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([src]) => src)[0] || null;
       });
       const screenshot = Buffer.from(
         await page.screenshot({
@@ -679,6 +785,10 @@ export class UrlClassifierService {
       /id="__next"|id="root"|data-reactroot|__NUXT__|window\.__INITIAL_STATE__|<noscript>/i.test(
         html,
       );
+    const hasBotWallMarkers =
+      /captcha|robot check|enter the characters you see below|sorry, we just need to make sure/i.test(
+        html,
+      );
     const lacksSignals =
       !ogData.title &&
       !ogData.description &&
@@ -688,6 +798,7 @@ export class UrlClassifierService {
 
     return (
       bodyText.length < 180 ||
+      hasBotWallMarkers ||
       (lacksSignals && scriptCount > 8) ||
       (lacksSignals && hasShellMarkers)
     );
@@ -1134,5 +1245,18 @@ export class UrlClassifierService {
     ];
 
     return !rejectPatterns.some((pattern) => pattern.test(normalized));
+  }
+
+  private looksLikeProductDetailPath(pathname: string): boolean {
+    const patterns = [
+      /\/dp\/[a-z0-9]{10}/i,
+      /\/gp\/product\//i,
+      /\/products?\//i,
+      /\/product\//i,
+      /\/item\//i,
+      /\/p\/[a-z0-9-]+/i,
+    ];
+
+    return patterns.some((pattern) => pattern.test(pathname));
   }
 }

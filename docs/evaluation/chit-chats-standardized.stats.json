@@ -1,0 +1,16 @@
+{
+  "input": "/Users/cheng/Downloads/Chit Chats HTS Codes and Descriptions.csv",
+  "totalRows": 39775,
+  "invalidHtsRows": 0,
+  "emptyDescriptionRows": 0,
+  "uniqueStandardizedRows": 37694,
+  "uniqueStandardizedQueries": 36008,
+  "uniqueHtsNumbers": 2528,
+  "ambiguousQueries": 1073,
+  "rowsWithHtml": 7982,
+  "rowsWithMeasure": 1088,
+  "rowsWithCount": 511,
+  "rowsWithOptions": 11774,
+  "evalRowsBeforeValidation": 4976,
+  "evalRows": 2438
+}

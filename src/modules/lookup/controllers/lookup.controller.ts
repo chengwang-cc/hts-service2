@@ -11,16 +11,16 @@ import {
   UnauthorizedException,
   UseInterceptors,
   UploadedFile,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { createHash } from 'crypto';
 import {
   SearchService,
   UrlClassifierService,
   LookupConversationAgentService,
-  ClassificationService,
+  LookupClassificationJobService,
 } from '../services';
-import { VisionService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
 import { LOOKUP_CONVERSATION_QUEUE } from '../lookup.module';
 import {
@@ -45,8 +45,7 @@ export class LookupController {
   constructor(
     private readonly searchService: SearchService,
     private readonly urlClassifierService: UrlClassifierService,
-    private readonly classificationService: ClassificationService,
-    private readonly visionService: VisionService,
+    private readonly lookupClassificationJobService: LookupClassificationJobService,
     private readonly noteResolutionService: NoteResolutionService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
     private readonly queueService: QueueService,
@@ -70,9 +69,8 @@ export class LookupController {
   }
 
   /**
-   * Rerank autocomplete candidates using gpt-5-nano.
-   * Accepts the original user query and the autocomplete candidate list,
-   * returns the same candidates reordered by AI relevance score.
+   * Rerank autocomplete candidates with a latency-bounded AI pipeline.
+   * Uses a bounded OpenAI pass and falls back gracefully when unavailable.
    */
   @Public()
   @Post('rerank')
@@ -137,118 +135,26 @@ export class LookupController {
   /**
    * Full pipeline: URL → (vision or text) → HTS classification
    * Handles product pages, image URLs, and general web pages.
-   * Requires JWT authentication (resource-intensive: calls GPT-4o vision + classification).
+   * Runs asynchronously through pg-boss to avoid edge/gateway timeouts.
    */
+  @HttpCode(HttpStatus.ACCEPTED)
   @Post('classify-hts-from-url')
   async classifyHtsFromUrl(
     @CurrentUser() user: any,
     @Body() dto: ClassifyHtsFromUrlDto,
   ) {
-    if (!user?.organizationId) {
-      throw new UnauthorizedException('Authentication required');
-    }
-
-    const urlResult = await this.urlClassifierService.classifyUrl(dto.url);
-
-    if (urlResult.type === UrlType.INVALID) {
-      throw new BadRequestException(urlResult.error ?? 'Invalid or inaccessible URL');
-    }
-
-    let productDescription: string;
-    let visionUsed = false;
-    let detectedProduct: Record<string, unknown> | null = null;
-
-    if (urlResult.type === UrlType.IMAGE) {
-      // Direct image URL — analyze with GPT-4o vision
-      const analysis = await this.analyzeProductImageWithFallback(dto.url, {
-        url: dto.url,
-        title: urlResult.metadata?.title,
-      });
-      if (!analysis.products.length) {
-        throw new BadRequestException('No product detected in the image');
-      }
-      const product = analysis.products[0];
-      productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
-      visionUsed = true;
-      detectedProduct = {
-        name: product.name,
-        description: product.description,
-        materials: product.materials,
-        brand: product.brand,
-        confidence: product.confidence,
-      };
-    } else if (urlResult.imageUrl) {
-      // Product or webpage with an OG image — analyze image, supplement with OG text
-      const analysis = await this.analyzeProductImageWithFallback(urlResult.imageUrl, {
-        url: dto.url,
-        title: urlResult.metadata?.title,
-      });
-      const visionDescription = analysis.products[0]
-        ? [analysis.products[0].name, analysis.products[0].description, ...(analysis.products[0].materials ?? [])].filter(Boolean).join(', ')
-        : '';
-      const ogDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
-      productDescription = visionDescription || ogDescription;
-      visionUsed = !!visionDescription;
-      detectedProduct = analysis.products[0]
-        ? {
-            name: analysis.products[0].name,
-            description: analysis.products[0].description,
-            materials: analysis.products[0].materials,
-            brand: analysis.products[0].brand,
-            confidence: analysis.products[0].confidence,
-          }
-        : null;
-    } else {
-      // Webpage with no image — use extracted text description
-      productDescription = [urlResult.metadata?.productName, urlResult.metadata?.description].filter(Boolean).join(' — ');
-    }
-
-    if (!productDescription?.trim()) {
-      throw new BadRequestException('Unable to extract product description from URL');
-    }
-
-    const classification = await this.classificationService.classifyProduct(
-      productDescription,
-      user.organizationId,
-      {
-        inputMethod:
-          urlResult.type === UrlType.IMAGE
-            ? 'IMAGE_URL'
-            : urlResult.type === UrlType.PRODUCT
-              ? 'PRODUCT_URL'
-              : 'WEBPAGE_URL',
-        sourceUrl: dto.url,
-        sourceImageUrl:
-          urlResult.type === UrlType.IMAGE ? dto.url : (urlResult.imageUrl ?? null),
-        sourceEvidence: {
-          urlType: urlResult.type,
-          metadata: urlResult.metadata ?? null,
-          visionUsed,
-          detectedProduct,
-        },
-      },
-    );
-
     return {
       success: true,
-      data: {
-        ...classification,
-        source: {
-          ...(classification.source ?? {}),
-          url: dto.url,
-          urlType: urlResult.type,
-          visionUsed,
-          productDescription,
-        },
-      },
+      data: await this.lookupClassificationJobService.createUrlJob(user, dto.url),
     };
   }
 
   /**
    * Full pipeline: uploaded image → vision analysis → HTS classification
    * Accepts PNG, JPG, WebP images up to 10 MB.
-   * Requires JWT authentication.
+   * Runs asynchronously through pg-boss to avoid edge/gateway timeouts.
    */
+  @HttpCode(HttpStatus.ACCEPTED)
   @Post('classify-hts-from-image')
   @UseInterceptors(
     FileInterceptor('image', {
@@ -265,64 +171,27 @@ export class LookupController {
     @CurrentUser() user: any,
     @UploadedFile() image: Express.Multer.File,
   ) {
+    return {
+      success: true,
+      data: await this.lookupClassificationJobService.createImageJob(user, image),
+    };
+  }
+
+  @Get('classify-hts-jobs/:jobId')
+  async getClassificationJob(
+    @CurrentUser() user: any,
+    @Param('jobId') jobId: string,
+  ) {
     if (!user?.organizationId) {
       throw new UnauthorizedException('Authentication required');
     }
-    if (!image) {
-      throw new BadRequestException('Image file is required (field name: "image")');
-    }
-
-    const analysis = await this.visionService.analyzeProductImage(image.buffer, {
-      title: image.originalname,
-    });
-
-    if (!analysis.products.length) {
-      throw new BadRequestException('No product detected in the uploaded image');
-    }
-
-    const product = analysis.products[0];
-    const productDescription = [product.name, product.description, ...(product.materials ?? [])].filter(Boolean).join(', ');
-    const imageHash = createHash('sha256').update(image.buffer).digest('hex');
-
-    const classification = await this.classificationService.classifyProduct(
-      productDescription,
-      user.organizationId,
-      {
-        inputMethod: 'IMAGE_UPLOAD',
-        sourceImageHash: imageHash,
-        sourceEvidence: {
-          originalFilename: image.originalname,
-          mimeType: image.mimetype,
-          sizeBytes: image.size,
-          visionUsed: true,
-          detectedProduct: {
-            name: product.name,
-            description: product.description,
-            materials: product.materials,
-            brand: product.brand,
-            confidence: product.confidence,
-          },
-        },
-      },
-    );
 
     return {
       success: true,
-      data: {
-        ...classification,
-        source: {
-          ...(classification.source ?? {}),
-          visionUsed: true,
-          productDescription,
-          detectedProduct: {
-            name: product.name,
-            description: product.description,
-            materials: product.materials,
-            brand: product.brand,
-            confidence: product.confidence,
-          },
-        },
-      },
+      data: await this.lookupClassificationJobService.getJob(
+        jobId,
+        user.organizationId,
+      ),
     };
   }
 
@@ -558,72 +427,5 @@ export class LookupController {
     }
 
     return new Date().getFullYear();
-  }
-
-  private async analyzeProductImageWithFallback(
-    imageUrl: string,
-    context?: { url?: string; title?: string },
-  ) {
-    try {
-      return await this.visionService.analyzeProductImage(imageUrl, context);
-    } catch (error) {
-      if (!this.shouldRetryVisionWithDownloadedBuffer(imageUrl, error)) {
-        throw error;
-      }
-
-      const imageBuffer = await this.downloadImageBuffer(imageUrl);
-      return this.visionService.analyzeProductImage(imageBuffer, context);
-    }
-  }
-
-  private shouldRetryVisionWithDownloadedBuffer(
-    imageUrl: string,
-    error: unknown,
-  ): boolean {
-    const message =
-      error instanceof Error ? error.message : String(error ?? '');
-
-    return (
-      imageUrl.startsWith('http://127.0.0.1') ||
-      imageUrl.startsWith('http://localhost') ||
-      /error while downloading/i.test(message) ||
-      /status code:\s*407/i.test(message)
-    );
-  }
-
-  private async downloadImageBuffer(imageUrl: string): Promise<Buffer> {
-    const response = await fetch(imageUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      throw new BadRequestException(
-        `Unable to download product image (${response.status})`,
-      );
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      throw new BadRequestException('Extracted product asset is not an image');
-    }
-
-    const contentLength = Number(response.headers.get('content-length') || 0);
-    if (contentLength > 10 * 1024 * 1024) {
-      throw new BadRequestException('Extracted product image is too large');
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    if (buffer.length > 10 * 1024 * 1024) {
-      throw new BadRequestException('Extracted product image is too large');
-    }
-
-    return buffer;
   }
 }

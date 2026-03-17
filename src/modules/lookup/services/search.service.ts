@@ -4,6 +4,7 @@ import { Brackets, In, Repository } from 'typeorm';
 import { HtsEntity, EmbeddingService, EmbeddingProviderConfig } from '@hts/core';
 import { IntentRule, ScoreAdjustment } from './intent-rules';
 import { IntentRuleService } from './intent-rule.service';
+import { QueryNormalizationService } from './query-normalization.service';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -23,6 +24,14 @@ interface CandidateEntry {
   chapter: string;
   indent: number;
   fullDescription?: string[] | null;
+}
+
+interface SearchRetrievalPlan {
+  baseQuery: string;
+  semanticQuery: string;
+  keywordQueries: string[];
+  queryTokens: string[];
+  headingHints: string[];
 }
 
 
@@ -173,6 +182,8 @@ export class SearchService {
     // ── Socks / hosiery → chapter 61 ─────────────────────────────────────────────────────
     sock: ['socks', 'hosiery', 'knit'],
     socks: ['sock', 'hosiery', 'knit'],
+    baby: ['infant', 'infants', 'children'],
+    babies: ['infant', 'infants', 'children'],
     // ── Dice / game accessories → chapter 95 ─────────────────────────────────────────────
     dice: ['game', 'gaming', 'play', 'toys'],
     die: ['dice', 'game', 'play'],
@@ -697,7 +708,7 @@ export class SearchService {
     cardigan: ['knitwear', 'sweater', 'jumper', 'top', 'apparel'],
     vest: ['tank top', 'undershirt', 'sleeveless', 'apparel'],
     bathrobe: ['robe', 'dressing gown', 'towel robe', 'loungewear', 'apparel'],
-    apron: ['kitchen apron', 'bib', 'cooking apron', 'apparel'],
+    apron: ['kitchen apron', 'bib', 'cooking apron', 'apparel', 'protective'],
     romper: ['jumpsuit', 'one-piece', 'playsuit', 'apparel'],
     // ── Furniture additions → chapter 94 ─────────────────────────────────────
     sofa: ['couch', 'settee', 'loveseat', 'sectional', 'furniture'],
@@ -755,7 +766,8 @@ export class SearchService {
     ukulele: ['string instrument', 'musical', 'guitar'],
     // ── Yarn & textile → chapter 52/55 ────────────────────────────────────────
     yarn: ['thread', 'wool', 'knitting yarn', 'crochet', 'fiber'],
-    fabric: ['cloth', 'textile', 'material', 'woven'],
+    cord: ['twine', 'rope', 'string', 'braided'],
+    cords: ['cord', 'twine', 'rope', 'string', 'braided'],
     ribbon: ['decorative ribbon', 'satin ribbon', 'grosgrain', 'trim'],
     // ── Bags & cases → chapter 42 ─────────────────────────────────────────────
     'gym bag': ['duffel bag', 'sports bag', 'workout bag', 'athletic bag'],
@@ -1137,7 +1149,8 @@ export class SearchService {
     'heated blanket': ['electric blanket', 'warming blanket', 'electric throw'],
     'heat gun': ['hot air gun', 'heat blower', 'paint stripper gun'],
     // ── Sewing supplies → chapter 56/96 ──────────────────────────────────────
-    thread: ['sewing thread', 'polyester thread', 'cotton thread', 'embroidery thread sew'],
+    thread: ['sewing thread', 'polyester thread', 'cotton thread', 'embroidery thread sew', 'twine', 'string', 'cord'],
+    threads: ['thread', 'twine', 'string', 'cord'],
     'sewing needle': ['hand needle', 'embroidery needle', 'tapestry needle'],
     'knitting needle': ['crochet hook', 'circular needle', 'dpn needle'],
     'zipper': ['zip fastener', 'metal zipper', 'nylon zipper', 'invisible zipper'],
@@ -2398,6 +2411,7 @@ export class SearchService {
     private readonly htsRepository: Repository<HtsEntity>,
     @Optional() private readonly embeddingService: EmbeddingService,
     private readonly intentRuleService: IntentRuleService,
+    private readonly queryNormalizationService: QueryNormalizationService,
   ) {}
 
   /**
@@ -2456,13 +2470,14 @@ export class SearchService {
   }
 
   async hybridSearch(query: string, limit: number = 20): Promise<any[]> {
-    const normalizedQuery = this.normalizeQuery(query);
+    const plan = await this.buildSearchRetrievalPlan(query);
+    const normalizedQuery = plan.baseQuery;
     const safeLimit = this.clampLimit(limit, 20);
     if (!normalizedQuery) {
       return [];
     }
 
-    const queryTokens = this.tokenizeQuery(normalizedQuery);
+    const queryTokens = plan.queryTokens;
     const matchedRules = this.intentRuleService.matchRules(new Set(queryTokens), normalizedQuery.toLowerCase());
     const matchedRuleIds = new Set(matchedRules.map((r) => r.id));
     const lexicalTokens = this.applyLexicalFiltering(queryTokens, matchedRules);
@@ -2471,8 +2486,11 @@ export class SearchService {
     const candidateLimit = Math.min(this.MAX_LIMIT, safeLimit * 4);
 
     const [keywordResults, semanticResults] = await Promise.all([
-      this.searchByKeyword(normalizedQuery, candidateLimit, expandedTokens),
-      this.semanticSearch(normalizedQuery, candidateLimit),
+      this.searchKeywordVariants(plan.keywordQueries, candidateLimit, expandedTokens),
+      this.searchSemanticVariants(
+        [normalizedQuery, plan.semanticQuery],
+        candidateLimit,
+      ),
     ]);
 
     const combined = this.combineResults(
@@ -2511,6 +2529,14 @@ export class SearchService {
           normalizedQuery,
           this.buildEntryText(entry),
         );
+        const retailPackagingBoost = this.computeRetailPackagingBoost(
+          normalizedQuery,
+          entry,
+        );
+        const headingHintBoost = this.computeHeadingHintBoost(
+          entry.htsNumber,
+          plan.headingHints,
+        );
         const specificityBoost = this.computeSpecificityBoost(entry.htsNumber);
         const genericPenalty = this.computeGenericPenalty(
           entry.description,
@@ -2522,11 +2548,12 @@ export class SearchService {
         }
         const intentBoost = this.computeRuleBoost(entry, tokenSet, matchedRules);
         const intentPenalty = this.computeRulePenalty(entry, tokenSet, matchedRules);
-
         const score =
           result.score +
           coverage * 0.7 +
           phraseBoost +
+          retailPackagingBoost +
+          headingHintBoost +
           specificityBoost -
           genericPenalty +
           intentBoost -
@@ -2830,6 +2857,7 @@ export class SearchService {
         // leaf codes (e.g. 8544.42.90.90) when the query includes terms like "USB charging".
         const coverage = this.computeCoverageScore(expandedTokens, text);
         const phraseBoost = this.computePhraseBoost(query, text);
+        const retailPackagingBoost = this.computeRetailPackagingBoost(query, entry);
         const specificityBoost = this.computeSpecificityBoost(htsNumber);
         const genericPenalty = this.computeGenericPenalty(
           entry.description,
@@ -2852,6 +2880,7 @@ export class SearchService {
             base +
             coverage * 0.85 +
             phraseBoost +
+            retailPackagingBoost +
             specificityBoost -
             genericPenalty +
             intentBoost -
@@ -3237,6 +3266,21 @@ export class SearchService {
     ];
   }
 
+  private filterRetrievalTokens(tokens: string[]): string[] {
+    return tokens.filter((token) => {
+      if (/^\d+$/.test(token)) {
+        return false;
+      }
+      if (/^\d+(?:st|nd|rd|th|mm|cm|in|oz|lb|lbs|kg|g|ml|l|yd|yards?|ga|months?)$/i.test(token)) {
+        return false;
+      }
+      if (/[a-z]/i.test(token) && /\d/.test(token)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
   // Expansion is intentionally non-recursive (single-depth only) to avoid infinite loops
   // and unbounded expansion. e.g. bluetooth→wireless, but wireless's synonyms are NOT
   // further expanded. This is a design constraint, not an oversight.
@@ -3281,12 +3325,13 @@ export class SearchService {
       return 0;
     }
 
+    const textTokens = new Set(text.match(/[a-z0-9]+/g) || []);
     let covered = 0;
     for (const token of tokens) {
       if (token.length < 2) {
         continue;
       }
-      if (text.includes(token)) {
+      if (textTokens.has(token)) {
         covered += 1;
       }
     }
@@ -3623,5 +3668,196 @@ export class SearchService {
         return b.score - a.score;
       })
       .slice(0, limit);
+  }
+
+  private async buildSearchRetrievalPlan(
+    query: string,
+  ): Promise<SearchRetrievalPlan> {
+    const baseQuery = this.normalizeQuery(query);
+    const aiNormalization = await this.queryNormalizationService.normalize(baseQuery);
+    const packagingPhrases = this.buildPackagingSearchPhrases(baseQuery);
+    const semanticQuery = this.normalizeQuery(
+      aiNormalization?.normalizedQuery || baseQuery,
+    );
+    const keywordQueries = this.uniqueQueries([
+      semanticQuery,
+      baseQuery,
+      ...packagingPhrases,
+      ...(aiNormalization?.searchPhrases || []).map((phrase) =>
+        this.normalizeQuery(phrase),
+      ),
+    ]);
+
+    const ignoreTerms = new Set(
+      (aiNormalization?.ignoreTerms || []).flatMap((term) =>
+        this.tokenizeQuery(term),
+      ),
+    );
+    const queryTokens = this.filterRetrievalTokens(this.uniqueTokens([
+      ...this.tokenizeQuery(semanticQuery),
+      ...packagingPhrases.flatMap((phrase) => this.tokenizeQuery(phrase)),
+      ...((aiNormalization?.keyTerms || []).flatMap((term) =>
+        this.tokenizeQuery(term),
+      )),
+    ])).filter((token) => !ignoreTerms.has(token));
+
+    return {
+      baseQuery,
+      semanticQuery: semanticQuery || baseQuery,
+      keywordQueries: keywordQueries.length > 0 ? keywordQueries : [baseQuery],
+      queryTokens:
+        queryTokens.length > 0
+          ? queryTokens
+          : this.filterRetrievalTokens(this.tokenizeQuery(baseQuery)),
+      headingHints: aiNormalization?.headingHints || [],
+    };
+  }
+
+  private async searchKeywordVariants(
+    queries: string[],
+    limit: number,
+    expandedTokens: string[],
+  ): Promise<KeywordCandidate[]> {
+    const uniqueQueries = this.uniqueQueries(queries);
+    const lists = await Promise.all(
+      uniqueQueries.map((query, index) =>
+        this.searchByKeyword(
+          query,
+          index === 0 ? limit : Math.max(10, Math.floor(limit * 0.75)),
+          expandedTokens,
+        ),
+      ),
+    );
+    return this.fuseRankedKeywordLists(lists, limit);
+  }
+
+  private async searchSemanticVariants(
+    queries: string[],
+    limit: number,
+  ): Promise<SemanticCandidate[]> {
+    const uniqueQueries = this.uniqueQueries(queries);
+    const lists = await Promise.all(
+      uniqueQueries.map((query, index) =>
+        this.semanticSearch(
+          query,
+          index === 0 ? limit : Math.max(10, Math.floor(limit * 0.75)),
+        ),
+      ),
+    );
+    return this.fuseRankedSemanticLists(lists, limit);
+  }
+
+  private fuseRankedKeywordLists(
+    lists: KeywordCandidate[][],
+    limit: number,
+  ): KeywordCandidate[] {
+    const fused = new Map<string, number>();
+    lists.forEach((list, listIndex) => {
+      const listWeight = listIndex === 0 ? 1.15 : 1.0;
+      list.forEach((row, rankIndex) => {
+        fused.set(
+          row.htsNumber,
+          (fused.get(row.htsNumber) || 0) + this.rrf(rankIndex) * listWeight,
+        );
+      });
+    });
+
+    return [...fused.entries()]
+      .map(([htsNumber, score]) => ({ htsNumber, score }))
+      .sort((a, b) =>
+        b.score === a.score
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.score - a.score,
+      )
+      .slice(0, limit);
+  }
+
+  private fuseRankedSemanticLists(
+    lists: SemanticCandidate[][],
+    limit: number,
+  ): SemanticCandidate[] {
+    const fused = new Map<string, number>();
+    lists.forEach((list, listIndex) => {
+      const listWeight = listIndex === 0 ? 1.1 : 0.95;
+      list.forEach((row, rankIndex) => {
+        fused.set(
+          row.htsNumber,
+          (fused.get(row.htsNumber) || 0) + this.rrf(rankIndex) * listWeight,
+        );
+      });
+    });
+
+    return [...fused.entries()]
+      .map(([htsNumber, similarity]) => ({ htsNumber, similarity }))
+      .sort((a, b) =>
+        b.similarity === a.similarity
+          ? a.htsNumber.localeCompare(b.htsNumber)
+          : b.similarity - a.similarity,
+      )
+      .slice(0, limit);
+  }
+
+  private computeHeadingHintBoost(
+    htsNumber: string,
+    headingHints: string[],
+  ): number {
+    if (!headingHints.length) {
+      return 0;
+    }
+
+    const compact = htsNumber.replace(/\D/g, '');
+    let boost = 0;
+    for (const hint of headingHints) {
+      const cleanHint = hint.replace(/\D/g, '').slice(0, 4);
+      if (cleanHint.length !== 4) {
+        continue;
+      }
+      if (compact.startsWith(cleanHint)) {
+        boost = Math.max(boost, 0.28);
+        continue;
+      }
+      if (compact.startsWith(cleanHint.slice(0, 2))) {
+        boost = Math.max(boost, 0.12);
+      }
+    }
+    return boost;
+  }
+
+  private computeRetailPackagingBoost(
+    query: string,
+    entry: CandidateEntry,
+  ): number {
+    if (
+      !/\b(packaged?|retail|jar|bottle|can|pouch|sachet|box|bag)\b/i.test(query)
+    ) {
+      return 0;
+    }
+
+    const text = this.buildEntryText(entry);
+    if (text.includes('packaged for retail sale')) {
+      return 0.95;
+    }
+    if (text.includes('retail sale')) {
+      return 0.45;
+    }
+    return 0;
+  }
+
+  private uniqueQueries(values: string[]): string[] {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  }
+
+  private uniqueTokens(values: string[]): string[] {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  }
+
+  private buildPackagingSearchPhrases(query: string): string[] {
+    if (
+      !/\b(packaged?|retail|jar|bottle|can|pouch|sachet|box|bag)\b/i.test(query)
+    ) {
+      return [];
+    }
+
+    return ['packaged for retail sale', 'retail sale'];
   }
 }

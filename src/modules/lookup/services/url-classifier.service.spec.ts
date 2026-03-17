@@ -79,7 +79,8 @@ describe('UrlClassifierService', () => {
     const result = await service.classifyUrl('https://shop.example.com/products/fixture');
 
     expect(result.type).toBe(UrlType.PRODUCT);
-    expect(result.imageUrl).toBe(
+    expect(result.imageUrl).toBeUndefined();
+    expect(result.metadata?.previewImageUrl).toBe(
       'https://shop.example.com/assets/bottle.png?variant=hero',
     );
     expect(result.metadata?.extractionMethod).toBe('open-graph');
@@ -147,7 +148,8 @@ describe('UrlClassifierService', () => {
     );
 
     expect(result.type).toBe(UrlType.PRODUCT);
-    expect(result.imageUrl).toBe(
+    expect(result.imageUrl).toBeUndefined();
+    expect(result.metadata?.previewImageUrl).toBe(
       'https://shop.example.com/assets/bottle.png?rendered=1',
     );
     expect(result.metadata?.usedBrowser).toBe(true);
@@ -158,6 +160,60 @@ describe('UrlClassifierService', () => {
     );
     expect(result.metadata?.description).toContain('vacuum-insulated');
     expect(openAiService.response).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers Puppeteer first for Amazon-style product detail URLs', async () => {
+    const renderedHtml = `<!doctype html>
+      <html lang="en">
+        <head>
+          <title>UGREEN DisplayPort Cable</title>
+        </head>
+        <body>
+          <article class="product-detail" data-product-id="amazon-cable">
+            <h1>UGREEN DisplayPort 2.1 Cable</h1>
+            <p>DisplayPort cable for monitor connections supporting high refresh-rate video output.</p>
+            <button>Add to Cart</button>
+          </article>
+        </body>
+      </html>`;
+
+    Object.defineProperty(service, 'browserEnabled', {
+      value: true,
+      configurable: true,
+    });
+    jest.spyOn(service as never, 'fetchHtmlWithPuppeteer' as never).mockResolvedValue({
+      html: renderedHtml,
+      method: 'puppeteer',
+      renderedTitle: 'UGREEN DisplayPort Cable',
+      renderedText:
+        'UGREEN DisplayPort 2.1 Cable DisplayPort cable for monitor connections supporting high refresh-rate video output.',
+      screenshot: Buffer.from('fixture-image'),
+      primaryImageUrl: 'https://images.example.com/ugreen-cable.jpg',
+    } as never);
+    openAiService.response.mockResolvedValue({
+      output_text: JSON.stringify({
+        productName: 'UGREEN DisplayPort 2.1 Cable',
+        description:
+          'DisplayPort cable for monitor connections supporting high refresh-rate video output.',
+        isProductPage: true,
+        confidence: 0.92,
+      }),
+    });
+
+    const result = await service.classifyUrl(
+      'https://www.amazon.ca/UGREEN-DisplayPort-8K120Hz-Monitor-Compatible/dp/B0DSJ633D8/',
+    );
+
+    expect(httpService.get).not.toHaveBeenCalled();
+    expect(result.type).toBe(UrlType.PRODUCT);
+    expect(result.imageUrl).toBeUndefined();
+    expect(result.metadata?.previewImageUrl).toBe(
+      'https://images.example.com/ugreen-cable.jpg',
+    );
+    expect(result.metadata?.usedBrowser).toBe(true);
+    expect(result.metadata?.extractionMethod).toBe('rendered-page-ai');
+    expect(result.metadata?.productName).toBe('UGREEN DisplayPort 2.1 Cable');
+    expect(result.metadata?.description).toContain('DisplayPort cable');
   });
 
   it('returns multiple product candidates for listing pages so callers can use batch lookup', async () => {
@@ -214,6 +270,7 @@ describe('UrlClassifierService', () => {
     const result = await service.classifyUrl('https://shop.example.com/catalog');
 
     expect(result.type).toBe(UrlType.WEBPAGE);
+    expect(result.imageUrl).toBeUndefined();
     expect(result.metadata?.isMultiProductPage).toBe(true);
     expect(result.metadata?.productCount).toBe(2);
     expect(result.metadata?.productCandidates).toEqual([

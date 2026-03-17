@@ -1,0 +1,8 @@
+[search]
+evaluated: 300
+exact@1: 13.33%
+exact@3: 23.67%
+exact@10: 36.67%
+chapter@10: 85.00%
+errors: 0
+latency_ms: min=140 p50=180 p95=1493 p99=1918 max=4999 avg=373.09

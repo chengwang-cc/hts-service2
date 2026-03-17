@@ -1,8 +1,10 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import {
   ProductClassificationEntity,
+  LookupClassificationJobEntity,
   ApiUsageEntity,
   LookupConversationSessionEntity,
   LookupConversationMessageEntity,
@@ -11,6 +13,7 @@ import {
   ClassificationService,
   UrlClassifierService,
   LookupConversationAgentService,
+  LookupClassificationJobService,
   RateLimitService,
   RateLimitGuard,
   LookupController,
@@ -28,6 +31,7 @@ import { IntentRuleAdminService } from './services/intent-rule-admin.service';
 import { IntentRuleDebugService, INTENT_RULE_DEBUG_QUEUE } from './services/intent-rule-debug.service';
 import { RerankService } from './services/rerank.service';
 import { SmartClassifyService } from './services/smart-classify.service';
+import { QueryNormalizationService } from './services/query-normalization.service';
 import { LookupDebugSessionEntity } from './entities/lookup-debug-session.entity';
 import { HtsEntity, CoreModule, AnthropicService } from '@hts/core';
 import { AuthModule } from '../auth/auth.module';
@@ -39,6 +43,7 @@ import { QueueModule } from '../queue/queue.module';
 import { QueueService } from '../queue/queue.service';
 
 export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
+const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
 
 /**
  * Lookup Wrapper Module
@@ -56,6 +61,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     QueueModule,
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
+      LookupClassificationJobEntity,
       ApiUsageEntity,
       LookupConversationSessionEntity,
       LookupConversationMessageEntity,
@@ -74,6 +80,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     ClassificationService,
     UrlClassifierService,
     LookupConversationAgentService,
+    LookupClassificationJobService,
     RateLimitService,
     RateLimitGuard,
     UsageTrackingService,
@@ -84,6 +91,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     TestSampleGenerationService,
     IntentRuleAdminService,
     IntentRuleDebugService,
+    QueryNormalizationService,
     RerankService,
     SmartClassifyService,
   ],
@@ -92,6 +100,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     ClassificationService,
     UrlClassifierService,
     LookupConversationAgentService,
+    LookupClassificationJobService,
     RateLimitService,
     GroundedVerifierService,
     IntentRuleService,
@@ -99,6 +108,7 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
     TestSampleGenerationService,
     IntentRuleAdminService,
     IntentRuleDebugService,
+    QueryNormalizationService,
     RerankService,
     SmartClassifyService,
   ],
@@ -106,7 +116,9 @@ export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
 export class LookupModule implements OnModuleInit {
   constructor(
     private readonly queueService: QueueService,
+    private readonly configService: ConfigService,
     private readonly lookupConversationAgentService: LookupConversationAgentService,
+    private readonly lookupClassificationJobService: LookupClassificationJobService,
     private readonly ruleCoverageService: RuleCoverageService,
     private readonly testSampleService: TestSampleGenerationService,
     private readonly debugService: IntentRuleDebugService,
@@ -129,6 +141,24 @@ export class LookupModule implements OnModuleInit {
         );
       },
       { teamSize: 3, teamConcurrency: 1 },
+    );
+
+    await this.queueService.registerHandler(
+      LOOKUP_CLASSIFICATION_QUEUE,
+      async (job) => {
+        const { jobId } = job.data as { jobId: string };
+        await this.lookupClassificationJobService.processJob(jobId);
+      },
+      {
+        teamSize: this.configService.get<number>(
+          'LOOKUP_CLASSIFICATION_QUEUE_TEAM_SIZE',
+          1,
+        ),
+        teamConcurrency: this.configService.get<number>(
+          'LOOKUP_CLASSIFICATION_QUEUE_CONCURRENCY',
+          2,
+        ),
+      },
     );
 
     // Job 1: Rule coverage scan — 2 chapters processed concurrently

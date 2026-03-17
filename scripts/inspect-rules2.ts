@@ -1,22 +1,27 @@
-#!/usr/bin/env ts-node
 import 'tsconfig-paths/register';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { IntentRuleService } from '../src/modules/lookup/services/intent-rule.service';
 
-async function main() {
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
-  const svc = app.get(IntentRuleService, { strict: false });
-  const allRules = svc.getAllRules();
-
-  const TARGETS = ['AI_CH36_SIGNAL_FLARES', 'AI_CH91_DASHBOARD_CLOCK', 'AI_CH91_MARINE_CHRONOMETER',
-    'AI_CH89_FISHING_VESSEL', 'AI_CH03_ROE_CAVIAR'];
-  for (const id of TARGETS) {
-    const r = allRules.find(x => x.id === id);
-    if (!r) { console.log(`NOT FOUND: ${id}`); continue; }
-    console.log(`\n=== ${r.id} ===`);
-    console.log(JSON.stringify({ description: r.description, pattern: r.pattern, whitelist: r.whitelist }, null, 2));
+async function run() {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: [] });
+  try {
+    const svc = app.get(IntentRuleService, { strict: false });
+    const allRules = svc.getAllRules() as any[];
+    const ids = ['WOOD_DISPLAY_STAND_INTENT', 'COTTON_BABY_BLANKET_INTENT', 'DECORATIVE_GLASS_VESSEL_INTENT'];
+    for (const id of ids) {
+      const rule = allRules.find((r: any) => r.id === id);
+      if (rule) {
+        console.log(`\n${id} (priority:${rule.priority}):`);
+        console.log('  whitelist:', JSON.stringify(rule.whitelist));
+        console.log('  inject:', JSON.stringify(rule.inject?.slice(0,4)));
+        console.log('  anyOf[:4]:', JSON.stringify(rule.pattern?.anyOf?.slice(0,4)));
+      } else {
+        console.log(`${id}: NOT FOUND`);
+      }
+    }
+  } finally {
+    await app.close();
   }
-  await app.close();
 }
-main().catch(e => { console.error(e); process.exit(1); });
+run().catch(console.error);

@@ -1,0 +1,44 @@
+{
+  "baseUrl": "https://api.usahts.com/api/v1",
+  "input": "/Users/cheng/projects/cc/hts/hts-service/docs/evaluation/chit-chats-live-eval.csv",
+  "rowsEvaluated": 300,
+  "endpoints": [
+    "search",
+    "smart-classify"
+  ],
+  "summary": {
+    "search": {
+      "evaluated": 300,
+      "exactTop1": 40,
+      "exactTop3": 79,
+      "exactTop10": 124,
+      "chapterTop10": 261,
+      "errors": 0,
+      "latencyMs": {
+        "min": 140,
+        "p50": 1132,
+        "p95": 2303,
+        "p99": 3387,
+        "max": 4179,
+        "avg": 1012.84
+      }
+    },
+    "smart-classify": {
+      "evaluated": 300,
+      "exactTop1": 41,
+      "exactTop3": 78,
+      "exactTop10": 95,
+      "chapterTop10": 257,
+      "errors": 0,
+      "latencyMs": {
+        "min": 146,
+        "p50": 304,
+        "p95": 957,
+        "p99": 8183,
+        "max": 8196,
+        "avg": 530.49
+      }
+    }
+  },
+  "generatedAt": "2026-03-16T22:58:42.295Z"
+}

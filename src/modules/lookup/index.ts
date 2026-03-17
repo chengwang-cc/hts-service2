@@ -1,5 +1,6 @@
 export * from './lookup.module';
 export * from './entities/product-classification.entity';
+export * from './entities/lookup-classification-job.entity';
 export * from './entities/api-usage.entity';
 export * from './entities/lookup-conversation-session.entity';
 export * from './entities/lookup-conversation-message.entity';

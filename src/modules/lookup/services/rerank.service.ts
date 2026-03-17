@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OpenAiService } from '../../../core/services/openai.service';
 
 export interface RerankCandidate {
@@ -12,8 +13,17 @@ export interface RerankCandidate {
 @Injectable()
 export class RerankService {
   private readonly logger = new Logger(RerankService.name);
+  private readonly openAiTimeoutMs: number;
 
-  constructor(private readonly openAiService: OpenAiService) {}
+  constructor(
+    private readonly openAiService: OpenAiService,
+    private readonly configService: ConfigService,
+  ) {
+    this.openAiTimeoutMs = this.configService.get<number>(
+      'LOOKUP_RERANK_OPENAI_TIMEOUT_MS',
+      8000,
+    );
+  }
 
   /**
    * Rerank HTS candidates using gpt-5-nano for a given user query.
@@ -22,10 +32,17 @@ export class RerankService {
   async rerank(query: string, candidates: RerankCandidate[]): Promise<RerankCandidate[]> {
     if (candidates.length <= 1) return candidates;
 
+    return this.tryOpenAiRerank(query, candidates);
+  }
+
+  private async tryOpenAiRerank(
+    query: string,
+    candidates: RerankCandidate[],
+  ): Promise<RerankCandidate[]> {
     const candidateList = candidates.map((c, i) => ({
       index: i,
       htsNumber: c.htsNumber,
-      description: c.fullDescription?.slice(-3).join(' > ') || c.description,
+      description: this.buildCandidateDescription(c),
     }));
 
     // json_object format requires the word "json" in the input
@@ -37,22 +54,26 @@ ${JSON.stringify(candidateList)}
 Return a JSON object with key "ranked" containing an array of candidate indices ordered from most to least relevant to the user query. Example: {"ranked":[2,0,1]}`;
 
     try {
-      const res = await this.openAiService.response(input, {
-        model: 'gpt-5-nano',
-        instructions:
-          'You are an HTS (Harmonized Tariff Schedule) classification expert. ' +
-          'Rank the given HTS candidates by how precisely they match the user query. ' +
-          'Apply these rules in order: ' +
-          '(1) MATERIAL — composition must match (cotton≠synthetic, steel≠aluminum, plastic≠rubber). ' +
-          '(2) SPECIES/VARIETY — for food, animals, plants: prefer the specific species over generic (Atlantic salmon > fish > nesoi). ' +
-          '(3) PROCESSING STATE — fresh≠frozen≠smoked≠dried≠canned. ' +
-          '(4) FORM — fillet≠whole, cut≠uncut, powder≠liquid. ' +
-          '(5) SPECIFICITY — always prefer the most specific matching code over "other", "nesoi", or "not elsewhere specified". ' +
-          '(6) USE CASE — functional purpose and end use must match the query intent. ' +
-          'Return only a JSON object with key "ranked" containing the array of indices.',
-        text: { format: { type: 'json_object' } },
-        // NOTE: do NOT set max_output_tokens for reasoning models (gpt-5-nano)
-      });
+      const res = await this.withTimeout(
+        this.openAiService.response(input, {
+          model: 'gpt-5-nano',
+          instructions:
+            'You are an HTS (Harmonized Tariff Schedule) classification expert. ' +
+            'Rank the given HTS candidates by how precisely they match the user query. ' +
+            'Apply these rules in order: ' +
+            '(1) MATERIAL — composition must match (cotton≠synthetic, steel≠aluminum, plastic≠rubber). ' +
+            '(2) SPECIES/VARIETY — for food, animals, plants: prefer the specific species over generic (Atlantic salmon > fish > nesoi). ' +
+            '(3) PROCESSING STATE — fresh≠frozen≠smoked≠dried≠canned. ' +
+            '(4) FORM — fillet≠whole, cut≠uncut, powder≠liquid. ' +
+            '(5) SPECIFICITY — always prefer the most specific matching code over "other", "nesoi", or "not elsewhere specified". ' +
+            '(6) USE CASE — functional purpose and end use must match the query intent. ' +
+            'Return only a JSON object with key "ranked" containing the array of indices.',
+          text: { format: { type: 'json_object' } },
+          // NOTE: do NOT set max_output_tokens for reasoning models (gpt-5-nano)
+        }),
+        this.openAiTimeoutMs,
+        'OpenAI rerank timed out',
+      );
 
       const parsed = JSON.parse(res.output_text || '{}') as { ranked?: unknown };
       const indices = parsed.ranked;
@@ -88,5 +109,22 @@ Return a JSON object with key "ranked" containing an array of candidate indices 
       this.logger.error(`Rerank failed (returning original order): ${msg}`);
       return candidates;
     }
+  }
+
+  private buildCandidateDescription(candidate: RerankCandidate): string {
+    return candidate.fullDescription?.slice(-3).join(' > ') || candidate.description;
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    message: string,
+  ): Promise<T> {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(message)), timeoutMs),
+      ),
+    ]);
   }
 }

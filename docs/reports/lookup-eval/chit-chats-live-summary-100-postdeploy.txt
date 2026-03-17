@@ -1,0 +1,17 @@
+[search]
+evaluated: 100
+exact@1: 6.00%
+exact@3: 27.00%
+exact@10: 36.00%
+chapter@10: 93.00%
+errors: 0
+latency_ms: min=145 p50=256 p95=727 p99=1724 max=1758 avg=340.58
+
+[smart-classify]
+evaluated: 100
+exact@1: 8.00%
+exact@3: 27.00%
+exact@10: 32.00%
+chapter@10: 90.00%
+errors: 0
+latency_ms: min=151 p50=248 p95=647 p99=1549 max=1579 avg=293.78

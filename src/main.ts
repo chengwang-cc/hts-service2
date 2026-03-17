@@ -23,7 +23,13 @@ async function bootstrap() {
     origin: [...devOrigins, ...envOrigins],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-API-Key',
+      'X-Guest-Token',
+      'x-guest-token',
+    ],
   });
 
   // Set global API prefix

@@ -41,6 +41,7 @@ export class UrlMetadata {
   extractionMethod?: string;
   usedBrowser?: boolean;
   usedVision?: boolean;
+  previewImageUrl?: string;
   renderedImageUrl?: string;
   isMultiProductPage?: boolean;
   productCount?: number;

@@ -25,12 +25,12 @@ export class SmartClassifyService {
   /**
    * 3-phase hierarchical classification pipeline:
    *
-   * Phase 1 — Chapter identification (fast, no LLM)
-   *   Run autocomplete to get top-10 candidates. Extract the top 2 chapters
-   *   by frequency. Chapter accuracy is ~95%, so this is a reliable router.
+   * Phase 1 — Chapter identification
+   *   Run the hybrid search pipeline, which can normalize long descriptive
+   *   queries into HTS-friendly terminology before retrieval.
    *
    * Phase 2 — Focused semantic search within identified chapters
-   *   Re-run semantic search restricted to those 2 chapters (~300-500 codes).
+   *   Re-run semantic search restricted to the strongest candidate chapters.
    *   Much more discriminating than searching 17,000 codes.
    *
    * Phase 3 — AI reranking of narrowed candidates
@@ -43,9 +43,25 @@ export class SmartClassifyService {
       return { query, results: [], phases: { topChapters: [], narrowedCount: 0 } };
     }
 
+    if (this.shouldUseDirectHybridResults(q)) {
+      const direct = (await this.searchService.hybridSearch(q, 5)) as RerankCandidate[];
+      const topChapters = [
+        ...new Set(
+          (direct as Array<RerankCandidate & { chapter?: string }>)
+            .map((row) => row.chapter)
+            .filter((chapter): chapter is string => Boolean(chapter)),
+        ),
+      ].slice(0, 3);
+      return {
+        query: q,
+        results: direct,
+        phases: { topChapters, narrowedCount: direct.length },
+      };
+    }
+
     // ── Phase 1: chapter identification ────────────────────────────────────
-    this.logger.log(`[SmartClassify] Phase 1: autocomplete "${q}"`);
-    const phase1 = await this.searchService.autocomplete(q, 10);
+    this.logger.log(`[SmartClassify] Phase 1: hybrid search "${q}"`);
+    const phase1 = await this.searchService.hybridSearch(q, 12);
 
     const chapterCounts = new Map<string, number>();
     for (const r of phase1) {
@@ -55,7 +71,7 @@ export class SmartClassifyService {
 
     const topChapters = [...chapterCounts.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
+      .slice(0, 3)
       .map(([ch]) => ch);
 
     this.logger.log(`[SmartClassify] Phase 1 done: chapters=[${topChapters.join(', ')}]`);
@@ -69,20 +85,65 @@ export class SmartClassifyService {
     const narrowed = await this.searchService.semanticSearchInChapters(q, topChapters, 30);
     this.logger.log(`[SmartClassify] Phase 2 done: ${narrowed.length} candidates`);
 
-    const candidates: RerankCandidate[] =
-      narrowed.length > 0
-        ? narrowed.slice(0, 20)
-        : (phase1.slice(0, 10) as RerankCandidate[]);
+    const candidates = this.mergeCandidates(
+      phase1 as RerankCandidate[],
+      narrowed as RerankCandidate[],
+      20,
+    );
 
-    // ── Phase 3: AI reranking ──────────────────────────────────────────────
-    this.logger.log(`[SmartClassify] Phase 3: reranking ${candidates.length} candidates`);
-    const reranked = await this.rerankService.rerank(q, candidates);
+    const wordCount = q.split(/\s+/).filter(Boolean).length;
+    const shouldRerank = wordCount <= 2;
+    let finalResults = candidates;
+    if (shouldRerank && candidates.length > 1) {
+      this.logger.log(
+        `[SmartClassify] Phase 3: reranking ${candidates.length} candidates`,
+      );
+      finalResults = await this.rerankService.rerank(q, candidates);
+    }
     this.logger.log(`[SmartClassify] Done for "${q}"`);
 
     return {
       query: q,
-      results: reranked.slice(0, 5),
+      results: finalResults.slice(0, 5),
       phases: { topChapters, narrowedCount: narrowed.length },
     };
+  }
+
+  private shouldUseDirectHybridResults(query: string): boolean {
+    const lower = query.toLowerCase();
+    const naturalLanguageSignals =
+      /\b(packaged|containing|made of|made from|prepared|roasted|ground|fresh|frozen|sample|promotional|not for resale|retail)\b/.test(
+        lower,
+      ) || /[.]/.test(query);
+
+    const catalogSignals =
+      /\d/.test(query) ||
+      /[,/|]/.test(query) ||
+      /[a-z]+\d+[a-z0-9]*/i.test(query);
+
+    return catalogSignals && !naturalLanguageSignals;
+  }
+
+  private mergeCandidates(
+    primary: RerankCandidate[],
+    secondary: RerankCandidate[],
+    limit: number,
+  ): RerankCandidate[] {
+    const merged = new Map<string, RerankCandidate>();
+    for (const candidate of primary) {
+      merged.set(candidate.htsNumber, candidate);
+      if (merged.size >= limit) {
+        return [...merged.values()];
+      }
+    }
+    for (const candidate of secondary) {
+      if (!merged.has(candidate.htsNumber)) {
+        merged.set(candidate.htsNumber, candidate);
+      }
+      if (merged.size >= limit) {
+        break;
+      }
+    }
+    return [...merged.values()];
   }
 }
