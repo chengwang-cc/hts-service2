@@ -65,7 +65,7 @@ export class ClassificationService {
   private readonly logger = new Logger(ClassificationService.name);
   private readonly REVIEW_CONFIDENCE_THRESHOLD = 0.62;
   private readonly ESCALATE_CONFIDENCE_THRESHOLD = 0.45;
-  private readonly OPENAI_SHORT_TIMEOUT_MS = 10_000;
+  private readonly OPENAI_SHORT_TIMEOUT_MS = 15_000;
   private readonly OPENAI_BACKGROUND_TIMEOUT_MS = 8_000;
   private readonly SEARCH_FIRST_SCORE_THRESHOLD = 0.86;
   private readonly SEARCH_FIRST_MIN_SCORE = 0.78;
@@ -305,27 +305,30 @@ export class ClassificationService {
         },
       );
     } catch (error) {
-      if (isImageDerived && imageFallbackSelection) {
+      const groundedFallback =
+        imageFallbackSelection ??
+        await this.tryGroundedSearchCandidateClassification(description);
+      if (groundedFallback) {
         this.logger.warn(
           `Classification degraded to grounded search fallback after error: ${error.message}`,
         );
         return this.persistClassificationResult(
           {
-            ...imageFallbackSelection.result,
-            confidence: Math.min(imageFallbackSelection.result.confidence, 0.35),
+            ...groundedFallback.result,
+            confidence: Math.min(groundedFallback.result.confidence, 0.35),
             needsReview: true,
             reasoning:
-              `${imageFallbackSelection.result.reasoning} ` +
+              `${groundedFallback.result.reasoning} ` +
               `Returned grounded search fallback after classification error: ${error.message}`,
           },
           description,
           organizationId,
           source,
           {
-            strategy: imageFallbackSelection.strategy,
-            normalizedQuery: imageFallbackSelection.normalizedQuery,
-            searchPhrases: imageFallbackSelection.searchPhrases,
-            headingHints: imageFallbackSelection.headingHints,
+            strategy: groundedFallback.strategy,
+            normalizedQuery: groundedFallback.normalizedQuery,
+            searchPhrases: groundedFallback.searchPhrases,
+            headingHints: groundedFallback.headingHints,
             fallbackDueToError: error.message,
           },
         );

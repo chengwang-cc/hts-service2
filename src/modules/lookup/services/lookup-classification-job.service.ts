@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
+import puppeteer, { type Browser } from 'puppeteer';
 import { Repository } from 'typeorm';
 import { VisionService } from '@hts/core';
 import { QueueService } from '../../queue/queue.service';
@@ -36,6 +37,10 @@ type LookupClassificationJobResult = {
 @Injectable()
 export class LookupClassificationJobService {
   private readonly logger = new Logger(LookupClassificationJobService.name);
+  private readonly browserEnabled =
+    (process.env.WEB_SCRAPING_DISABLED ?? 'false') !== 'true' &&
+    !process.env.JEST_WORKER_ID &&
+    process.env.NODE_ENV !== 'test';
 
   constructor(
     @InjectRepository(LookupClassificationJobEntity)
@@ -473,8 +478,14 @@ export class LookupClassificationJobService {
       }
 
       const downloadStartedAt = Date.now();
-      const imageBuffer = await this.downloadImageBuffer(imageUrl);
+      const downloadedImage = await this.downloadImageBuffer(imageUrl);
       imageDownloadMs = Date.now() - downloadStartedAt;
+      const imageBuffer = this.requiresBrowserRasterization(
+        downloadedImage.buffer,
+        downloadedImage.contentType,
+      )
+        ? await this.rasterizeImageUrlToJpeg(imageUrl)
+        : downloadedImage.buffer;
       const analysis = await this.visionService.analyzeProductImage(
         imageBuffer,
         context,
@@ -500,6 +511,8 @@ export class LookupClassificationJobService {
       (
         imageUrl.startsWith('http://127.0.0.1') ||
         imageUrl.startsWith('http://localhost') ||
+        /does not represent a valid image/i.test(message) ||
+        /supported image formats/i.test(message) ||
         /error while downloading/i.test(message) ||
         /status code:\s*(403|404|407|408|409|410|429|5\d\d)/i.test(message) ||
         /hotlink|forbidden|proxy|cdn|timeout|timed out|network|fetch failed|connection/i.test(
@@ -509,7 +522,10 @@ export class LookupClassificationJobService {
     );
   }
 
-  private async downloadImageBuffer(imageUrl: string): Promise<Buffer> {
+  private async downloadImageBuffer(imageUrl: string): Promise<{
+    buffer: Buffer;
+    contentType: string;
+  }> {
     const response = await fetch(imageUrl, {
       headers: {
         'User-Agent':
@@ -542,7 +558,65 @@ export class LookupClassificationJobService {
       throw new BadRequestException('Extracted product image is too large');
     }
 
-    return buffer;
+    return { buffer, contentType };
+  }
+
+  private requiresBrowserRasterization(
+    buffer: Buffer,
+    contentType: string,
+  ): boolean {
+    if (!this.browserEnabled) {
+      return false;
+    }
+
+    return (
+      /image\/avif/i.test(contentType) ||
+      this.looksLikeAvifBuffer(buffer)
+    );
+  }
+
+  private looksLikeAvifBuffer(buffer: Buffer): boolean {
+    return (
+      buffer.length >= 12 &&
+      buffer.subarray(4, 12).toString('ascii').includes('ftyp') &&
+      buffer.subarray(8, 12).toString('ascii') === 'avif'
+    );
+  }
+
+  private async rasterizeImageUrlToJpeg(imageUrl: string): Promise<Buffer> {
+    let browser: Browser | null = null;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+      });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 1 });
+      await page.goto(imageUrl, {
+        waitUntil: 'networkidle2',
+        timeout: 20_000,
+      });
+      const imageElement = await page.waitForSelector('img', { timeout: 5_000 }).catch(
+        () => null,
+      );
+      const screenshot = imageElement
+        ? await imageElement.screenshot({ type: 'jpeg', quality: 85 })
+        : await page.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
+      await page.close().catch(() => undefined);
+      return Buffer.from(screenshot);
+    } catch (error) {
+      this.logger.warn(`Image rasterization failed for ${imageUrl}: ${error.message}`);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close().catch(() => undefined);
+      }
+    }
   }
 
   private safeDurationMs(
