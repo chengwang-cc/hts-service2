@@ -2428,12 +2428,17 @@ export class SearchService {
    * Runs PostgreSQL full-text search + scoring and returns top results.
    */
   async fastTextSearch(query: string, limit: number = 10): Promise<any[]> {
-    const normalizedQuery = this.normalizeQuery(query);
+    const normalizedQuery = this.rewriteAccessorySemanticQuery(
+      this.normalizeQuery(query),
+    );
     const safeLimit = this.clampLimit(limit, 10);
     if (!normalizedQuery) return [];
 
     const queryTokens = this.tokenizeQuery(normalizedQuery);
-    const matchedRules = this.intentRuleService.matchRules(new Set(queryTokens), normalizedQuery.toLowerCase());
+    const matchedRules = this.adjustMatchedRulesForQuery(
+      queryTokens,
+      this.intentRuleService.matchRules(new Set(queryTokens), normalizedQuery.toLowerCase()),
+    );
     const lexicalTokens = this.applyLexicalFiltering(queryTokens, matchedRules);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
 
@@ -2509,7 +2514,10 @@ export class SearchService {
     }
 
     const queryTokens = plan.queryTokens;
-    const matchedRules = this.intentRuleService.matchRules(new Set(queryTokens), normalizedQuery.toLowerCase());
+    const matchedRules = this.adjustMatchedRulesForQuery(
+      queryTokens,
+      this.intentRuleService.matchRules(new Set(queryTokens), normalizedQuery.toLowerCase()),
+    );
     const matchedRuleIds = new Set(matchedRules.map((r) => r.id));
     const lexicalTokens = this.applyLexicalFiltering(queryTokens, matchedRules);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
@@ -3720,15 +3728,22 @@ export class SearchService {
     query: string,
   ): Promise<SearchRetrievalPlan> {
     const baseQuery = this.normalizeQuery(query);
-    const aiNormalization = await this.queryNormalizationService.normalize(baseQuery);
+    const accessoryNormalizedQuery = this.rewriteAccessorySemanticQuery(baseQuery);
+    const aiNormalization = await this.queryNormalizationService.normalize(
+      accessoryNormalizedQuery,
+    );
     const packagingPhrases = this.buildPackagingSearchPhrases(baseQuery);
+    const accessoryPhrases = this.buildAccessorySearchPhrases(
+      aiNormalization?.normalizedQuery || accessoryNormalizedQuery,
+    );
     const semanticQuery = this.normalizeQuery(
-      aiNormalization?.normalizedQuery || baseQuery,
+      aiNormalization?.normalizedQuery || accessoryNormalizedQuery,
     );
     const keywordQueries = this.uniqueQueries([
       semanticQuery,
       baseQuery,
       ...packagingPhrases,
+      ...accessoryPhrases,
       ...(aiNormalization?.searchPhrases || []).map((phrase) =>
         this.normalizeQuery(phrase),
       ),
@@ -3742,10 +3757,15 @@ export class SearchService {
     const queryTokens = this.filterRetrievalTokens(this.uniqueTokens([
       ...this.tokenizeQuery(semanticQuery),
       ...packagingPhrases.flatMap((phrase) => this.tokenizeQuery(phrase)),
+      ...accessoryPhrases.flatMap((phrase) => this.tokenizeQuery(phrase)),
       ...((aiNormalization?.keyTerms || []).flatMap((term) =>
         this.tokenizeQuery(term),
       )),
     ])).filter((token) => !ignoreTerms.has(token));
+    const headingHints = this.uniqueQueries([
+      ...(aiNormalization?.headingHints || []),
+      ...this.buildAccessoryHeadingHints(queryTokens),
+    ]).map((hint) => hint.replace(/\D/g, '').slice(0, 4)).filter((hint) => hint.length === 4);
 
     return {
       baseQuery,
@@ -3755,7 +3775,7 @@ export class SearchService {
         queryTokens.length > 0
           ? queryTokens
           : this.filterRetrievalTokens(this.tokenizeQuery(baseQuery)),
-      headingHints: aiNormalization?.headingHints || [],
+      headingHints,
     };
   }
 
@@ -3998,5 +4018,98 @@ export class SearchService {
     }
 
     return ['packaged for retail sale', 'retail sale'];
+  }
+
+  private buildAccessorySearchPhrases(query: string): string[] {
+    const tokens = this.tokenizeQuery(query);
+    if (!this.isBicycleLightingQuery(tokens)) {
+      return [];
+    }
+
+    return [
+      'light for bicycle',
+      'lighting equipment for bicycle',
+      'electrical lighting equipment for bicycle',
+    ];
+  }
+
+  private buildAccessoryHeadingHints(tokens: string[]): string[] {
+    if (this.isBicycleLightingQuery(tokens)) {
+      return ['8512'];
+    }
+    return [];
+  }
+
+  private isBicycleLightingQuery(tokens: string[]): boolean {
+    const tokenSet = new Set(tokens);
+    const hasBike =
+      tokenSet.has('bicycle') ||
+      tokenSet.has('bicycles') ||
+      tokenSet.has('bike') ||
+      tokenSet.has('bikes') ||
+      tokenSet.has('cycle') ||
+      tokenSet.has('cycles') ||
+      tokenSet.has('cycling');
+    const hasLight =
+      tokenSet.has('light') ||
+      tokenSet.has('lights') ||
+      tokenSet.has('lamp') ||
+      tokenSet.has('lamps') ||
+      tokenSet.has('headlight') ||
+      tokenSet.has('headlights') ||
+      tokenSet.has('taillight') ||
+      tokenSet.has('taillights') ||
+      tokenSet.has('flasher') ||
+      tokenSet.has('flashers');
+
+    return hasBike && hasLight;
+  }
+
+  private rewriteAccessorySemanticQuery(query: string): string {
+    const tokens = this.tokenizeQuery(query);
+    if (!this.isBicycleLightingQuery(tokens)) {
+      return query;
+    }
+
+    const bikeTokens = new Set([
+      'bicycle',
+      'bicycles',
+      'bike',
+      'bikes',
+      'cycle',
+      'cycles',
+      'cycling',
+    ]);
+    const lightTokens = new Set([
+      'light',
+      'lights',
+      'lamp',
+      'lamps',
+      'headlight',
+      'headlights',
+      'taillight',
+      'taillights',
+      'flasher',
+      'flashers',
+    ]);
+
+    const commodity = tokens.filter((token) => lightTokens.has(token));
+    const host = tokens.filter((token) => bikeTokens.has(token));
+    const rest = tokens.filter(
+      (token) => !lightTokens.has(token) && !bikeTokens.has(token),
+    );
+
+    return [...commodity, ...rest, ...host].join(' ').trim() || query;
+  }
+
+  private adjustMatchedRulesForQuery(
+    queryTokens: string[],
+    matchedRules: IntentRule[],
+  ): IntentRule[] {
+    if (!this.isBicycleLightingQuery(queryTokens)) {
+      return matchedRules;
+    }
+
+    return matchedRules.filter((rule) => rule.id !== 'BICYCLE_INTENT');
   }
 }

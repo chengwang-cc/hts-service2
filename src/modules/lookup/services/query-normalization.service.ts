@@ -139,6 +139,27 @@ export class QueryNormalizationService {
     'pink',
     'navy',
   ]);
+  private readonly bicycleHostTerms = new Set([
+    'bicycle',
+    'bicycles',
+    'bike',
+    'bikes',
+    'cycle',
+    'cycles',
+    'cycling',
+  ]);
+  private readonly bicycleLightingTerms = new Set([
+    'light',
+    'lights',
+    'lamp',
+    'lamps',
+    'headlight',
+    'headlights',
+    'taillight',
+    'taillights',
+    'flasher',
+    'flashers',
+  ]);
 
   constructor(private readonly openAiService: OpenAiService) {}
 
@@ -314,9 +335,10 @@ export class QueryNormalizationService {
           !this.isHeuristicNoiseToken(token),
       )
       .slice(0, 12);
-    const searchPhrases = this.buildHeuristicSearchPhrases(keyTerms);
+    const reorderedKeyTerms = this.rewriteCommodityHeadTerms(keyTerms);
+    const searchPhrases = this.buildHeuristicSearchPhrases(reorderedKeyTerms);
     const condensedQuery = this.cleanPhrase(
-      keyTerms.length > 0 ? keyTerms.join(' ') : normalizedQuery,
+      reorderedKeyTerms.length > 0 ? reorderedKeyTerms.join(' ') : normalizedQuery,
     );
 
     if (!normalizedQuery || keyTerms.length === 0) {
@@ -326,8 +348,8 @@ export class QueryNormalizationService {
     return {
       normalizedQuery: condensedQuery,
       searchPhrases,
-      keyTerms,
-      headingHints: this.inferHeuristicHeadingHints(keyTerms),
+      keyTerms: reorderedKeyTerms,
+      headingHints: this.inferHeuristicHeadingHints(reorderedKeyTerms),
       ignoreTerms: [...new Set(ignoreTerms)].slice(0, 8),
     };
   }
@@ -337,8 +359,11 @@ export class QueryNormalizationService {
     fallbackQuery: string,
   ): SearchQueryNormalization | null {
     const normalizedQuery = this.cleanPhrase(parsed.normalizedQuery || fallbackQuery);
+    const rewrittenNormalizedQuery = this.rewriteCommodityPhrase(normalizedQuery);
     const searchPhrases = this.uniqueCleanPhrases(parsed.searchPhrases || []);
-    const keyTerms = this.uniqueCleanTerms(parsed.keyTerms || []);
+    const keyTerms = this.rewriteCommodityHeadTerms(
+      this.uniqueCleanTerms(parsed.keyTerms || []),
+    );
     const headingHints = this.uniqueHeadingHints(parsed.headingHints || []);
     const ignoreTerms = this.uniqueCleanTerms(parsed.ignoreTerms || []);
 
@@ -347,10 +372,16 @@ export class QueryNormalizationService {
     }
 
     return {
-      normalizedQuery: normalizedQuery || fallbackQuery,
-      searchPhrases,
+      normalizedQuery: rewrittenNormalizedQuery || normalizedQuery || fallbackQuery,
+      searchPhrases: this.uniqueCleanPhrases([
+        ...searchPhrases,
+        ...this.buildHeuristicSearchPhrases(keyTerms),
+      ]),
       keyTerms,
-      headingHints,
+      headingHints: this.uniqueHeadingHints([
+        ...headingHints,
+        ...this.inferHeuristicHeadingHints(keyTerms),
+      ]),
       ignoreTerms,
     };
   }
@@ -552,6 +583,12 @@ export class QueryNormalizationService {
       phrases.add('instant coffee packaged for retail sale');
     }
 
+    if (this.isBicycleLightingIntent(keyTerms)) {
+      phrases.add('light for bicycle');
+      phrases.add('lighting equipment for bicycle');
+      phrases.add('bicycle lighting equipment');
+    }
+
     if (keyTerms.some((token) => homeTextileTokens.includes(token))) {
       phrases.add(
         keyTerms.filter((token) => !['gift', 'decor', 'vintage'].includes(token)).join(' '),
@@ -618,7 +655,41 @@ export class QueryNormalizationService {
       hints.add('9506');
     }
 
+    if (this.isBicycleLightingIntent(keyTerms)) {
+      hints.add('8512');
+    }
+
     return [...hints].slice(0, 4);
+  }
+
+  private rewriteCommodityPhrase(phrase: string): string {
+    const tokens = this.uniqueCleanTerms(String(phrase || '').split(/\s+/));
+    if (tokens.length === 0) {
+      return '';
+    }
+    return this.cleanPhrase(this.rewriteCommodityHeadTerms(tokens).join(' '));
+  }
+
+  private rewriteCommodityHeadTerms(keyTerms: string[]): string[] {
+    if (!this.isBicycleLightingIntent(keyTerms)) {
+      return keyTerms;
+    }
+
+    const hostTerms = keyTerms.filter((token) => this.bicycleHostTerms.has(token));
+    const lightingTerms = keyTerms.filter((token) => this.bicycleLightingTerms.has(token));
+    const remainingTerms = keyTerms.filter(
+      (token) =>
+        !this.bicycleHostTerms.has(token) && !this.bicycleLightingTerms.has(token),
+    );
+
+    return [...lightingTerms, ...remainingTerms, ...hostTerms];
+  }
+
+  private isBicycleLightingIntent(keyTerms: string[]): boolean {
+    return (
+      keyTerms.some((token) => this.bicycleHostTerms.has(token)) &&
+      keyTerms.some((token) => this.bicycleLightingTerms.has(token))
+    );
   }
 
   private async withTimeout<T>(
