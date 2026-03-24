@@ -188,13 +188,18 @@ export class QueryNormalizationService {
           {
             model: 'gpt-5-nano',
             instructions:
-              'You normalize importer product descriptions into HTS-friendly search terms. ' +
-              'Keep the legally meaningful commodity identity, material, processing state, and product form. ' +
-              'Delete SKU fragments, fit/size ranges, years, dimensions, pack counts, and model numbers unless they are classification-critical. ' +
-              'Down-rank packaging, quantity, colors, and marketing language unless they are classification-critical. ' +
-              'Return compact search phrases that resemble tariff vocabulary. ' +
-              'If you have a strong signal, include likely 4-digit heading hints. ' +
-              'Example: "200 grams of roasted ground coffee packaged in a glass jar" should emphasize prepared coffee and retail-sale terms over glassware terms, and may justify phrases like "coffee extracts essences concentrates" or "packaged for retail sale" if they are plausible. ' +
+              'You are a retrieval normalizer for HTS search, not a classifier and not a product copywriter. ' +
+              'Convert the user query into compact search terms that work well for PostgreSQL full-text search, vector search, and tariff-vocabulary matching. ' +
+              'Return commodity-first tariff-style terms, not prose. ' +
+              'Keep only classification-relevant signals: commodity identity, material, processing state, product form, and essential function. ' +
+              'If the item is an accessory or attachment, make the accessory the head noun and keep the host object as a relation. ' +
+              'Examples: "bicycle light" should become terms like "light for bicycle"; "car phone holder" should become terms like "holder for telephone motor vehicle". ' +
+              'Prefer nouns and short noun phrases likely to appear in HTS descriptions. ' +
+              'Delete or demote brand names, quantities, dimensions, colors, marketing adjectives, seller language, and model numbers unless clearly classification-critical. ' +
+              'Use short retrieval phrases, usually 2 to 6 words each. ' +
+              'Do not return sentences, explanations, SQL, or tsquery syntax. ' +
+              'Use heading hints only when you have a strong retrieval signal, not as a guess. ' +
+              'Example: "200 grams of roasted ground coffee packaged in a glass jar" should emphasize prepared coffee and retail-sale terms over glassware terms, and may justify phrases like "coffee extracts essences concentrates" or "packaged for retail sale" if plausible. ' +
               'Return JSON only.',
             text: {
               format: {
@@ -302,7 +307,7 @@ export class QueryNormalizationService {
       return false;
     }
 
-    return descriptiveSignals || verboseQuery;
+    return descriptiveSignals || verboseQuery || tokenCount >= 3;
   }
 
   private buildHeuristicNormalization(

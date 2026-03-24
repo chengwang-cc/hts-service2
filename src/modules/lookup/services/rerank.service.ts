@@ -59,14 +59,24 @@ Return a JSON object with key "ranked" containing an array of candidate indices 
           model: 'gpt-5-nano',
           instructions:
             'You are an HTS (Harmonized Tariff Schedule) classification expert. ' +
-            'Rank the given HTS candidates by how precisely they match the user query. ' +
-            'Apply these rules in order: ' +
-            '(1) MATERIAL — composition must match (cotton≠synthetic, steel≠aluminum, plastic≠rubber). ' +
-            '(2) SPECIES/VARIETY — for food, animals, plants: prefer the specific species over generic (Atlantic salmon > fish > nesoi). ' +
+            'Reorder the given HTS candidates from most to least relevant for the user query. ' +
+            '\n\n' +
+            'MOST IMPORTANT RULE — WRONG TYPE PENALTY: ' +
+            'If a candidate description explicitly names a product/entity that is DIFFERENT from what the user asked for, ' +
+            'that candidate MUST rank below any generic or catch-all description, regardless of specificity. ' +
+            'A generic "other" or "nesoi" code that could include the queried product always beats a specific code that names the wrong product. ' +
+            'Examples of wrong-type mismatches: ' +
+            '"bicycle helmet" query → "Motorcycle helmets" is WRONG (bicycle=non-motorized, motorcycle=motorized; different products). Rank "Athletic, recreational and sporting headgear" ABOVE "Motorcycle helmets". ' +
+            '"dog food" query → "Cat food" is WRONG. Rank "Animal food nesoi" above "Cat food". ' +
+            '"cotton shirt" query → "Polyester shirts" is WRONG material. ' +
+            '\n\n' +
+            'After applying the wrong-type rule, rank remaining candidates by: ' +
+            '(1) MATERIAL match — composition must match exactly. ' +
+            '(2) SPECIES/VARIETY — for food/animals/plants: specific species over generic. ' +
             '(3) PROCESSING STATE — fresh≠frozen≠smoked≠dried≠canned. ' +
-            '(4) FORM — fillet≠whole, cut≠uncut, powder≠liquid. ' +
-            '(5) SPECIFICITY — always prefer the most specific matching code over "other", "nesoi", or "not elsewhere specified". ' +
-            '(6) USE CASE — functional purpose and end use must match the query intent. ' +
+            '(4) FORM — fillet≠whole, powder≠liquid. ' +
+            '(5) SPECIFICITY — most specific matching code over "other"/"nesoi" when type matches. ' +
+            '(6) USE CASE — functional purpose and end use. ' +
             'Return only a JSON object with key "ranked" containing the array of indices.',
           text: { format: { type: 'json_object' } },
           // NOTE: do NOT set max_output_tokens for reasoning models (gpt-5-nano)

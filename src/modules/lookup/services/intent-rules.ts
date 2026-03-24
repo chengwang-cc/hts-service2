@@ -1614,7 +1614,7 @@ export const INTENT_RULES: IntentRule[] = [
     description: 'Bicycle/bike → 8712.00; deny ch.84 engines and ch.87 motor vehicles',
     pattern: {
       anyOf: ['bicycle', 'bicycles', 'bike', 'bikes', 'cycle', 'cycling'],
-      noneOf: ['motor', 'motorized', 'electric', 'moped', 'scooter'],
+      noneOf: ['motor', 'motorized', 'electric', 'moped', 'scooter', 'helmet', 'helmets'],
     },
     inject: [
       { prefix: '8712.00.35', syntheticRank: 22 },
@@ -2930,8 +2930,8 @@ export const INTENT_RULES: IntentRule[] = [
     description: 'Bicycle/sports helmet → 6506.10 safety headgear',
     pattern: {
       anyOf: ['helmet', 'helmets', 'bike helmet', 'cycling helmet', 'bicycle helmet',
-               'sports helmet', 'ski helmet', 'motorcycle helmet'],
-      noneOf: ['football', 'american football', 'construction', 'hard hat'],
+               'sports helmet', 'ski helmet'],
+      noneOf: ['football', 'american football', 'construction', 'hard hat', 'motorcycle'],
     },
     inject: [
       { prefix: '6506.10', syntheticRank: 22 },
@@ -2939,6 +2939,31 @@ export const INTENT_RULES: IntentRule[] = [
     whitelist: { allowPrefixes: ['6506.'] },
     boosts: [
       { delta: 0.85, prefixMatch: '6506.' },
+    ],
+  },
+
+  // ── Rule 126b: CYCLING_HELMET_INTENT ─────────────────────────────────────────
+  // "bicycle helmet", "bike helmet", "cycling helmet" → 6506.10.30.45 / 6506.10.60.45
+  // Denies motorcycle helmet codes that otherwise rank above athletic/sporting headgear.
+  {
+    id: 'CYCLING_HELMET_INTENT',
+    description: 'Cycling/bicycle helmet → 6506.10.30.45/6506.10.60.45; deny motorcycle helmet codes',
+    pattern: {
+      required: ['helmet'],
+      anyOf: ['bicycle', 'bike', 'cycling', 'cycle'],
+      noneOf: ['motorcycle'],
+    },
+    inject: [
+      { prefix: '6506.10.30.45', syntheticRank: 18 },
+      { prefix: '6506.10.60.45', syntheticRank: 20 },
+    ],
+    whitelist: {
+      allowPrefixes: ['6506.'],
+      denyPrefixes: ['6506.10.30.30', '6506.10.60.30'],
+    },
+    boosts: [
+      { delta: 0.90, prefixMatch: '6506.10.30.45' },
+      { delta: 0.90, prefixMatch: '6506.10.60.45' },
     ],
   },
 

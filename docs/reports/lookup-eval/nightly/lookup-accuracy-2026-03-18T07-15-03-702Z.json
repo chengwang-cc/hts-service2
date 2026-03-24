@@ -5,33 +5,33 @@
   "endpointMetrics": {
     "autocomplete": {
       "evaluated": 300,
-      "exactTop1": 171,
-      "exactTop3": 221,
-      "exactTop10": 254,
-      "chapterTop10": 300,
+      "exactTop1": 172,
+      "exactTop3": 218,
+      "exactTop10": 245,
+      "chapterTop10": 296,
       "errors": 0
     },
     "search": {
       "evaluated": 300,
-      "exactTop1": 185,
-      "exactTop3": 223,
-      "exactTop10": 246,
-      "chapterTop10": 298,
+      "exactTop1": 181,
+      "exactTop3": 221,
+      "exactTop10": 244,
+      "chapterTop10": 296,
       "errors": 0
     },
     "classify": {
       "evaluated": 80,
-      "exactTop1": 57,
-      "exactTop3": 57,
-      "exactTop10": 57,
-      "chapterTop10": 77,
+      "exactTop1": 32,
+      "exactTop3": 32,
+      "exactTop10": 32,
+      "chapterTop10": 62,
       "errors": 0
     }
   },
   "classificationTop1": {
     "evaluated": 80,
-    "exactTop1": 57,
-    "chapterTop1": 77,
+    "exactTop1": 32,
+    "chapterTop1": 62,
     "errors": 0
   }
 }
