@@ -5,6 +5,7 @@ import { HtsEntity, EmbeddingService, EmbeddingProviderConfig } from '@hts/core'
 import { IntentRule, ScoreAdjustment } from './intent-rules';
 import { IntentRuleService } from './intent-rule.service';
 import { QueryNormalizationService } from './query-normalization.service';
+import { RerankService } from './rerank.service';
 
 type QueryIntent = 'code' | 'text' | 'mixed';
 
@@ -2420,6 +2421,7 @@ export class SearchService {
     @Optional() private readonly embeddingService: EmbeddingService,
     private readonly intentRuleService: IntentRuleService,
     private readonly queryNormalizationService: QueryNormalizationService,
+    @Optional() private readonly rerankService: RerankService,
   ) {}
 
   /**
@@ -2492,7 +2494,31 @@ export class SearchService {
     limit: number = 20,
   ): Promise<StandardizedSearchResult> {
     const plan = await this.buildSearchRetrievalPlan(query);
-    const results = await this.hybridSearchWithPlan(plan, limit);
+
+    const candidates = await this.hybridSearchWithPlan(plan, limit);
+
+    // AI rerank the rule-scored results when the query is natural language.
+    // We pass what the pipeline already returned (no pool inflation) and cap
+    // at 3 s so the gateway never times out regardless of gpt-5-nano latency.
+    let results = candidates;
+    if (
+      this.rerankService &&
+      candidates.length > 1 &&
+      this.shouldApplySearchRerank(query)
+    ) {
+      try {
+        const reranked = await Promise.race([
+          this.rerankService.rerank(plan.baseQuery, candidates),
+          new Promise<typeof candidates>((_, reject) =>
+            setTimeout(() => reject(new Error('search rerank timeout')), 3000),
+          ),
+        ]);
+        results = reranked;
+      } catch {
+        // Timeout or error — keep rule-based order
+        results = candidates;
+      }
+    }
 
     return {
       originalQuery: query,
@@ -2501,6 +2527,30 @@ export class SearchService {
       headingHints: plan.headingHints,
       results,
     };
+  }
+
+  /**
+   * Returns true when AI reranking should be applied to search results.
+   * Skips reranking for single-word queries, HTS code lookups, and
+   * catalog-style product listings (model numbers, pipes, special chars).
+   */
+  private shouldApplySearchRerank(query: string): boolean {
+    const trimmed = query.trim();
+    // Must have at least 2 words to benefit from AI reranking
+    const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 2 || wordCount > 18) return false;
+    // Skip if it looks like an HTS code
+    if (/^\d{4,}[\d.]*$/.test(trimmed)) return false;
+    // Skip catalog-style queries: model numbers, pipes, excessive digits, colons
+    const lower = trimmed.toLowerCase();
+    const hasCatalogSignals =
+      /[|,;:]/.test(lower) ||
+      /[a-z]+\d+[a-z0-9]*/i.test(lower) ||
+      /\b\d{5,}\b/.test(lower);
+    const hasNaturalLanguage =
+      /\b(packaged|containing|made of|made from|prepared|roasted|ground|fresh|frozen|retail|for resale)\b/i.test(lower);
+    if (hasCatalogSignals && !hasNaturalLanguage) return false;
+    return true;
   }
 
   private async hybridSearchWithPlan(
@@ -2908,8 +2958,13 @@ export class SearchService {
           return null;
         }
         // Chapters 98 and 99 are special-use provisions (duty-free programs,
-        // temporary imports, etc.) and are not valid classification targets.
-        if (entry.chapter === '98' || entry.chapter === '99') {
+        // temporary imports, etc.) and are not normally valid classification targets.
+        // Exception: allow them through when a rule explicitly injects ch98/99 prefixes
+        // (e.g. REPAIR_RETURN_GOODS_9801_INTENT injects 9801.xx).
+        const rulesInjectingCh9899 = matchedRules.some((r) =>
+          (r.inject ?? []).some((spec) => ['98', '99'].includes(spec.prefix.replace(/\D/g, '').slice(0, 2))),
+        );
+        if ((entry.chapter === '98' || entry.chapter === '99') && !rulesInjectingCh9899) {
           return null;
         }
         const base = fused.get(htsNumber) || 0;
@@ -3463,14 +3518,19 @@ export class SearchService {
         ? "LENGTH(REPLACE(hts.htsNumber, '.', '')) IN (8, 10)"
         : "LENGTH(REPLACE(hts.htsNumber, '.', '')) = 10";
 
-    const rows = await this.htsRepository
+    // Skip the special-chapter exclusion when the inject prefix itself
+    // explicitly targets ch98 or ch99 (e.g., 9801.xx for returned goods).
+    const prefixChapter = prefix.replace(/\D/g, '').slice(0, 2);
+    const qb = this.htsRepository
       .createQueryBuilder('hts')
       .select('hts.htsNumber', 'htsNumber')
       .where('hts.isActive = :active', { active: true })
       .andWhere('hts.htsNumber LIKE :prefix', { prefix: `${prefix}%` })
-      .andWhere(lenCondition)
-      .andWhere("hts.chapter NOT IN ('98', '99')")
-      .getRawMany<{ htsNumber: string }>();
+      .andWhere(lenCondition);
+    if (!['98', '99'].includes(prefixChapter)) {
+      qb.andWhere("hts.chapter NOT IN ('98', '99')");
+    }
+    const rows = await qb.getRawMany<{ htsNumber: string }>();
 
     const syntheticScore = this.rrf(syntheticRank);
     for (const { htsNumber } of rows) {
@@ -3570,13 +3630,22 @@ export class SearchService {
     );
 
     if (rulesWithAllow.length > 0) {
-      const passesAny = rulesWithAllow.some((rule) => {
-        const ws = rule.whitelist!;
-        if (ws.allowChapters?.length && !ws.allowChapters.includes(entry.chapter)) return false;
-        if (ws.allowPrefixes?.length && !ws.allowPrefixes.some((p) => entry.htsNumber.startsWith(p))) return false;
-        return true;
-      });
-      if (!passesAny) return false;
+      // Exception: if any matched rule explicitly injects ch98/99 prefixes, ch98/99 entries
+      // must not be blocked by OTHER rules' positive allowChapters filters (e.g. POWER_BANK_INTENT
+      // restricts to ch85, but REPAIR_RETURN_GOODS_9801_INTENT explicitly injects ch98).
+      const rulesInjectingCh9899 = rules.some((r) =>
+        (r.inject ?? []).some((spec) => ['98', '99'].includes(spec.prefix.replace(/\D/g, '').slice(0, 2))),
+      );
+      const isCh9899Entry = entry.chapter === '98' || entry.chapter === '99';
+      if (!(isCh9899Entry && rulesInjectingCh9899)) {
+        const passesAny = rulesWithAllow.some((rule) => {
+          const ws = rule.whitelist!;
+          if (ws.allowChapters?.length && !ws.allowChapters.includes(entry.chapter)) return false;
+          if (ws.allowPrefixes?.length && !ws.allowPrefixes.some((p) => entry.htsNumber.startsWith(p))) return false;
+          return true;
+        });
+        if (!passesAny) return false;
+      }
     }
 
     // Deny-checks keep AND logic: any matched rule can still reject an entry.

@@ -162,11 +162,11 @@ export function detectChapterIntent(tokens: Set<string>): string[] {
 /**
  * Check whether a token or phrase matches.
  * Single-word tokens are checked against the token set (exact, fast).
- * Multi-word phrases (containing spaces) are checked as substrings of the
- * normalized raw query so rules like anyOf:['board game','playing card'] work.
+ * Multi-word phrases (containing spaces or hyphens) are checked as substrings of the
+ * normalized raw query so rules like anyOf:['board game','re-celled'] work.
  */
 function tokenOrPhraseMatches(t: string, tokens: Set<string>, queryLower: string): boolean {
-  return t.includes(' ') ? queryLower.includes(t) : tokens.has(t);
+  return t.includes(' ') || t.includes('-') ? queryLower.includes(t) : tokens.has(t);
 }
 
 export function patternMatches(

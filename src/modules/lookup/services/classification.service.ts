@@ -65,7 +65,7 @@ export class ClassificationService {
   private readonly logger = new Logger(ClassificationService.name);
   private readonly REVIEW_CONFIDENCE_THRESHOLD = 0.62;
   private readonly ESCALATE_CONFIDENCE_THRESHOLD = 0.45;
-  private readonly OPENAI_SHORT_TIMEOUT_MS = 15_000;
+  private readonly OPENAI_SHORT_TIMEOUT_MS = 30_000;
   private readonly OPENAI_BACKGROUND_TIMEOUT_MS = 8_000;
   private readonly SEARCH_FIRST_SCORE_THRESHOLD = 0.86;
   private readonly SEARCH_FIRST_MIN_SCORE = 0.78;

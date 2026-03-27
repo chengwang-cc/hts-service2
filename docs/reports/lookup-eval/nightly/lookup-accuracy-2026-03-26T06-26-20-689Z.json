@@ -21,17 +21,17 @@
     },
     "classify": {
       "evaluated": 80,
-      "exactTop1": 56,
-      "exactTop3": 56,
-      "exactTop10": 56,
-      "chapterTop10": 76,
+      "exactTop1": 58,
+      "exactTop3": 58,
+      "exactTop10": 58,
+      "chapterTop10": 77,
       "errors": 0
     }
   },
   "classificationTop1": {
     "evaluated": 80,
-    "exactTop1": 56,
-    "chapterTop1": 76,
+    "exactTop1": 58,
+    "chapterTop1": 77,
     "errors": 0
   }
 }
