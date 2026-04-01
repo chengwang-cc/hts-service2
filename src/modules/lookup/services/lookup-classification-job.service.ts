@@ -19,6 +19,9 @@ import { LookupClassificationJobEntity } from '../entities/lookup-classification
 
 export const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
 
+/** Sentinel org ID used for public (unauthenticated) classification jobs */
+export const ANONYMOUS_ORG_ID = '00000000-0000-0000-0000-000000000000';
+
 type LookupClassificationJobResult = {
   success: true;
   data: Omit<ClassificationResult, 'source'> & {
@@ -82,17 +85,16 @@ export class LookupClassificationJobService {
   }
 
   async createImageJob(user: any, image: Express.Multer.File) {
-    if (!user?.organizationId) {
-      throw new UnauthorizedException('Authentication required');
-    }
     if (!image) {
       throw new BadRequestException('Image file is required (field name: "image")');
     }
 
+    const organizationId: string = user?.organizationId ?? ANONYMOUS_ORG_ID;
+
     const job = await this.jobRepository.save(
       this.jobRepository.create({
-        organizationId: user.organizationId,
-        createdBy: user.id ?? null,
+        organizationId,
+        createdBy: user?.id ?? null,
         status: 'pending',
         requestType: 'IMAGE_UPLOAD',
         imageOriginalFilename: image.originalname,
@@ -114,12 +116,12 @@ export class LookupClassificationJobService {
     );
 
     await this.jobRepository.update(job.id, { queueJobId });
-    return this.getJob(job.id, user.organizationId);
+    return this.getJob(job.id, organizationId);
   }
 
-  async getJob(jobId: string, organizationId: string) {
+  async getJob(jobId: string, organizationId: string | null) {
     const job = await this.jobRepository.findOne({
-      where: { id: jobId, organizationId },
+      where: organizationId ? { id: jobId, organizationId } : { id: jobId },
     });
 
     if (!job) {
