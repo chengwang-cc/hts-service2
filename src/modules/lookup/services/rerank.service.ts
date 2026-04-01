@@ -26,7 +26,7 @@ export class RerankService {
   }
 
   /**
-   * Rerank HTS candidates using gpt-5-nano for a given user query.
+   * Rerank HTS candidates using gpt-4.1-nano for a given user query.
    * Falls back to original order on any error.
    */
   async rerank(query: string, candidates: RerankCandidate[]): Promise<RerankCandidate[]> {
@@ -56,7 +56,7 @@ Return a JSON object with key "ranked" containing an array of candidate indices 
     try {
       const res = await this.withTimeout(
         this.openAiService.response(input, {
-          model: 'gpt-5-nano',
+          model: 'gpt-5.4-nano',
           instructions:
             'You are an HTS (Harmonized Tariff Schedule) classification expert. ' +
             'Reorder the given HTS candidates from most to least relevant for the user query. ' +
@@ -79,7 +79,7 @@ Return a JSON object with key "ranked" containing an array of candidate indices 
             '(6) USE CASE — functional purpose and end use. ' +
             'Return only a JSON object with key "ranked" containing the array of indices.',
           text: { format: { type: 'json_object' } },
-          // NOTE: do NOT set max_output_tokens for reasoning models (gpt-5-nano)
+          // NOTE: do NOT set max_output_tokens for reasoning models (gpt-4.1-nano)
         }),
         this.openAiTimeoutMs,
         'OpenAI rerank timed out',

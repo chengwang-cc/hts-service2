@@ -238,13 +238,13 @@ export class ClassificationService {
       let aiResult = await this.requestHeadingSelection(
         input,
         instructions,
-        'gpt-5-nano',
+        'gpt-5.4-nano',
       );
       if (aiResult.confidence < this.ESCALATE_CONFIDENCE_THRESHOLD) {
         const escalated = await this.requestHeadingSelection(
           input,
           instructions,
-          'gpt-5-mini',
+          'gpt-5.4-mini',
         );
         if (escalated.confidence >= aiResult.confidence) {
           aiResult = escalated;
@@ -265,8 +265,8 @@ export class ClassificationService {
         aiResult.confidence < this.REVIEW_CONFIDENCE_THRESHOLD ||
         candidates.length >= 5;
       const leafPickerModel = shouldEscalateLeafPicker
-        ? 'gpt-5-mini'
-        : 'gpt-5-nano';
+        ? 'gpt-5.4-mini'
+        : 'gpt-5.4-nano';
       const bestMatch = candidates.length > 1
         ? await this.pickBestLeafEntry(
             description,
@@ -580,7 +580,7 @@ Rules:
 
 Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "..." }`,
           {
-            model: 'gpt-5-nano',
+            model: 'gpt-5.4-nano',
             instructions:
               'You are an HTS tariff expert. Select the most accurate candidate from the provided shortlist and explain why.',
             store: false,
@@ -700,7 +700,7 @@ Return JSON: { "index": <1-based number>, "confidence": <0-1>, "reasoning": "...
   private async requestHeadingSelection(
     input: string,
     instructions: string,
-    model: 'gpt-5-nano' | 'gpt-5-mini',
+    model: 'gpt-5.4-nano' | 'gpt-5.4-mini',
   ): Promise<{ htsCode: string; confidence: number; reasoning: string }> {
     const response = await this.withTimeout(
       this.openAiService.response(input, {
@@ -844,7 +844,7 @@ Examples (correct classifications):
 - "household dishwasher" → 8422.11 (household dishwashers)
 - "fresh roasted coffee beans" → 0901.21 (roasted coffee, not decaffeinated)`,
           {
-            model: 'gpt-5-nano',
+            model: 'gpt-5.4-nano',
             instructions:
               'You are a US Harmonized Tariff Schedule expert. Return 1-3 most likely HTS codes (4 or 6 digit) from your training knowledge. Pay special attention to the distinction between 8509 (electromechanical — motor-driven: blenders, food processors) and 8516 (electrothermic — heating: coffee makers, rice cookers, irons).',
             store: false,
@@ -1630,7 +1630,7 @@ Return JSON: { htsCode, confidence, reasoning }.`;
     productDescription: string,
     candidates: Array<{ htsCode: string; description: string; score: number }>,
     headingReasoning: string,
-    model: 'gpt-5-nano' | 'gpt-5-mini' = 'gpt-5-nano',
+    model: 'gpt-5.4-nano' | 'gpt-5.4-mini' = 'gpt-5.4-nano',
   ): Promise<{ htsCode: string; description: string; score: number } | undefined> {
     if (candidates.length === 0) return undefined;
 

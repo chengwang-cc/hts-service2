@@ -58,18 +58,8 @@ export class OpenAiService {
 
   // Pricing per 1M tokens (as of 2026)
   private readonly pricing = {
-    'gpt-4': { input: 30.0, output: 60.0 },
-    'gpt-4-turbo': { input: 10.0, output: 30.0 },
-    'gpt-4o': { input: 2.5, output: 10.0 },
-    'gpt-4o-mini': { input: 0.15, output: 0.6 },
-    'gpt-4.1': { input: 2.0, output: 8.0 },
-    'gpt-4.1-mini': { input: 0.40, output: 1.6 },
-    'gpt-4.1-nano': { input: 0.10, output: 0.40 },
-    'gpt-5': { input: 1.25, output: 5.0 },
-    'gpt-5-mini': { input: 0.25, output: 1.0 },
-    'gpt-5-nano': { input: 0.05, output: 0.20 },
-    'gpt-5.1': { input: 1.25, output: 5.0 },
-    'gpt-5.2': { input: 1.25, output: 5.0 },
+    'gpt-5.4-nano': { input: 0.05, output: 0.20 },
+    'gpt-5.4-mini': { input: 0.25, output: 1.0 },
     'text-embedding-3-small': { input: 0.02, output: 0 },
     'text-embedding-3-large': { input: 0.13, output: 0 },
   };
@@ -103,7 +93,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-5-mini',
+      model = 'gpt-5.4-mini',
       instructions,
       temperature,
       max_output_tokens,
@@ -185,7 +175,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-5-mini',
+      model = 'gpt-5.4-mini',
       instructions,
       temperature = 0.7,
       max_output_tokens,
@@ -266,7 +256,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): AsyncIterable<ResponseStreamEvent> {
     const {
-      model = 'gpt-5-mini',
+      model = 'gpt-5.4-mini',
       temperature = 0.7,
       max_output_tokens,
       top_p,
@@ -313,7 +303,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): Promise<ChatCompletion> {
-    const { model = 'gpt-5-mini', temperature = 0.7, max_tokens, top_p } = options;
+    const { model = 'gpt-5.4-mini', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const startTime = Date.now();
@@ -363,7 +353,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): AsyncIterable<ChatCompletionChunk> {
-    const { model = 'gpt-5-mini', temperature = 0.7, max_tokens, top_p } = options;
+    const { model = 'gpt-5.4-mini', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const stream = await this.client.chat.completions.create({
@@ -508,7 +498,7 @@ export class OpenAiService {
     promptTokens: number,
     completionTokens: number,
   ): number {
-    const pricing = this.pricing[model] || this.pricing['gpt-5-mini'];
+    const pricing = this.pricing[model] || this.pricing['gpt-5.4-mini'];
     const inputCost = (promptTokens / 1_000_000) * pricing.input;
     const outputCost = (completionTokens / 1_000_000) * pricing.output;
     return inputCost + outputCost;

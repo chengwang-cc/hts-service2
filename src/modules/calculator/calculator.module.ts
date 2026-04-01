@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   CalculationScenarioEntity,
@@ -20,6 +21,7 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 
 @Module({
   imports: [
+    HttpModule,
     CoreWrapperModule,
     KnowledgebaseModule,
     TypeOrmModule.forFeature([

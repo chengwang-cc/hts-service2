@@ -9,14 +9,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { StripeService } from '../services/stripe.service';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { SubscriptionEntity } from '../entities/subscription.entity';
+import { SubscriptionService } from '../services/subscription.service';
 
 export interface CreateSubscriptionCheckoutDto {
   organizationId: string;
   plan: 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
   interval?: 'month' | 'year';
+  email?: string;
   returnUrl: string;
 }
 
@@ -31,18 +30,18 @@ interface CheckoutSessionResponse {
  */
 @Controller('billing/subscriptions')
 export class SubscriptionController {
-  // Stripe Price IDs - In production, these should come from environment variables or database
   private readonly PRICE_IDS = {
-    STARTER_MONTHLY: 'price_starter_monthly_placeholder',
-    STARTER_YEARLY: 'price_starter_yearly_placeholder',
-    PROFESSIONAL_MONTHLY: 'price_professional_monthly_placeholder',
-    PROFESSIONAL_YEARLY: 'price_professional_yearly_placeholder',
+    STARTER_MONTHLY: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1TFirqFlkGnRAYYW7oshC8t5',
+    STARTER_YEARLY: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_1TFirqFlkGnRAYYWEbbIxnZ2',
+    PROFESSIONAL_MONTHLY: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || 'price_1TFirrFlkGnRAYYWMQQG2B12',
+    PROFESSIONAL_YEARLY: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_1TFirrFlkGnRAYYWAccaTxyT',
+    ENTERPRISE_MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || 'price_1TFirrFlkGnRAYYWki54ItkJ',
+    ENTERPRISE_YEARLY: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || 'price_1TFirrFlkGnRAYYWbHjg8a2i',
   };
 
   constructor(
     private readonly stripeService: StripeService,
-    @InjectRepository(SubscriptionEntity)
-    private readonly subscriptionRepo: Repository<SubscriptionEntity>,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   /**
@@ -54,46 +53,35 @@ export class SubscriptionController {
     @Body() dto: CreateSubscriptionCheckoutDto,
   ): Promise<CheckoutSessionResponse> {
     const interval = dto.interval || 'month';
-
-    // Get the appropriate price ID
     const priceId = this.getPriceId(dto.plan, interval);
 
     if (!priceId) {
       throw new BadRequestException('Invalid plan or interval');
     }
 
-    // Create pending subscription record
-    const subscription = this.subscriptionRepo.create({
-      organizationId: dto.organizationId,
-      plan: dto.plan,
-      interval,
-      status: 'pending',
-    });
-    await this.subscriptionRepo.save(subscription);
+    // Get or create Stripe customer if email is provided
+    let customerId: string | undefined;
+    if (dto.email) {
+      customerId = await this.subscriptionService.getOrCreateStripeCustomer({
+        organizationId: dto.organizationId,
+        email: dto.email,
+      });
+    }
 
-    // Create Stripe checkout session
     const baseUrl = process.env.API_BASE_URL || 'http://localhost:3100';
     const session = await this.stripeService.createFlexibleCheckoutSession({
       mode: 'subscription',
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/api/v1/billing/subscriptions/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/api/v1/billing/subscriptions/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
-      client_reference_id: subscription.id,
+      client_reference_id: dto.organizationId,
       metadata: {
         organizationId: dto.organizationId,
         plan: dto.plan,
         interval,
       },
     });
-
-    // Update subscription with Stripe session ID
-    subscription.stripeSubscriptionId = session.id;
-    await this.subscriptionRepo.save(subscription);
 
     return {
       sessionId: session.id,
@@ -102,7 +90,7 @@ export class SubscriptionController {
   }
 
   /**
-   * Handle successful payment
+   * Handle successful payment — redirect back to frontend
    * GET /api/v1/billing/subscriptions/checkout/success?session_id=xxx
    */
   @Get('checkout/success')
@@ -110,31 +98,25 @@ export class SubscriptionController {
     @Query('session_id') sessionId: string,
     @Res() res: Response,
   ) {
-    if (!sessionId) {
-      throw new BadRequestException('Missing session_id');
-    }
+    if (!sessionId) throw new BadRequestException('Missing session_id');
 
-    // Retrieve session from Stripe
     const session = await this.stripeService.retrieveSession(sessionId);
+    const organizationId = session.client_reference_id;
+    const plan = (session.metadata?.plan as 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE') ?? 'STARTER';
+    const interval = (session.metadata?.interval as 'month' | 'year') ?? 'month';
 
-    // Find subscription by client_reference_id
-    const subscription = await this.subscriptionRepo.findOne({
-      where: { id: session.client_reference_id as string },
-    });
-
-    if (!subscription) {
-      throw new BadRequestException('Subscription not found');
+    if (organizationId && session.subscription) {
+      await this.subscriptionService.saveSubscriptionFromCheckout({
+        organizationId,
+        planId: plan,
+        interval,
+        stripeSubscriptionId: session.subscription as string,
+        stripeCustomerId: session.customer as string,
+      });
     }
 
-    // Update subscription status
-    subscription.status = 'active';
-    subscription.stripeSubscriptionId = session.subscription as string;
-    await this.subscriptionRepo.save(subscription);
-
-    // Build return URL
-    const returnUrl = `${process.env.FRONTEND_URL || 'http://localhost:4200'}/pricing?payment=success&plan=${subscription.plan}`;
-
-    return res.redirect(returnUrl);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    return res.redirect(`${frontendUrl}/pricing?payment=success&plan=${plan}`);
   }
 
   /**
@@ -146,32 +128,12 @@ export class SubscriptionController {
     @Query('session_id') sessionId: string,
     @Res() res: Response,
   ) {
-    if (!sessionId) {
-      throw new BadRequestException('Missing session_id');
-    }
+    if (!sessionId) throw new BadRequestException('Missing session_id');
 
-    // Retrieve session from Stripe
-    const session = await this.stripeService.retrieveSession(sessionId);
-
-    // Find and update subscription
-    const subscription = await this.subscriptionRepo.findOne({
-      where: { id: session.client_reference_id as string },
-    });
-
-    if (subscription) {
-      subscription.status = 'cancelled';
-      await this.subscriptionRepo.save(subscription);
-    }
-
-    // Build return URL
-    const returnUrl = `${process.env.FRONTEND_URL || 'http://localhost:4200'}/pricing?payment=cancelled`;
-
-    return res.redirect(returnUrl);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    return res.redirect(`${frontendUrl}/pricing?payment=cancelled`);
   }
 
-  /**
-   * Get Stripe price ID based on plan and interval
-   */
   private getPriceId(plan: string, interval: 'month' | 'year'): string | null {
     const key =
       `${plan}_${interval === 'month' ? 'MONTHLY' : 'YEARLY'}` as keyof typeof this.PRICE_IDS;

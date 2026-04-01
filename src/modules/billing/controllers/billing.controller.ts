@@ -7,24 +7,34 @@ import {
   Body,
   Param,
   Query,
+  Headers,
+  RawBody,
   UseGuards,
   HttpException,
   HttpStatus,
+  Logger,
+  Inject,
 } from '@nestjs/common';
 import { SubscriptionService } from '../services/subscription.service';
 import { UsageTrackingService } from '../services/usage-tracking.service';
 import { EntitlementService } from '../services/entitlement.service';
+import { StripeService } from '../services/stripe.service';
 import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { Public } from '../../auth/decorators/public.decorator';
 
 @Controller('billing')
 @UseGuards(JwtAuthGuard)
 export class BillingController {
+  private readonly logger = new Logger(BillingController.name);
+
   constructor(
     private readonly subscriptionService: SubscriptionService,
     private readonly usageService: UsageTrackingService,
     private readonly entitlementService: EntitlementService,
+    private readonly stripeService: StripeService,
+    @Inject('STRIPE_WEBHOOK_SECRET') private readonly webhookSecret: string,
   ) {}
 
   /**
@@ -280,13 +290,117 @@ export class BillingController {
   }
 
   /**
-   * Stripe webhook handler
+   * Stripe webhook handler — public route, verified by Stripe signature
    */
   @Post('webhook')
-  async handleWebhook(@Body() body: any) {
-    // This should validate the webhook signature
-    // For now, just acknowledge receipt
+  @Public()
+  async handleWebhook(
+    @RawBody() rawBody: Buffer,
+    @Headers('stripe-signature') signature: string,
+  ) {
+    if (!this.webhookSecret) {
+      this.logger.warn('STRIPE_WEBHOOK_SECRET not set — skipping signature verification');
+    }
+
+    let event: import('stripe').default.Event;
+    try {
+      event = this.stripeService.verifyWebhookSignature(
+        rawBody,
+        signature,
+        this.webhookSecret,
+      );
+    } catch (err) {
+      this.logger.error(`Webhook signature verification failed: ${err}`);
+      throw new HttpException('Invalid webhook signature', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.log(`Stripe webhook: ${event.type}`);
+
+    try {
+      await this.processWebhookEvent(event);
+    } catch (err) {
+      this.logger.error(`Error processing webhook ${event.type}: ${err}`);
+      // Return 200 so Stripe doesn't retry; we log for manual recovery
+    }
+
     return { received: true };
+  }
+
+  private async processWebhookEvent(event: import('stripe').default.Event): Promise<void> {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as import('stripe').default.Checkout.Session;
+        if (session.mode === 'subscription' && session.subscription && session.client_reference_id) {
+          const organizationId = session.client_reference_id;
+          const plan = (session.metadata?.plan as string) ?? 'STARTER';
+          const interval = (session.metadata?.interval as 'month' | 'year') ?? 'month';
+          await this.subscriptionService.saveSubscriptionFromCheckout({
+            organizationId,
+            planId: plan,
+            interval,
+            stripeSubscriptionId: session.subscription as string,
+            stripeCustomerId: session.customer as string,
+          });
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as import('stripe').default.Subscription;
+        const organizationId = sub.metadata?.organizationId;
+        const planId = sub.metadata?.planId;
+        const interval = (sub.metadata?.interval as 'month' | 'year') ?? 'month';
+        if (organizationId && planId) {
+          await this.subscriptionService.upsertSubscriptionFromStripe(
+            organizationId,
+            planId,
+            interval,
+            sub,
+          );
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as import('stripe').default.Subscription;
+        const organizationId = sub.metadata?.organizationId;
+        const planId = sub.metadata?.planId ?? 'STARTER';
+        const interval = (sub.metadata?.interval as 'month' | 'year') ?? 'month';
+        if (organizationId) {
+          await this.subscriptionService.upsertSubscriptionFromStripe(
+            organizationId,
+            planId,
+            interval,
+            sub,
+          );
+        }
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as import('stripe').default.Invoice;
+        const organizationId = invoice.subscription_details?.metadata?.organizationId
+          ?? (invoice.metadata?.organizationId);
+        if (organizationId) {
+          await this.subscriptionService.saveInvoiceFromStripe(organizationId, invoice);
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as import('stripe').default.Invoice;
+        const organizationId = invoice.subscription_details?.metadata?.organizationId
+          ?? (invoice.metadata?.organizationId);
+        if (organizationId) {
+          await this.subscriptionService.saveInvoiceFromStripe(organizationId, invoice);
+          this.logger.warn(`Payment failed for org ${organizationId}: invoice ${invoice.id}`);
+        }
+        break;
+      }
+
+      default:
+        this.logger.debug(`Unhandled Stripe event: ${event.type}`);
+    }
   }
 
   /**

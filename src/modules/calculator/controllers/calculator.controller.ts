@@ -9,8 +9,11 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
-import { CalculationService } from '../services';
+import { firstValueFrom } from 'rxjs';
+import { CalculationService, FormulaEvaluationService } from '../services';
 import { CalculateDto } from '../dto';
 import { CalculationScenarioEntity } from '../entities';
 import { Public } from '../../auth/decorators/public.decorator';
@@ -19,6 +22,9 @@ import { Public } from '../../auth/decorators/public.decorator';
 export class CalculatorController {
   constructor(
     private readonly calculationService: CalculationService,
+    private readonly formulaEvaluation: FormulaEvaluationService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
     @InjectRepository(CalculationScenarioEntity)
     private readonly scenarioRepository: Repository<CalculationScenarioEntity>,
   ) {}
@@ -66,6 +72,112 @@ export class CalculatorController {
   @Get('health')
   health() {
     return { status: 'ok', service: 'calculator' };
+  }
+
+  /**
+   * Fetch tariff formulas from the external hts-formulas API, evaluate them
+   * server-side, and return calculated duty amounts.  The API key never leaves
+   * the server.
+   *
+   * POST /calculator/tariff-rates
+   * Body: [{ htsCode, country, inputs?: { value?, weight?, quantity? } }]
+   */
+  @Public()
+  @Post('tariff-rates')
+  async getTariffRates(
+    @Body()
+    body: Array<{
+      htsCode: string;
+      country: string;
+      inputs?: Record<string, number>;
+    }>,
+  ): Promise<unknown> {
+    const apiUrl = this.configService.get<string>(
+      'TARIFF_FORMULAS_API_URL',
+      'https://staging.api.report.chitchats.com/v2/tariff',
+    );
+    const apiKey = this.configService.get<string>('TARIFF_FORMULAS_API_KEY', '');
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const items = Array.isArray(body) ? body : [];
+    const externalRequests = items.map(({ htsCode, country }) => ({ htsCode, country }));
+
+    type ExternalFormula = {
+      tariffType: string;
+      tariffTypeDescription: string;
+      formula: string;
+    };
+    type ExternalResult = {
+      htsCode: string;
+      country: string;
+      message: string;
+      blocked: boolean;
+      block_reason: string | null;
+      formulas: ExternalFormula[];
+    };
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<ExternalResult[]>(
+          `${apiUrl}/hts-formulas`,
+          externalRequests,
+          { headers },
+        ),
+      );
+
+      return response.data.map((item, idx) => {
+        const inputs = items[idx]?.inputs ?? {};
+
+        if (item.blocked || !item.formulas?.length) {
+          return {
+            htsCode: item.htsCode,
+            country: item.country,
+            blocked: item.blocked,
+            blockReason: item.block_reason,
+            message: item.message,
+            totalDuty: 0,
+            breakdown: [],
+          };
+        }
+
+        let totalDuty = 0;
+        const breakdown = item.formulas.map((f) => {
+          let amount = 0;
+          try {
+            amount = this.formulaEvaluation.evaluate(f.formula, inputs);
+          } catch {
+            amount = 0;
+          }
+          totalDuty += amount;
+          return {
+            tariffType: f.tariffType,
+            tariffTypeDescription: f.tariffTypeDescription,
+            amount,
+            formula: f.formula,
+          };
+        });
+
+        return {
+          htsCode: item.htsCode,
+          country: item.country,
+          blocked: false,
+          blockReason: null,
+          message: item.message,
+          totalDuty,
+          breakdown,
+        };
+      });
+    } catch (err: unknown) {
+      const status =
+        (err as { response?: { status?: number } })?.response?.status ??
+        HttpStatus.BAD_GATEWAY;
+      throw new HttpException(
+        'Tariff formulas service request failed',
+        status >= 400 && status < 600 ? status : HttpStatus.BAD_GATEWAY,
+      );
+    }
   }
 
   /**

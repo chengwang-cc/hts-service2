@@ -316,7 +316,7 @@ ${text}`;
     try {
       const response = await this.withTimeout(
         this.openAiService.response(input, {
-          model: 'gpt-4o',
+          model: 'gpt-5.4-mini',
           instructions: 'You are an expert at extracting structured HTS notes.',
           temperature: 0,
           store: false,
@@ -434,7 +434,7 @@ Return JSON with: formula, variables, confidence, rateType.`;
     try {
       const response = await this.withTimeout(
         this.openAiService.response(input, {
-          model: 'gpt-4o',
+          model: 'gpt-5.4-mini',
           instructions: 'Convert tariff rates to mathematical formulas.',
           temperature: 0,
           store: false,
