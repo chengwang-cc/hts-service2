@@ -1,8 +1,8 @@
-generated_at: 2026-03-31T06:26:22.932Z
+generated_at: 2026-03-29T06:13:32.029Z
 dataset: /Users/cheng/projects/cc/hts/hts-service/docs/evaluation/lookup-evaluation-set-v1.jsonl
 loaded: 5725
 sampled: 300
-autocomplete exact@10: 81.67%
-search exact@10: 80.00%
+autocomplete exact@10: 84.33%
+search exact@10: 78.33%
 classify top1 exact: 65.00%
-classify chapter@1: 93.75%
+classify chapter@1: 90.00%

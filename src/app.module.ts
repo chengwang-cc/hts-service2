@@ -104,6 +104,15 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // API Keys module
     ApiKeysModule,
 
+    // Knowledgebase module
+    KnowledgebaseModule,
+
+    // Lookup module
+    LookupModule,
+
+    // Calculator module (must be before PublicApiModule to ensure @Public() routes take priority)
+    CalculatorModule,
+
     // Public API module (versioned external APIs)
     PublicApiModule,
 
@@ -130,15 +139,6 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Admin module (HTS import, knowledge base admin, etc.)
     AdminModule,
-
-    // Knowledgebase module
-    KnowledgebaseModule,
-
-    // Lookup module
-    LookupModule,
-
-    // Calculator module
-    CalculatorModule,
 
     // Test module (E2E testing endpoints)
     TestModule,
