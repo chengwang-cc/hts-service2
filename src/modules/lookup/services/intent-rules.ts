@@ -470,6 +470,8 @@ export const INTENT_RULES: IntentRule[] = [
 
   // ── Rule 10: KEYCHAIN_ACRYLIC_INTENT ──────────────────────────────────────
   // Acrylic/plastic keychain → 3926.40 (plastic ornamental/decorative articles)
+  // Whitelist allows all ch39 (not just 3926.*) so that 3904.22, 3906.90, 3920.xx
+  // can all surface; boost on 3926.40 is mild so 3926.90 can still win.
   {
     id: 'KEYCHAIN_ACRYLIC_INTENT',
     description: 'Acrylic/plastic keychain → 3926.40 (plastic statuettes/ornamental articles)',
@@ -484,10 +486,10 @@ export const INTENT_RULES: IntentRule[] = [
       { prefix: '3926.40', syntheticRank: 40 },
     ],
     whitelist: {
-      allowPrefixes: ['3926.'],
+      allowChapters: ['39'],
     },
     boosts: [
-      { delta: 0.65, prefixMatch: '3926.40' },
+      { delta: 0.20, prefixMatch: '3926.40' },
       { delta: 0.25, chapterMatch: '39' },
     ],
     penalties: [
@@ -1124,6 +1126,8 @@ export const INTENT_RULES: IntentRule[] = [
 
   // ── Rule 39: OUTERWEAR_INTENT ────────────────────────────────────────────────
   // Jacket / coat → 6201/6202 (woven outerwear) or 6101/6102 (knitted outerwear)
+  // ch61 and ch62 are injected at equal priority (interleaved) so neither chapter
+  // dominates by default; the semantic/lexical scores decide the winner.
   {
     id: 'OUTERWEAR_INTENT',
     description: 'Jacket/coat → ch.62 woven or ch.61 knitted outerwear',
@@ -1133,12 +1137,12 @@ export const INTENT_RULES: IntentRule[] = [
     },
     inject: [
       { prefix: '6201.', syntheticRank: 22 },
-      { prefix: '6202.', syntheticRank: 25 },
-      { prefix: '6101.', syntheticRank: 30 },
-      { prefix: '6102.', syntheticRank: 33 },
+      { prefix: '6101.', syntheticRank: 24 },
+      { prefix: '6202.', syntheticRank: 26 },
+      { prefix: '6102.', syntheticRank: 28 },
     ],
     boosts: [
-      { delta: 0.60, chapterMatch: '62' },
+      { delta: 0.55, chapterMatch: '62' },
       { delta: 0.55, chapterMatch: '61' },
     ],
     penalties: [
@@ -12507,7 +12511,35 @@ export const INTENT_RULES: IntentRule[] = [
     boosts: [{ delta: 0.60, chapterMatch: '61' }],
   },
 
-  // ── Rule 836: WEATHER_STRIPPING_INTENT ───────────────────────────────────────
+  // ── Rule 836: WOOL_KNITWEAR_INTENT ───────────────────────────────────────────
+  // Wool + knitwear → 6110.11/6110.12 (wool/fine animal hair knitted jerseys)
+  // Handles plain "wool" queries not already caught by CASHMERE_MERINO_INTENT.
+  // Whitelist restricts to 6110.11/6110.12 (the two wool sub-headings under 6110)
+  // so that 6110.20 (cotton) cannot crowd out the correct wool codes.
+  {
+    id: 'WOOL_KNITWEAR_INTENT',
+    description: 'Wool knitwear → ch.61 (6110.11/6110.12 wool/fine animal hair)',
+    pattern: {
+      anyOf: ['wool sweater', 'wool hoodie', 'wool knit', 'wool cardigan', 'wool pullover',
+               'wool jumper', 'wool sweatshirt', 'lambswool sweater', 'lambswool knit',
+               'angora sweater', 'angora knit', '100% wool sweater', '100% wool knit',
+               'pure wool sweater', 'pure wool knit'],
+    },
+    inject: [{ prefix: '6110.12', syntheticRank: 18 }, { prefix: '6110.11', syntheticRank: 22 }],
+    whitelist: {
+      // Deny cotton (6110.20) and man-made fiber (6110.30) knitwear
+      // since the query explicitly names wool. Uses AND-logic deny so it
+      // cannot be overridden by other rules' allowChapters.
+      denyPrefixes: ['6110.20', '6110.30'],
+    },
+    boosts: [
+      { delta: 1.20, prefixMatch: '6110.12' },
+      { delta: 1.00, prefixMatch: '6110.11' },
+      { delta: 0.40, chapterMatch: '61' },
+    ],
+  },
+
+  // ── Rule 837: WEATHER_STRIPPING_INTENT ───────────────────────────────────────
   {
     id: 'WEATHER_STRIPPING_INTENT',
     description: 'Weather stripping / door sweep / draft stopper → ch.39 (3925.90) or ch.40 (4016.95)',

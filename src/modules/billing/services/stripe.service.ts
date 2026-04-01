@@ -39,27 +39,51 @@ export class StripeService {
   }
 
   /**
-   * Update subscription
+   * Update subscription (change price or remove cancel_at_period_end)
    */
   async updateSubscription(
     subscriptionId: string,
     params: {
       priceId?: string;
       quantity?: number;
+      cancelAtPeriodEnd?: boolean;
     },
   ): Promise<Stripe.Subscription> {
-    const subscription =
-      await this.stripe.subscriptions.retrieve(subscriptionId);
+    const updateParams: Stripe.SubscriptionUpdateParams = {
+      proration_behavior: 'create_prorations',
+    };
 
-    return this.stripe.subscriptions.update(subscriptionId, {
-      items: [
+    if (typeof params.cancelAtPeriodEnd === 'boolean') {
+      updateParams.cancel_at_period_end = params.cancelAtPeriodEnd;
+    }
+
+    if (params.priceId) {
+      const subscription =
+        await this.stripe.subscriptions.retrieve(subscriptionId);
+      updateParams.items = [
         {
           id: subscription.items.data[0].id,
-          price: params.priceId || subscription.items.data[0].price.id,
+          price: params.priceId,
           quantity: params.quantity,
         },
-      ],
-      proration_behavior: 'create_prorations',
+      ];
+    }
+
+    return this.stripe.subscriptions.update(subscriptionId, updateParams);
+  }
+
+  /**
+   * Attach a payment method to a customer and set as default
+   */
+  async attachPaymentMethod(
+    paymentMethodId: string,
+    customerId: string,
+  ): Promise<void> {
+    await this.stripe.paymentMethods.attach(paymentMethodId, {
+      customer: customerId,
+    });
+    await this.stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
     });
   }
 

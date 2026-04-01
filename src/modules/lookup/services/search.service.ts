@@ -202,7 +202,7 @@ export class SearchService {
     // ── Silicone / plastic articles → chapter 39 ─────────────────────────────────────────
     silicone: ['plastic', 'rubber', 'elastomeric'],
     // ── Stand / holder (non-audio) ────────────────────────────────────────────────────────
-    stand: ['holder', 'support', 'mount'],
+    stand: ['holder', 'mount'],
     // ── Canvas → textile bags (4202.92) not suitcases (4202.12) ─────────────────────────
     // "outer" and "surface" appear ONLY in the 4202.92 subheading text:
     // "With outer surface of sheeting of plastics or of textile materials"
@@ -2935,14 +2935,17 @@ export class SearchService {
       fused.set(row.htsNumber, (fused.get(row.htsNumber) || 0) + this.rrf(index));
     });
 
-    if (fused.size === 0) {
-      return [];
-    }
-
     // For specific intents, the correct entries may not surface in the semantic/lexical
     // candidate pools (due to vocabulary mismatch). Inject them with a synthetic baseline
     // RRF score so they can receive intent boosts and compete in the final ranking.
+    // NOTE: inject must run BEFORE the fused.size===0 guard so that intent-injected entries
+    // can still surface when both lexical and semantic return zero results
+    // (e.g. "batik button pin" — "batik" is not in the HTS corpus but 9606 should still appear).
     await this.injectRuleCandidates(fused, matchedRules);
+
+    if (fused.size === 0) {
+      return [];
+    }
 
     const htsNumbers = [...fused.keys()];
     const entries = await this.htsRepository.find({
@@ -3455,7 +3458,11 @@ export class SearchService {
       if (token.length < 2) {
         continue;
       }
-      if (textTokens.has(token)) {
+      if (
+        textTokens.has(token) ||
+        textTokens.has(token + 's') ||
+        (token.endsWith('s') && token.length > 3 && textTokens.has(token.slice(0, -1)))
+      ) {
         covered += 1;
       }
     }

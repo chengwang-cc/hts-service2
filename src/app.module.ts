@@ -53,8 +53,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
         ssl:
           process.env?.NODE_ENV === 'development'
             ? false
-              :false,
-            //: { rejectUnauthorized: false },
+            : { rejectUnauthorized: false },
         logging: (process.env?.DB_LOGGING ?? 'false') === 'true',
         // Limit pool size so pg-boss + app together stay under max_connections
         extra: { max: parseInt(process.env?.DB_POOL_MAX ?? '8') },

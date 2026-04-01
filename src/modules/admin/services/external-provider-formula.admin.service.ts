@@ -758,7 +758,7 @@ export class ExternalProviderFormulaAdminService {
       ].join('\n');
 
       const response = await openAiService.response(prompt, {
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-nano',
         temperature: 0.1,
         max_output_tokens: 500,
         text: {
@@ -1790,7 +1790,7 @@ export class ExternalProviderFormulaAdminService {
       ].join('\n');
 
       const response = await openAiService.response(prompt, {
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-nano',
         temperature: 0,
         max_output_tokens: 300,
         text: {

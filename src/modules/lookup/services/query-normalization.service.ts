@@ -186,7 +186,7 @@ export class QueryNormalizationService {
         this.openAiService.response(
           `User query: "${query}"`,
           {
-            model: 'gpt-5-nano',
+            model: 'gpt-5.4-nano',
             instructions:
               'You are a retrieval normalizer for HTS search, not a classifier and not a product copywriter. ' +
               'Convert the user query into compact search terms that work well for PostgreSQL full-text search, vector search, and tariff-vocabulary matching. ' +

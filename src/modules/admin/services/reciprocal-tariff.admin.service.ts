@@ -672,7 +672,7 @@ export class ReciprocalTariffAdminService {
       ].join('\n');
 
       const response = await openAiService.response(prompt, {
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-nano',
         temperature: 0,
         max_output_tokens: 1400,
         tools: [{ type: 'web_search_preview' }] as any,

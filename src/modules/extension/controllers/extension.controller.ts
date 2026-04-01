@@ -104,7 +104,7 @@ export class ExtensionController {
         data: {
           products,
           method: 'llm',
-          model: 'gpt-4o-mini',
+          model: 'gpt-5.4-nano',
         },
         meta: {
           apiVersion: 'v1',
@@ -239,7 +239,7 @@ export class ExtensionController {
           overallConfidence: analysis.overallConfidence,
           modelVersion: analysis.modelVersion,
         },
-        modelUsed: 'gpt-4o',
+        modelUsed: 'gpt-5.4-mini',
         processingTimeMs: analysis.processingTime,
         imageSizeBytes: validation.sizeBytes,
         imageFormat: validation.format,
@@ -266,7 +266,7 @@ export class ExtensionController {
           products: analysis.products,
           confidence: analysis.overallConfidence,
           method: 'vision',
-          model: 'gpt-4o',
+          model: 'gpt-5.4-mini',
           cached: false,
         },
         meta: {

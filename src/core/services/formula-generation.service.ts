@@ -351,7 +351,7 @@ Examples:
 
     try {
       const response = await this.openAiService.response(prompt, {
-        model: 'gpt-5.2',
+        model: 'gpt-5.4-mini',
         temperature: 0.1,
         max_output_tokens: 200,
         store: false,
@@ -649,7 +649,7 @@ ${promptLines}
 
     try {
       const response = await this.openAiService.response(prompt, {
-        model: 'gpt-5.2',
+        model: 'gpt-5.4-mini',
         temperature: 0.1,
         max_output_tokens: 1200,
         store: false,

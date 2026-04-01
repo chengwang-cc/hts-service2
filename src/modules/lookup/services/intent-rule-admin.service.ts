@@ -397,7 +397,7 @@ Respond in JSON format: [{"code":"XXXXXXXXXX","queries":["query 1","query 2","qu
 
     try {
       const res = await this.openAiService.response(input, {
-        model: 'gpt-5-nano',
+        model: 'gpt-5.4-nano',
         text: { format: { type: 'json_object' } },
       });
 

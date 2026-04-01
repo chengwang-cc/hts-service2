@@ -144,7 +144,7 @@ CRITICAL SECURITY RULES:
 
       // Call OpenAI Responses API with a fast vision-capable model.
       const response = await this.openAiService.response(input, {
-        model: 'gpt-5-mini',
+        model: 'gpt-5.4-mini',
         instructions,
         max_output_tokens: 1500,
         text: {
@@ -169,7 +169,7 @@ CRITICAL SECURITY RULES:
       return {
         ...result,
         processingTime,
-        modelVersion: 'gpt-5-mini',
+        modelVersion: 'gpt-5.4-mini',
       };
     } catch (error) {
       this.logger.error('Vision analysis failed', error.stack);

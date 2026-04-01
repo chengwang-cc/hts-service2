@@ -18,7 +18,7 @@ import { LookupConversationSessionEntity } from '../entities/lookup-conversation
 import { LookupConversationMessageEntity } from '../entities/lookup-conversation-message.entity';
 import { LookupConversationFeedbackEntity } from '../entities/lookup-conversation-feedback.entity';
 
-type AgentModel = 'claude-haiku' | 'gpt-5-nano';
+type AgentModel = 'claude-haiku' | 'gpt-5.4-nano';
 
 /**
  * A clarification question with optional quick-reply chips.
@@ -177,7 +177,7 @@ export class LookupConversationAgentService {
 
   private getConfiguredModel(): AgentModel {
     const model = this.config.get<string>('LOOKUP_AGENT_MODEL', 'claude-haiku');
-    return model === 'gpt-5-nano' ? 'gpt-5-nano' : 'claude-haiku';
+    return model === 'gpt-5.4-nano' ? 'gpt-5.4-nano' : 'claude-haiku';
   }
 
   async createConversation(params: {
@@ -348,7 +348,7 @@ export class LookupConversationAgentService {
         normalized = clarificationEchoGuard;
       } else {
         const prompt = this.buildTurnPrompt(history);
-        if (model === 'gpt-5-nano') {
+        if (model === 'gpt-5.4-nano') {
           const ctx = (session.contextJson as Record<string, unknown> | null) ?? null;
           const previousResponseId = ctx?.openaiPreviousResponseId as string | null ?? null;
           const result = await this.runOpenAIAgent(message, prompt, toolTrace, previousResponseId, ctx);
@@ -640,7 +640,7 @@ export class LookupConversationAgentService {
 
     const t0 = Date.now();
     const response = await this.openai.responses.create({
-      model: 'gpt-5-nano',
+      model: 'gpt-5.4-nano',
       instructions: OPENAI_AGENT_SYSTEM_PROMPT,
       input: inputText,
       ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),

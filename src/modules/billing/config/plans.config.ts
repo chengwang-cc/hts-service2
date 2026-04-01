@@ -111,9 +111,8 @@ export const PLANS: Record<string, Plan> = {
       yearly: 470, // ~20% discount
     },
     stripePriceIds: {
-      // These will be filled in with actual Stripe price IDs
-      monthly: 'price_starter_monthly',
-      yearly: 'price_starter_yearly',
+      monthly: 'price_1TFirqFlkGnRAYYW7oshC8t5',
+      yearly: 'price_1TFirqFlkGnRAYYWEbbIxnZ2',
     },
     features: {
       classifications: {
@@ -164,8 +163,8 @@ export const PLANS: Record<string, Plan> = {
       yearly: 1910, // ~20% discount
     },
     stripePriceIds: {
-      monthly: 'price_professional_monthly',
-      yearly: 'price_professional_yearly',
+      monthly: 'price_1TFirrFlkGnRAYYWMQQG2B12',
+      yearly: 'price_1TFirrFlkGnRAYYWAccaTxyT',
     },
     popular: true,
     features: {
@@ -217,8 +216,8 @@ export const PLANS: Record<string, Plan> = {
       yearly: 9590, // ~20% discount
     },
     stripePriceIds: {
-      monthly: 'price_enterprise_monthly',
-      yearly: 'price_enterprise_yearly',
+      monthly: 'price_1TFirrFlkGnRAYYWki54ItkJ',
+      yearly: 'price_1TFirrFlkGnRAYYWbHjg8a2i',
     },
     features: {
       classifications: {

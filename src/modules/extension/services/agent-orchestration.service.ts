@@ -119,7 +119,7 @@ export class AgentOrchestrationService implements OnModuleInit {
         iterationCount++;
 
         const response = await this.openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: 'gpt-5.4-mini',
           messages,
           tools,
           tool_choice: 'auto',
