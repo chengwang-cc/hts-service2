@@ -20,8 +20,18 @@ async function bootstrap() {
   const envOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
     : [];
+  const allOrigins = [...devOrigins, ...envOrigins];
   app.enableCors({
-    origin: [...devOrigins, ...envOrigins],
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (server-to-server, curl, mobile apps)
+      if (!origin) return callback(null, true);
+      // Allow all origins for widget/shopify endpoints (checkout extensions run on unpredictable origins)
+      if (allOrigins.length === 0 || allOrigins.includes(origin)) return callback(null, true);
+      // Allow Shopify domains
+      if (origin.endsWith('.shopify.com') || origin.endsWith('.shopifycdn.com') || origin.endsWith('.myshopify.com')) return callback(null, true);
+      // Allow all origins — checkout extensions require this
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
@@ -30,6 +40,7 @@ async function bootstrap() {
       'X-API-Key',
       'X-Guest-Token',
       'x-guest-token',
+      'X-Widget-Key',
     ],
   });
 
@@ -37,7 +48,11 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1', {
     // Keep backward compatibility for legacy controllers that already include "api/v1"
     // in their route decorators, while still prefixing newer module routes.
-    exclude: [{ path: 'api/v1/(.*)', method: RequestMethod.ALL }],
+    exclude: [
+      { path: 'api/v1/(.*)', method: RequestMethod.ALL },
+      { path: 'widget/(.*)', method: RequestMethod.ALL },
+      { path: 'shopify/(.*)', method: RequestMethod.ALL },
+    ],
   });
 
   // Enable global validation pipe

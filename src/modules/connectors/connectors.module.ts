@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { HttpModule } from '@nestjs/axios';
+import { ModuleRef } from '@nestjs/core';
 import {
   ConnectorEntity,
   SyncLogEntity,
@@ -9,17 +9,36 @@ import {
   BrokerConnector,
 } from '@hts/connectors';
 import { ConnectorsController } from './controllers/connectors.controller';
+import { WebhooksController } from './controllers/webhooks.controller';
+import { LookupModule } from '../lookup/lookup.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ConnectorEntity, SyncLogEntity]),
-    HttpModule.register({
-      timeout: 30000,
-      maxRedirects: 5,
-    }),
+    LookupModule,
   ],
-  controllers: [ConnectorsController],
+  controllers: [ConnectorsController, WebhooksController],
   providers: [ConnectorService, ShopifyConnector, BrokerConnector],
   exports: [ConnectorService, ShopifyConnector, BrokerConnector],
 })
-export class ConnectorsModule {}
+export class ConnectorsModule implements OnModuleInit {
+  constructor(
+    private readonly moduleRef: ModuleRef,
+    private readonly connectorService: ConnectorService,
+  ) {}
+
+  async onModuleInit() {
+    // Lazily inject SearchService to avoid circular dependency issues
+    try {
+      const { SearchService } = await import(
+        '../lookup/services/search.service'
+      );
+      const searchService = this.moduleRef.get(SearchService, {
+        strict: false,
+      });
+      this.connectorService.setSearchService(searchService);
+    } catch {
+      // SearchService not available; sync will skip classification
+    }
+  }
+}

@@ -392,6 +392,13 @@ export class HtsEntity {
   @Column('timestamp', { select: false, nullable: true })
   embeddingOpenaiGeneratedAt: Date | null;
 
+  /**
+   * Product Synonyms - Claude-generated concrete product names for "Other" leaf codes
+   * Included in buildSearchText() to improve embedding recall for generic codes.
+   */
+  @Column('text', { nullable: true })
+  productSynonyms: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

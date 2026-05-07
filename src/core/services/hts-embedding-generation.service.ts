@@ -472,6 +472,7 @@ export class HtsEmbeddingGenerationService {
       this.normalizeTextPart(hts.htsNumber),
       ...this.buildEmbeddingDescriptionParts(hts),
       this.normalizeTextPart(hts.unitOfQuantity),
+      this.normalizeTextPart(hts.productSynonyms),
     ]);
 
     return parts.join(' ');

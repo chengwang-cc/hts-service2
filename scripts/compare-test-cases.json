@@ -1,0 +1,272 @@
+[
+  {
+    "id": "TC-001",
+    "description": "Apparel CN - ad valorem 17.5% base + Section 301 7.5%",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10
+  },
+  {
+    "id": "TC-002",
+    "description": "Equine CA - free base rate",
+    "htsNumber": "0101.90.30.00",
+    "countryOfOrigin": "CA",
+    "declaredValue": 5000,
+    "weightKg": 200,
+    "quantity": 1
+  },
+  {
+    "id": "TC-003",
+    "description": "Footwear VN - high ad valorem 48%",
+    "htsNumber": "6404.11.59.00",
+    "countryOfOrigin": "VN",
+    "declaredValue": 500,
+    "weightKg": 3,
+    "quantity": 5
+  },
+  {
+    "id": "TC-004",
+    "description": "Coffee CO - specific rate 1.5 cents/kg",
+    "htsNumber": "0901.90.20.00",
+    "countryOfOrigin": "CO",
+    "declaredValue": 2000,
+    "weightKg": 100,
+    "quantity": 1
+  },
+  {
+    "id": "TC-005",
+    "description": "Steel sheet CN - free base + Section 301 25%",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 10000,
+    "weightKg": 500,
+    "quantity": 1
+  },
+  {
+    "id": "TC-006",
+    "description": "Aluminum sheet CA - 6.5% base + possible Section 232",
+    "htsNumber": "7606.12.60.00",
+    "countryOfOrigin": "CA",
+    "declaredValue": 5000,
+    "weightKg": 200,
+    "quantity": 1
+  },
+  {
+    "id": "TC-007",
+    "description": "Laptop/PC CN - free base + IEEPA tariff",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 5
+  },
+  {
+    "id": "TC-008",
+    "description": "Apparel KP - Column 2 rate (non-NTR)",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "KP",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10
+  },
+  {
+    "id": "TC-009",
+    "description": "Steel RU - Column 2 non-NTR rate",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "RU",
+    "declaredValue": 10000,
+    "weightKg": 500,
+    "quantity": 1
+  },
+  {
+    "id": "TC-010",
+    "description": "Auto parts MX - 2.5% base, USMCA candidate",
+    "htsNumber": "8708.29.25.00",
+    "countryOfOrigin": "MX",
+    "declaredValue": 2000,
+    "weightKg": 30,
+    "quantity": 20
+  },
+  {
+    "id": "TC-011",
+    "description": "Cotton fabric IN - 11.5% base only",
+    "htsNumber": "5208.21.60.00",
+    "countryOfOrigin": "IN",
+    "declaredValue": 800,
+    "weightKg": 10,
+    "quantity": 50
+  },
+  {
+    "id": "TC-012",
+    "description": "TV monitor JP - 3.9% base + reciprocal tariff",
+    "htsNumber": "8528.72.64.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 5000,
+    "weightKg": 20,
+    "quantity": 2
+  },
+  {
+    "id": "TC-013",
+    "description": "TV monitor DE (EU) - 3.9% base + EU reciprocal tariff",
+    "htsNumber": "8528.72.64.00",
+    "countryOfOrigin": "DE",
+    "declaredValue": 5000,
+    "weightKg": 20,
+    "quantity": 2
+  },
+  {
+    "id": "TC-014",
+    "description": "Plastic articles CN - 5.1% base + Section 301 25%",
+    "htsNumber": "3926.90.55.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 2000,
+    "weightKg": 15,
+    "quantity": 100
+  },
+  {
+    "id": "TC-015",
+    "description": "Low-value apparel CN - MPF minimum ($27.75) expected",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 10,
+    "weightKg": 0.5,
+    "quantity": 1
+  },
+  {
+    "id": "TC-016",
+    "description": "High-value laptop JP - MPF cap ($579.23) expected",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 200000,
+    "weightKg": 50,
+    "quantity": 1
+  },
+  {
+    "id": "TC-017",
+    "description": "Laptop KR - free base, Korea FTA candidate",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "KR",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 3
+  },
+  {
+    "id": "TC-018",
+    "description": "Steel GB - free base + Section 232",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "GB",
+    "declaredValue": 8000,
+    "weightKg": 400,
+    "quantity": 1
+  },
+  {
+    "id": "TC-019",
+    "description": "Apparel VN - 17.5% base + reciprocal tariff",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "VN",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10
+  },
+  {
+    "id": "TC-020",
+    "description": "Laptop MX - free base, USMCA candidate",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "MX",
+    "declaredValue": 2000,
+    "weightKg": 8,
+    "quantity": 4
+  },
+  {
+    "id": "TC-021",
+    "description": "Footwear CN - 48% high rate + Section 301",
+    "htsNumber": "6404.11.59.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 800,
+    "weightKg": 4,
+    "quantity": 10
+  },
+  {
+    "id": "TC-022",
+    "description": "Metal furniture CN - free base + Section 301 25%",
+    "htsNumber": "9403.20.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 5000,
+    "weightKg": 100,
+    "quantity": 5
+  },
+  {
+    "id": "TC-023",
+    "description": "Electric motor CN - 6.7% base + Section 301 25%",
+    "htsNumber": "8501.10.20.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 2000,
+    "weightKg": 20,
+    "quantity": 10
+  },
+  {
+    "id": "TC-024",
+    "description": "Solar cells CN - free base + Section 301 50%",
+    "htsNumber": "8541.49.80.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 15000,
+    "weightKg": 200,
+    "quantity": 50
+  },
+  {
+    "id": "TC-025",
+    "description": "Pharmaceutical IN - duty free base",
+    "htsNumber": "3004.31.00.00",
+    "countryOfOrigin": "IN",
+    "declaredValue": 10000,
+    "weightKg": 50,
+    "quantity": 1000
+  },
+  {
+    "id": "TC-026",
+    "description": "Dishwasher CN - free base + Section 301 25%",
+    "htsNumber": "8422.19.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 80,
+    "quantity": 3
+  },
+  {
+    "id": "TC-027",
+    "description": "Dishwasher JP - free base + reciprocal tariff",
+    "htsNumber": "8422.19.00.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 20000,
+    "weightKg": 500,
+    "quantity": 2
+  },
+  {
+    "id": "TC-028",
+    "description": "Handbags CN - 5.7% base + Section 301 25%",
+    "htsNumber": "4202.22.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 30
+  },
+  {
+    "id": "TC-029",
+    "description": "Copper wire CN - 3% base + Section 301 25%",
+    "htsNumber": "7408.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 5000,
+    "weightKg": 100,
+    "quantity": 1
+  },
+  {
+    "id": "TC-030",
+    "description": "Toys CN - free base rate",
+    "htsNumber": "9503.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 500,
+    "weightKg": 5,
+    "quantity": 50
+  }
+]
