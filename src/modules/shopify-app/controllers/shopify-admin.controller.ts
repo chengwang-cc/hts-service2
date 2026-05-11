@@ -2,15 +2,23 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Req,
   UseGuards,
   Logger,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SkipJwtAuth } from '../../api-keys/decorators/skip-jwt-auth.decorator';
 import { ShopifySessionGuard } from '../guards/shopify-session.guard';
 import { ShopifySessionEntity } from '../entities/shopify-session.entity';
 import { ConnectorService } from '../../connectors/services/connector.service';
 import { ShopifyConnector } from '../../connectors/services/shopify.connector';
+
+const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
+type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
 
 @SkipJwtAuth()
 @Controller('shopify/api')
@@ -21,7 +29,50 @@ export class ShopifyAdminController {
   constructor(
     private readonly connectorService: ConnectorService,
     private readonly shopifyConnector: ShopifyConnector,
+    @InjectRepository(ShopifySessionEntity)
+    private readonly sessionRepository: Repository<ShopifySessionEntity>,
   ) {}
+
+  /**
+   * GET /shopify/api/settings
+   * Get merchant settings for this shop.
+   */
+  @Get('settings')
+  async getSettings(@Req() req: any) {
+    const session: ShopifySessionEntity = req.shopifySession;
+    return {
+      dutyDisplayMode: session.dutyDisplayMode || 'ddu',
+    };
+  }
+
+  /**
+   * POST /shopify/api/settings
+   * Update merchant settings for this shop.
+   */
+  @Post('settings')
+  async updateSettings(
+    @Req() req: any,
+    @Body() body: { dutyDisplayMode?: string },
+  ) {
+    const session: ShopifySessionEntity = req.shopifySession;
+
+    if (body.dutyDisplayMode && !VALID_DUTY_MODES.includes(body.dutyDisplayMode as DutyDisplayMode)) {
+      throw new HttpException(
+        `Invalid dutyDisplayMode. Must be one of: ${VALID_DUTY_MODES.join(', ')}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (body.dutyDisplayMode) {
+      session.dutyDisplayMode = body.dutyDisplayMode;
+      await this.sessionRepository.save(session);
+      this.logger.log(`Settings updated for ${session.shop}: dutyDisplayMode=${body.dutyDisplayMode}`);
+    }
+
+    return {
+      dutyDisplayMode: session.dutyDisplayMode,
+    };
+  }
 
   /**
    * GET /shopify/api/status

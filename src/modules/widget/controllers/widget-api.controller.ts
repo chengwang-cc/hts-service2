@@ -35,6 +35,7 @@ interface CheckoutEstimateResult {
   totalLandedCost: Money;
   assumptions?: string[];
   warnings?: string[];
+  dutyDisplayMode?: string;
 }
 
 @SkipJwtAuth()
@@ -198,6 +199,7 @@ export class WidgetApiController {
       fees: { amount: round2(totalFees), currency },
       totalLandedCost: { amount: round2(totalLandedCost), currency },
       warnings: warnings.length > 0 ? warnings : undefined,
+      dutyDisplayMode: shopifySession?.dutyDisplayMode || 'ddu',
     };
   }
 

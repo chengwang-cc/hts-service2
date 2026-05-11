@@ -35,6 +35,15 @@ export class ShopifySessionEntity {
   @Column('boolean', { default: true })
   isActive: boolean;
 
+  /**
+   * Duty display mode at checkout:
+   * - 'ddu' (default): show as info, buyer pays carrier on delivery
+   * - 'ddp': merchant collects duty (requires DDP shipping label)
+   * - 'disabled': hide duty estimate banner entirely
+   */
+  @Column('varchar', { length: 20, default: 'ddu' })
+  dutyDisplayMode: string;
+
   @CreateDateColumn({ type: 'timestamp' })
   installedAt: Date;
 
