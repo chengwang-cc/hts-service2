@@ -27,13 +27,13 @@ export class RateLimitService {
 
   // Default configuration for smart search endpoints
   private readonly defaultConfig: RateLimitConfig = {
-    guest: 10, // Guest users: 10 per day
-    authenticated: 20, // Authenticated users: 20 per day
+    guest: 5, // Guest users: 5 per day (prompt to sign up)
+    authenticated: 10, // Base daily limit for authenticated FREE users
     planMultipliers: {
-      FREE: 1, // 20 * 1 = 20 per day
-      STARTER: 2, // 20 * 2 = 40 per day
-      PROFESSIONAL: 5, // 20 * 5 = 100 per day
-      ENTERPRISE: -1, // unlimited
+      FREE: 1,           // 10 * 1  = 10 per day
+      STARTER: 10,       // 10 * 10 = 100 per day
+      PROFESSIONAL: -1,  // unlimited
+      ENTERPRISE: -1,    // unlimited
     },
   };
 
@@ -235,13 +235,11 @@ export class RateLimitService {
       Array<{ plan: string; limit: number }>
     > = {
       FREE: [
-        { plan: 'STARTER', limit: 40 },
-        { plan: 'PROFESSIONAL', limit: 100 },
-        { plan: 'ENTERPRISE', limit: -1 },
+        { plan: 'STARTER', limit: 100 },
+        { plan: 'PROFESSIONAL', limit: -1 },
       ],
       STARTER: [
-        { plan: 'PROFESSIONAL', limit: 100 },
-        { plan: 'ENTERPRISE', limit: -1 },
+        { plan: 'PROFESSIONAL', limit: -1 },
       ],
       PROFESSIONAL: [{ plan: 'ENTERPRISE', limit: -1 }],
       ENTERPRISE: [],

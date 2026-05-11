@@ -39,6 +39,7 @@ import { Public } from '../decorators';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UrlType } from '../dto/classify-url.dto';
+import { VisionService } from '@hts/core';
 
 @Controller('lookup')
 export class LookupController {
@@ -51,6 +52,7 @@ export class LookupController {
     private readonly queueService: QueueService,
     private readonly rerankService: RerankService,
     private readonly smartClassifyService: SmartClassifyService,
+    private readonly visionService: VisionService,
   ) {}
 
   @Public()
@@ -158,6 +160,7 @@ export class LookupController {
    * Accepts PNG, JPG, WebP images up to 10 MB.
    * Runs asynchronously through pg-boss to avoid edge/gateway timeouts.
    */
+  @Public()
   @HttpCode(HttpStatus.ACCEPTED)
   @Post('classify-hts-from-image')
   @UseInterceptors(
@@ -181,20 +184,17 @@ export class LookupController {
     };
   }
 
+  @Public()
   @Get('classify-hts-jobs/:jobId')
   async getClassificationJob(
     @CurrentUser() user: any,
     @Param('jobId') jobId: string,
   ) {
-    if (!user?.organizationId) {
-      throw new UnauthorizedException('Authentication required');
-    }
-
     return {
       success: true,
       data: await this.lookupClassificationJobService.getJob(
         jobId,
-        user.organizationId,
+        user?.organizationId ?? null,
       ),
     };
   }

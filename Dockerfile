@@ -45,6 +45,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     chromium \
+    curl \
     fonts-liberation \
     fonts-noto-color-emoji \
     poppler-utils \

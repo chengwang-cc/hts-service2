@@ -17,7 +17,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey, SkipJwtAuth } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { SearchService } from '@hts/lookup';
 import {
@@ -32,6 +32,7 @@ import {
  */
 @ApiTags('Knowledgebase')
 @ApiSecurity('api-key')
+@SkipJwtAuth()
 @Controller('api/v1/knowledgebase')
 @UseGuards(ApiKeyGuard)
 export class KnowledgebasePublicController {

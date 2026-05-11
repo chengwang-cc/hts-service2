@@ -1,0 +1,3278 @@
+[
+  {
+    "id": "TC-001",
+    "description": "Apparel CN - ad valorem 17.5% base + Section 301 7.5%",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 175,
+      "additionalByType": {
+        "section_301": 75,
+        "section_122": 100
+      },
+      "totalAdditional": 175,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 350,
+      "formulas": {
+        "base": "value * 0.175",
+        "section_301": "value * 0.075",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6203.11.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.175",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.075",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6203.11.60.00",
+        "rate": 250,
+        "message": "General rate \"17.5%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 7.5%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "17.5% + The duty provided in the applicable subheading + 7.5%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229833900-PWAH08\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229833900-PWAH08",
+        "baseDuty": 175,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 175,
+        "landedCost": 1175,
+        "breakdown": {
+          "baseDuty": 175,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 175,
+          "totalTax": 0,
+          "landedCost": 1175
+        },
+        "formulaUsed": "value * 0.175",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229833900-PWAH08\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-002",
+    "description": "Equine CA - free base rate",
+    "htsNumber": "0101.90.30.00",
+    "countryOfOrigin": "CA",
+    "declaredValue": 5000,
+    "weightKg": 200,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "Chapter 01 of the HTS Schedule covers live animals which cannot be shipped with Chit Chats. Please confirm your HTS Code to [purchase postage.](https://chitchats.com/admin/dashboards/overview?date=2026-03-23)",
+      "rawResponse": {
+        "error": false,
+        "htsCode": "0101.90.30.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "0101.90.30.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for CA.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CA",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": true,
+        "block_reason": "Chapter 01 of the HTS Schedule covers live animals which cannot be shipped with Chit Chats. Please confirm your HTS Code to [purchase postage.](https://chitchats.com/admin/dashboards/overview?date=2026-03-23)"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229833933-T6OZ32\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":5000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":5000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229833933-T6OZ32",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 5000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 5000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229833933-T6OZ32\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":5000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":5000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (Chapter 01 of the HTS Schedule covers live animals which cannot be shipped with Chit Chats. Please confirm your HTS Code to [purchase postage.](https://chitchats.com/admin/dashboards/overview?date=2026-03-23))"
+    ]
+  },
+  {
+    "id": "TC-003",
+    "description": "Footwear VN - high ad valorem 48%",
+    "htsNumber": "6404.11.59.00",
+    "countryOfOrigin": "VN",
+    "declaredValue": 500,
+    "weightKg": 3,
+    "quantity": 5,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 240,
+      "additionalByType": {
+        "section_122": 50
+      },
+      "totalAdditional": 50,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 290,
+      "formulas": {
+        "base": "value * 0.48",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6404.11.59.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.48",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6404.11.59.00",
+        "rate": 240,
+        "message": "General rate \"48%\" (Column 1) applies for VN.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "VN",
+        "tariffRate": "48%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "R",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229833936-H35LEF\",\"baseDuty\":240,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":240,\"landedCost\":740,\"breakdown\":{\"baseDuty\":240,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":240,\"totalTax\":0,\"landedCost\":740},\"formulaUsed\":\"value * 0.48\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229833936-H35LEF",
+        "baseDuty": 240,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 240,
+        "landedCost": 740,
+        "breakdown": {
+          "baseDuty": 240,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 240,
+          "totalTax": 0,
+          "landedCost": 740
+        },
+        "formulaUsed": "value * 0.48",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229833936-H35LEF\",\"baseDuty\":240,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":240,\"landedCost\":740,\"breakdown\":{\"baseDuty\":240,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":240,\"totalTax\":0,\"landedCost\":740},\"formulaUsed\":\"value * 0.48\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-004",
+    "description": "Coffee CO - specific rate 1.5 cents/kg",
+    "htsNumber": "0901.90.20.00",
+    "countryOfOrigin": "CO",
+    "declaredValue": 2000,
+    "weightKg": 100,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 1.5,
+      "additionalByType": {
+        "section_122": 200
+      },
+      "totalAdditional": 200,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 201.5,
+      "formulas": {
+        "base": "weight * 0.015",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "0901.90.20.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "weight * 0.015",
+            "formulaVariables": [
+              {
+                "name": "weight",
+                "unit": "kg",
+                "type": "number",
+                "description": "Total weight in kilograms"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "0901.90.20.00",
+        "rate": 1.5,
+        "message": "General rate \"1.5¢/kg\" (Column 1) applies for CO.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CO",
+        "tariffRate": "1.5¢/kg",
+        "special": [
+          "A+",
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229835592-DJHXR9\",\"baseDuty\":1.5,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":1.5,\"landedCost\":2001.5,\"breakdown\":{\"baseDuty\":1.5,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":1.5,\"totalTax\":0,\"landedCost\":2001.5},\"formulaUsed\":\"weight * 0.015\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229835592-DJHXR9",
+        "baseDuty": 1.5,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 1.5,
+        "landedCost": 2001.5,
+        "breakdown": {
+          "baseDuty": 1.5,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 1.5,
+          "totalTax": 0,
+          "landedCost": 2001.5
+        },
+        "formulaUsed": "weight * 0.015",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229835592-DJHXR9\",\"baseDuty\":1.5,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":1.5,\"landedCost\":2001.5,\"breakdown\":{\"baseDuty\":1.5,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":1.5,\"totalTax\":0,\"landedCost\":2001.5},\"formulaUsed\":\"weight * 0.015\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-005",
+    "description": "Steel sheet CN - free base + Section 301 25%",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 10000,
+    "weightKg": 500,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_301": 2500,
+        "section_122": 1000,
+        "static_metal_tariff": 5000
+      },
+      "totalAdditional": 8500,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 8500,
+      "formulas": {
+        "base": "0",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100",
+        "static_metal_tariff": "value * 0.5"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "7208.52.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          },
+          {
+            "tariffType": "static_metal_tariff",
+            "tariffTypeDescription": "Section 232 (Static)",
+            "formula": "value * 0.5",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "type": "number",
+                "description": "Value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "7208.52.00.00",
+        "rate": 2500,
+        "message": "General rate \"Free\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION); Applied: Static Tariff 50% (all)",
+        "country": "CN",
+        "tariffRate": "Free + The duty provided in the applicable subheading + 25%",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229835626-YXE9Y5\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229835626-YXE9Y5",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 10000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 10000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229835626-YXE9Y5\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-006",
+    "description": "Aluminum sheet CA - 6.5% base + possible Section 232",
+    "htsNumber": "7606.12.60.00",
+    "countryOfOrigin": "CA",
+    "declaredValue": 5000,
+    "weightKg": 200,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 325,
+      "additionalByType": {
+        "section_122": 500,
+        "static_metal_tariff": 2500
+      },
+      "totalAdditional": 3000,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 3325,
+      "formulas": {
+        "base": "value * 0.065",
+        "section_122": "value * 0.100",
+        "static_metal_tariff": "value * 0.5"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "7606.12.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.065",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          },
+          {
+            "tariffType": "static_metal_tariff",
+            "tariffTypeDescription": "Section 232 (Static)",
+            "formula": "value * 0.5",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "type": "number",
+                "description": "Value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "7606.12.60.00",
+        "rate": 325,
+        "message": "General rate \"6.5%\" (Column 1) applies for CA.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION); Applied: Static Tariff 50% (all)",
+        "country": "CA",
+        "tariffRate": "6.5%",
+        "special": [
+          "A*",
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229837025-VV1WZ4\",\"baseDuty\":325,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":325,\"landedCost\":5325,\"breakdown\":{\"baseDuty\":325,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":325,\"totalTax\":0,\"landedCost\":5325},\"formulaUsed\":\"value * 0.065\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229837025-VV1WZ4",
+        "baseDuty": 325,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 325,
+        "landedCost": 5325,
+        "breakdown": {
+          "baseDuty": 325,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 325,
+          "totalTax": 0,
+          "landedCost": 5325
+        },
+        "formulaUsed": "value * 0.065",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229837025-VV1WZ4\",\"baseDuty\":325,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":325,\"landedCost\":5325,\"breakdown\":{\"baseDuty\":325,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":325,\"totalTax\":0,\"landedCost\":5325},\"formulaUsed\":\"value * 0.065\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-007",
+    "description": "Laptop/PC CN - free base + IEEPA tariff",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 5,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {
+        "base": "0"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8471.30.01.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          }
+        ],
+        "effectiveHtsCode": "8471.30.01.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for CN.",
+        "country": "CN",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838740-HRKUKI\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838740-HRKUKI",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 3000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 3000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838740-HRKUKI\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-008",
+    "description": "Apparel KP - Column 2 rate (non-NTR)",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "KP",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 587.65,
+      "additionalByType": {
+        "section_122": 100
+      },
+      "totalAdditional": 100,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 687.65,
+      "formulas": {
+        "base": "(weight * 0.529) + (value * 0.585)",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6203.11.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "(weight * 0.529) + (value * 0.585)",
+            "formulaVariables": [
+              {
+                "name": "weight",
+                "unit": "kg",
+                "type": "number",
+                "description": "Total weight in kilograms"
+              },
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6203.11.60.00",
+        "rate": 587.65,
+        "message": "Non-NTR rate \"52.9¢/kg + 58.5%\" applies for KP (Column 2).; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "KP",
+        "tariffRate": "52.9¢/kg + 58.5%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838806-9HBVJT\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838806-9HBVJT",
+        "baseDuty": 175,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 175,
+        "landedCost": 1175,
+        "breakdown": {
+          "baseDuty": 175,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 175,
+          "totalTax": 0,
+          "landedCost": 1175
+        },
+        "formulaUsed": "value * 0.175",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838806-9HBVJT\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-009",
+    "description": "Steel RU - Column 2 non-NTR rate",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "RU",
+    "declaredValue": 10000,
+    "weightKg": 500,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 9000,
+      "additionalByType": {
+        "section_122": 1000,
+        "static_metal_tariff": 5000
+      },
+      "totalAdditional": 6000,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 15000,
+      "formulas": {
+        "base": "(value * 0.20) + (value * 0.70)",
+        "section_122": "value * 0.100",
+        "static_metal_tariff": "value * 0.5"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "7208.52.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "(value * 0.20) + (value * 0.70)",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          },
+          {
+            "tariffType": "static_metal_tariff",
+            "tariffTypeDescription": "Section 232 (Static)",
+            "formula": "value * 0.5",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "type": "number",
+                "description": "Value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "7208.52.00.00",
+        "rate": 9000,
+        "message": "Non-NTR rate \"(value * 0.20) + (value * 0.70)\" applies for RU (Column 2).; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION); Applied: Static Tariff 50% (all)",
+        "country": "RU",
+        "tariffRate": "(value * 0.20) + (value * 0.70)",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838805-5AM668\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838805-5AM668",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 10000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 10000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838805-5AM668\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-010",
+    "description": "Auto parts MX - 2.5% base, USMCA candidate",
+    "htsNumber": "8708.29.25.00",
+    "countryOfOrigin": "MX",
+    "declaredValue": 2000,
+    "weightKg": 30,
+    "quantity": 20,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 50,
+      "additionalByType": {
+        "section_122": 200
+      },
+      "totalAdditional": 200,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 250,
+      "formulas": {
+        "base": "value * 0.025",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8708.29.25.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.025",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "8708.29.25.00",
+        "rate": 50,
+        "message": "General rate \"2.5%\" (Column 1) applies for MX.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "MX",
+        "tariffRate": "2.5%",
+        "special": [
+          "A",
+          "AU",
+          "B",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838857-EPQ9BY\",\"baseDuty\":50,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":50,\"landedCost\":2050,\"breakdown\":{\"baseDuty\":50,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":50,\"totalTax\":0,\"landedCost\":2050},\"formulaUsed\":\"value * 0.025\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838857-EPQ9BY",
+        "baseDuty": 50,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 50,
+        "landedCost": 2050,
+        "breakdown": {
+          "baseDuty": 50,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 50,
+          "totalTax": 0,
+          "landedCost": 2050
+        },
+        "formulaUsed": "value * 0.025",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838857-EPQ9BY\",\"baseDuty\":50,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":50,\"landedCost\":2050,\"breakdown\":{\"baseDuty\":50,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":50,\"totalTax\":0,\"landedCost\":2050},\"formulaUsed\":\"value * 0.025\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-011",
+    "description": "Cotton fabric IN - 11.5% base only",
+    "htsNumber": "5208.21.60.00",
+    "countryOfOrigin": "IN",
+    "declaredValue": 800,
+    "weightKg": 10,
+    "quantity": 50,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "HTS code not found: 5208.21.60.00",
+      "rawResponse": {
+        "error": true,
+        "formulas": [],
+        "rate": 0,
+        "message": "HTS code not found: 5208.21.60.00",
+        "htsCode": "5208.21.60.00",
+        "country": "IN",
+        "blocked": true,
+        "block_reason": "HTS code not found: 5208.21.60.00"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838858-0AE8FE\",\"baseDuty\":92,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":92,\"landedCost\":892,\"breakdown\":{\"baseDuty\":92,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":92,\"totalTax\":0,\"landedCost\":892},\"formulaUsed\":\"value * 0.115\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838858-0AE8FE",
+        "baseDuty": 92,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 92,
+        "landedCost": 892,
+        "breakdown": {
+          "baseDuty": 92,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 92,
+          "totalTax": 0,
+          "landedCost": 892
+        },
+        "formulaUsed": "value * 0.115",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838858-0AE8FE\",\"baseDuty\":92,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":92,\"landedCost\":892,\"breakdown\":{\"baseDuty\":92,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":92,\"totalTax\":0,\"landedCost\":892},\"formulaUsed\":\"value * 0.115\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (HTS code not found: 5208.21.60.00)"
+    ]
+  },
+  {
+    "id": "TC-012",
+    "description": "TV monitor JP - 3.9% base + reciprocal tariff",
+    "htsNumber": "8528.72.64.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 5000,
+    "weightKg": 20,
+    "quantity": 2,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "HTS code not found: 8528.72.64.00",
+      "rawResponse": {
+        "error": true,
+        "formulas": [],
+        "rate": 0,
+        "message": "HTS code not found: 8528.72.64.00",
+        "htsCode": "8528.72.64.00",
+        "country": "JP",
+        "blocked": true,
+        "block_reason": "HTS code not found: 8528.72.64.00"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229838932-VLITNN\",\"baseDuty\":195,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":195,\"landedCost\":5195,\"breakdown\":{\"baseDuty\":195,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":195,\"totalTax\":0,\"landedCost\":5195},\"formulaUsed\":\"value * 0.039\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229838932-VLITNN",
+        "baseDuty": 195,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 195,
+        "landedCost": 5195,
+        "breakdown": {
+          "baseDuty": 195,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 195,
+          "totalTax": 0,
+          "landedCost": 5195
+        },
+        "formulaUsed": "value * 0.039",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229838932-VLITNN\",\"baseDuty\":195,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":195,\"landedCost\":5195,\"breakdown\":{\"baseDuty\":195,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":195,\"totalTax\":0,\"landedCost\":5195},\"formulaUsed\":\"value * 0.039\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (HTS code not found: 8528.72.64.00)"
+    ]
+  },
+  {
+    "id": "TC-013",
+    "description": "TV monitor DE (EU) - 3.9% base + EU reciprocal tariff",
+    "htsNumber": "8528.72.64.00",
+    "countryOfOrigin": "DE",
+    "declaredValue": 5000,
+    "weightKg": 20,
+    "quantity": 2,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "HTS code not found: 8528.72.64.00",
+      "rawResponse": {
+        "error": true,
+        "formulas": [],
+        "rate": 0,
+        "message": "HTS code not found: 8528.72.64.00",
+        "htsCode": "8528.72.64.00",
+        "country": "DE",
+        "blocked": true,
+        "block_reason": "HTS code not found: 8528.72.64.00"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229839031-EWAOMN\",\"baseDuty\":195,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":195,\"landedCost\":5195,\"breakdown\":{\"baseDuty\":195,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":195,\"totalTax\":0,\"landedCost\":5195},\"formulaUsed\":\"value * 0.039\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229839031-EWAOMN",
+        "baseDuty": 195,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 195,
+        "landedCost": 5195,
+        "breakdown": {
+          "baseDuty": 195,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 195,
+          "totalTax": 0,
+          "landedCost": 5195
+        },
+        "formulaUsed": "value * 0.039",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229839031-EWAOMN\",\"baseDuty\":195,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":195,\"landedCost\":5195,\"breakdown\":{\"baseDuty\":195,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":195,\"totalTax\":0,\"landedCost\":5195},\"formulaUsed\":\"value * 0.039\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (HTS code not found: 8528.72.64.00)"
+    ]
+  },
+  {
+    "id": "TC-014",
+    "description": "Plastic articles CN - 5.1% base + Section 301 25%",
+    "htsNumber": "3926.90.55.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 2000,
+    "weightKg": 15,
+    "quantity": 100,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 102,
+      "additionalByType": {
+        "section_301": 500,
+        "section_122": 200
+      },
+      "totalAdditional": 700,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 802,
+      "formulas": {
+        "base": "value * 0.051",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "3926.90.55.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.051",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "3926.90.55.00",
+        "rate": 602,
+        "message": "General rate \"5.1%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "5.1% + The duty provided in the applicable subheading + 25%",
+        "special": [
+          "A+",
+          "AU",
+          "B",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229839113-Y1XG9S\",\"baseDuty\":102,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":102,\"landedCost\":2102,\"breakdown\":{\"baseDuty\":102,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":102,\"totalTax\":0,\"landedCost\":2102},\"formulaUsed\":\"value * 0.051\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229839113-Y1XG9S",
+        "baseDuty": 102,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 102,
+        "landedCost": 2102,
+        "breakdown": {
+          "baseDuty": 102,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 102,
+          "totalTax": 0,
+          "landedCost": 2102
+        },
+        "formulaUsed": "value * 0.051",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229839113-Y1XG9S\",\"baseDuty\":102,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":102,\"landedCost\":2102,\"breakdown\":{\"baseDuty\":102,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":102,\"totalTax\":0,\"landedCost\":2102},\"formulaUsed\":\"value * 0.051\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-015",
+    "description": "Low-value apparel CN - MPF minimum ($27.75) expected",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 10,
+    "weightKg": 0.5,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 1.75,
+      "additionalByType": {
+        "section_301": 0.75,
+        "section_122": 1
+      },
+      "totalAdditional": 1.75,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 3.5,
+      "formulas": {
+        "base": "value * 0.175",
+        "section_301": "value * 0.075",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6203.11.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.175",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.075",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6203.11.60.00",
+        "rate": 2.5,
+        "message": "General rate \"17.5%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 7.5%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "17.5% + The duty provided in the applicable subheading + 7.5%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840173-FR0ALG\",\"baseDuty\":1.75,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":1.75,\"landedCost\":11.75,\"breakdown\":{\"baseDuty\":1.75,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":1.75,\"totalTax\":0,\"landedCost\":11.75},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840173-FR0ALG",
+        "baseDuty": 1.75,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 1.75,
+        "landedCost": 11.75,
+        "breakdown": {
+          "baseDuty": 1.75,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 1.75,
+          "totalTax": 0,
+          "landedCost": 11.75
+        },
+        "formulaUsed": "value * 0.175",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840173-FR0ALG\",\"baseDuty\":1.75,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":1.75,\"landedCost\":11.75,\"breakdown\":{\"baseDuty\":1.75,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":1.75,\"totalTax\":0,\"landedCost\":11.75},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-016",
+    "description": "High-value laptop JP - MPF cap ($579.23) expected",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 200000,
+    "weightKg": 50,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {
+        "base": "0"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8471.30.01.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          }
+        ],
+        "effectiveHtsCode": "8471.30.01.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for JP.",
+        "country": "JP",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840218-ZCWNXT\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":200000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":200000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840218-ZCWNXT",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 200000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 200000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840218-ZCWNXT\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":200000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":200000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-017",
+    "description": "Laptop KR - free base, Korea FTA candidate",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "KR",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 3,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {
+        "base": "0"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8471.30.01.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          }
+        ],
+        "effectiveHtsCode": "8471.30.01.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for KR.",
+        "country": "KR",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840288-7P51UO\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840288-7P51UO",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 3000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 3000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840288-7P51UO\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-018",
+    "description": "Steel GB - free base + Section 232",
+    "htsNumber": "7208.52.00.00",
+    "countryOfOrigin": "GB",
+    "declaredValue": 8000,
+    "weightKg": 400,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_122": 800,
+        "static_metal_tariff": 2000
+      },
+      "totalAdditional": 2800,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 2800,
+      "formulas": {
+        "base": "0",
+        "section_122": "value * 0.100",
+        "static_metal_tariff": "value * 0.25"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "7208.52.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          },
+          {
+            "tariffType": "static_metal_tariff",
+            "tariffTypeDescription": "Section 232 (Static)",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "type": "number",
+                "description": "Value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "7208.52.00.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for GB.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION); Applied: Static Tariff 25% (GB)",
+        "country": "GB",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840331-ZQI05J\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":8000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":8000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840331-ZQI05J",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 8000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 8000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840331-ZQI05J\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":8000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":8000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-019",
+    "description": "Apparel VN - 17.5% base + reciprocal tariff",
+    "htsNumber": "6203.11.60.00",
+    "countryOfOrigin": "VN",
+    "declaredValue": 1000,
+    "weightKg": 5,
+    "quantity": 10,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 175,
+      "additionalByType": {
+        "section_122": 100
+      },
+      "totalAdditional": 100,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 275,
+      "formulas": {
+        "base": "value * 0.175",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6203.11.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.175",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6203.11.60.00",
+        "rate": 175,
+        "message": "General rate \"17.5%\" (Column 1) applies for VN.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "VN",
+        "tariffRate": "17.5%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840370-PU4MP0\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840370-PU4MP0",
+        "baseDuty": 175,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 175,
+        "landedCost": 1175,
+        "breakdown": {
+          "baseDuty": 175,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 175,
+          "totalTax": 0,
+          "landedCost": 1175
+        },
+        "formulaUsed": "value * 0.175",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840370-PU4MP0\",\"baseDuty\":175,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":175,\"landedCost\":1175,\"breakdown\":{\"baseDuty\":175,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":175,\"totalTax\":0,\"landedCost\":1175},\"formulaUsed\":\"value * 0.175\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-020",
+    "description": "Laptop MX - free base, USMCA candidate",
+    "htsNumber": "8471.30.01.00",
+    "countryOfOrigin": "MX",
+    "declaredValue": 2000,
+    "weightKg": 8,
+    "quantity": 4,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {
+        "base": "0"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8471.30.01.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          }
+        ],
+        "effectiveHtsCode": "8471.30.01.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for MX.",
+        "country": "MX",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840437-K4DQSY\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":2000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":2000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840437-K4DQSY",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 2000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 2000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840437-K4DQSY\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":2000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":2000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-021",
+    "description": "Footwear CN - 48% high rate + Section 301",
+    "htsNumber": "6404.11.59.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 800,
+    "weightKg": 4,
+    "quantity": 10,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 384,
+      "additionalByType": {
+        "section_122": 80
+      },
+      "totalAdditional": 80,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 464,
+      "formulas": {
+        "base": "value * 0.48",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "6404.11.59.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.48",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "6404.11.59.00",
+        "rate": 384,
+        "message": "General rate \"48%\" (Column 1) applies for CN.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "48%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "R",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840474-6HG723\",\"baseDuty\":384,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":384,\"landedCost\":1184,\"breakdown\":{\"baseDuty\":384,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":384,\"totalTax\":0,\"landedCost\":1184},\"formulaUsed\":\"value * 0.48\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840474-6HG723",
+        "baseDuty": 384,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 384,
+        "landedCost": 1184,
+        "breakdown": {
+          "baseDuty": 384,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 384,
+          "totalTax": 0,
+          "landedCost": 1184
+        },
+        "formulaUsed": "value * 0.48",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840474-6HG723\",\"baseDuty\":384,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":384,\"landedCost\":1184,\"breakdown\":{\"baseDuty\":384,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":384,\"totalTax\":0,\"landedCost\":1184},\"formulaUsed\":\"value * 0.48\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-022",
+    "description": "Metal furniture CN - free base + Section 301 25%",
+    "htsNumber": "9403.20.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 5000,
+    "weightKg": 100,
+    "quantity": 5,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "Invalid HTS code: 9403.20.00",
+      "rawResponse": {
+        "error": true,
+        "formulas": [],
+        "rate": 0,
+        "message": "Invalid HTS code: 9403.20.00",
+        "htsCode": "9403.20.00",
+        "country": "CN",
+        "blocked": true,
+        "block_reason": "Invalid HTS code: 9403.20.00"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840513-PUE2LH\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":5000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":5000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840513-PUE2LH",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 5000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 5000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840513-PUE2LH\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":5000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":5000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (Invalid HTS code: 9403.20.00)"
+    ]
+  },
+  {
+    "id": "TC-023",
+    "description": "Electric motor CN - 6.7% base + Section 301 25%",
+    "htsNumber": "8501.10.20.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 2000,
+    "weightKg": 20,
+    "quantity": 10,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 134,
+      "additionalByType": {
+        "section_301": 500,
+        "section_122": 200
+      },
+      "totalAdditional": 700,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 834,
+      "formulas": {
+        "base": "value * 0.067",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8501.10.20.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.067",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "8501.10.20.00",
+        "rate": 634,
+        "message": "General rate \"6.7%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "6.7% + The duty provided in the applicable subheading + 25%",
+        "special": [
+          "A",
+          "AU",
+          "B",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229840551-9PMSUA\",\"baseDuty\":134,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":134,\"landedCost\":2134,\"breakdown\":{\"baseDuty\":134,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":134,\"totalTax\":0,\"landedCost\":2134},\"formulaUsed\":\"value * 0.067\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229840551-9PMSUA",
+        "baseDuty": 134,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 134,
+        "landedCost": 2134,
+        "breakdown": {
+          "baseDuty": 134,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 134,
+          "totalTax": 0,
+          "landedCost": 2134
+        },
+        "formulaUsed": "value * 0.067",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229840551-9PMSUA\",\"baseDuty\":134,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":134,\"landedCost\":2134,\"breakdown\":{\"baseDuty\":134,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":134,\"totalTax\":0,\"landedCost\":2134},\"formulaUsed\":\"value * 0.067\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-024",
+    "description": "Solar cells CN - free base + Section 301 50%",
+    "htsNumber": "8541.49.80.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 15000,
+    "weightKg": 200,
+    "quantity": 50,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_301": 7500
+      },
+      "totalAdditional": 7500,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 7500,
+      "formulas": {
+        "base": "0",
+        "section_301": "value * 0.50"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8541.49.80.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.50",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "8541.49.80.00",
+        "rate": 7500,
+        "message": "General rate \"Free\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 50%\" from Chapter 99 for CN. Use adjusted formula if available.",
+        "country": "CN",
+        "tariffRate": "Free + The duty provided in the applicable subheading + 50%",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229841332-XU1415\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":15000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":15000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229841332-XU1415",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 15000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 15000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229841332-XU1415\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":15000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":15000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-025",
+    "description": "Pharmaceutical IN - duty free base",
+    "htsNumber": "3004.31.00.00",
+    "countryOfOrigin": "IN",
+    "declaredValue": 10000,
+    "weightKg": 50,
+    "quantity": 1000,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_122": 1000
+      },
+      "totalAdditional": 1000,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 1000,
+      "formulas": {
+        "base": "0",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "3004.31.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "3004.31.00.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for IN.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "IN",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229841618-5TCUJM\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229841618-5TCUJM",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 10000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 10000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229841618-5TCUJM\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":10000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":10000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-026",
+    "description": "Dishwasher CN - free base + Section 301 25%",
+    "htsNumber": "8422.19.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 80,
+    "quantity": 3,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_301": 750,
+        "section_122": 300
+      },
+      "totalAdditional": 1050,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 1050,
+      "formulas": {
+        "base": "0",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8422.19.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "8422.19.00.00",
+        "rate": 750,
+        "message": "General rate \"Free\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading plus 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "Free + The duty provided in the applicable subheading plus 25%",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229842587-HU10EF\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229842587-HU10EF",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 3000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 3000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229842587-HU10EF\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":3000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":3000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-027",
+    "description": "Dishwasher JP - free base + reciprocal tariff",
+    "htsNumber": "8422.19.00.00",
+    "countryOfOrigin": "JP",
+    "declaredValue": 20000,
+    "weightKg": 500,
+    "quantity": 2,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {
+        "section_122": 2000
+      },
+      "totalAdditional": 2000,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 2000,
+      "formulas": {
+        "base": "0",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "8422.19.00.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "0",
+            "formulaVariables": []
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "8422.19.00.00",
+        "rate": 0,
+        "message": "General rate \"Free\" (Column 1) applies for JP.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "JP",
+        "tariffRate": "Free",
+        "special": [],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229842788-A645SB\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":20000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":20000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229842788-A645SB",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 20000,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 20000
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229842788-A645SB\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":20000,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":20000},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-028",
+    "description": "Handbags CN - 5.7% base + Section 301 25%",
+    "htsNumber": "4202.22.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 3000,
+    "weightKg": 10,
+    "quantity": 30,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 171,
+      "additionalByType": {
+        "section_301": 750,
+        "section_122": 300
+      },
+      "totalAdditional": 1050,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 1221,
+      "formulas": {
+        "base": "value * 0.057",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "4202.22.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.057",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "4202.22.60.00",
+        "rate": 921,
+        "message": "General rate \"5.7%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION)",
+        "country": "CN",
+        "tariffRate": "5.7% + The duty provided in the applicable subheading + 25%",
+        "special": [
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "NP",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229843463-SOJMP5\",\"baseDuty\":171,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":171,\"landedCost\":3171,\"breakdown\":{\"baseDuty\":171,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":171,\"totalTax\":0,\"landedCost\":3171},\"formulaUsed\":\"value * 0.057\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229843463-SOJMP5",
+        "baseDuty": 171,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 171,
+        "landedCost": 3171,
+        "breakdown": {
+          "baseDuty": 171,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 171,
+          "totalTax": 0,
+          "landedCost": 3171
+        },
+        "formulaUsed": "value * 0.057",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229843463-SOJMP5\",\"baseDuty\":171,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":171,\"landedCost\":3171,\"breakdown\":{\"baseDuty\":171,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":171,\"totalTax\":0,\"landedCost\":3171},\"formulaUsed\":\"value * 0.057\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-029",
+    "description": "Copper wire CN - 3% base + Section 301 25%",
+    "htsNumber": "7408.11.60.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 5000,
+    "weightKg": 100,
+    "quantity": 1,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 150,
+      "additionalByType": {
+        "section_301": 1250,
+        "section_122": 500,
+        "metal_tariff": 0
+      },
+      "totalAdditional": 1750,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 1900,
+      "formulas": {
+        "base": "value * 0.03",
+        "section_301": "value * 0.25",
+        "section_122": "value * 0.100",
+        "metal_tariff": "copper_value * 0.5"
+      },
+      "blocked": false,
+      "rawResponse": {
+        "error": false,
+        "htsCode": "7408.11.60.00",
+        "formulas": [
+          {
+            "tariffType": "base",
+            "tariffTypeDescription": "Base",
+            "formula": "value * 0.03",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_301",
+            "tariffTypeDescription": "Section 301",
+            "formula": "value * 0.25",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "$",
+                "type": "number",
+                "description": "Total value of the goods"
+              }
+            ]
+          },
+          {
+            "tariffType": "section_122",
+            "tariffTypeDescription": "Section 122 Tariffs",
+            "formula": "value * 0.100",
+            "formulaVariables": [
+              {
+                "name": "value",
+                "unit": "",
+                "type": "number",
+                "description": "Base value"
+              }
+            ]
+          },
+          {
+            "tariffType": "metal_tariff",
+            "tariffTypeDescription": "Section 232",
+            "formula": "copper_value * 0.5",
+            "formulaVariables": [
+              {
+                "name": "copper_value",
+                "type": "number",
+                "description": "Copper value"
+              }
+            ]
+          }
+        ],
+        "effectiveHtsCode": "7408.11.60.00",
+        "rate": 1400,
+        "message": "General rate \"3%\" (Column 1) applies for CN. Add additional duty \"The duty provided in the applicable subheading + 25%\" from Chapter 99 for CN. Use adjusted formula if available.; Applied: \"Section 122 Tariffs (10%)\" (Type: POST_CALCULATION); Applied: Section 232 Tariff Copper 50% (all)",
+        "country": "CN",
+        "tariffRate": "3% + The duty provided in the applicable subheading + 25%",
+        "special": [
+          "A*",
+          "AU",
+          "BH",
+          "CL",
+          "CO",
+          "D",
+          "E",
+          "IL",
+          "JO",
+          "KR",
+          "MA",
+          "OM",
+          "P",
+          "PA",
+          "PE",
+          "S",
+          "SG"
+        ],
+        "formulaUpdated": false,
+        "blocked": false,
+        "block_reason": ""
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229843532-CPVHNP\",\"baseDuty\":150,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":150,\"landedCost\":5150,\"breakdown\":{\"baseDuty\":150,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":150,\"totalTax\":0,\"landedCost\":5150},\"formulaUsed\":\"value * 0.03\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229843532-CPVHNP",
+        "baseDuty": 150,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 150,
+        "landedCost": 5150,
+        "breakdown": {
+          "baseDuty": 150,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 150,
+          "totalTax": 0,
+          "landedCost": 5150
+        },
+        "formulaUsed": "value * 0.03",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229843532-CPVHNP\",\"baseDuty\":150,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":150,\"landedCost\":5150,\"breakdown\":{\"baseDuty\":150,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":150,\"totalTax\":0,\"landedCost\":5150},\"formulaUsed\":\"value * 0.03\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}"
+    ]
+  },
+  {
+    "id": "TC-030",
+    "description": "Toys CN - free base rate",
+    "htsNumber": "9503.00.00",
+    "countryOfOrigin": "CN",
+    "declaredValue": 500,
+    "weightKg": 5,
+    "quantity": 50,
+    "status": "ERROR",
+    "ai": {
+      "source": "ai",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": true,
+      "blockReason": "Invalid HTS code: 9503.00.00",
+      "rawResponse": {
+        "error": true,
+        "formulas": [],
+        "rate": 0,
+        "message": "Invalid HTS code: 9503.00.00",
+        "htsCode": "9503.00.00",
+        "country": "CN",
+        "blocked": true,
+        "block_reason": "Invalid HTS code: 9503.00.00"
+      }
+    },
+    "hts": {
+      "source": "hts",
+      "baseDuty": 0,
+      "additionalByType": {},
+      "totalAdditional": 0,
+      "mpf": null,
+      "hmf": null,
+      "totalDuty": 0,
+      "formulas": {},
+      "blocked": false,
+      "error": "{\"calculationId\":\"CALC-1775229844474-H8LL4Q\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":500,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":500},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "rawResponse": {
+        "calculationId": "CALC-1775229844474-H8LL4Q",
+        "baseDuty": 0,
+        "additionalTariffs": 0,
+        "totalTaxes": 0,
+        "totalDuty": 0,
+        "landedCost": 500,
+        "breakdown": {
+          "baseDuty": 0,
+          "additionalTariffs": [],
+          "taxes": [],
+          "totalDuty": 0,
+          "totalTax": 0,
+          "landedCost": 500
+        },
+        "formulaUsed": "0",
+        "rateSource": "general",
+        "confidence": 0.9,
+        "tradeAgreementInfo": null
+      }
+    },
+    "baseDiff": null,
+    "totalDiff": null,
+    "perTypeDiffs": {},
+    "notes": [
+      "HTS error: {\"calculationId\":\"CALC-1775229844474-H8LL4Q\",\"baseDuty\":0,\"additionalTariffs\":0,\"totalTaxes\":0,\"totalDuty\":0,\"landedCost\":500,\"breakdown\":{\"baseDuty\":0,\"additionalTariffs\":[],\"taxes\":[],\"totalDuty\":0,\"totalTax\":0,\"landedCost\":500},\"formulaUsed\":\"0\",\"rateSource\":\"general\",\"confidence\":0.9,\"tradeAgreementInfo\":null}",
+      "AI: BLOCKED (Invalid HTS code: 9503.00.00)"
+    ]
+  }
+]

@@ -27,6 +27,17 @@ export class ConnectorsController {
   constructor(private readonly connectorService: ConnectorService) {}
 
   /**
+   * Test connection (must be before @Post() to avoid route collision)
+   */
+  @Post('test')
+  async testConnection(@Body() dto: TestConnectionDto) {
+    return this.connectorService.testConnection(
+      dto.config.shopUrl ? 'shopify' : 'unknown',
+      dto.config,
+    );
+  }
+
+  /**
    * Create new connector
    */
   @Post()
@@ -85,17 +96,6 @@ export class ConnectorsController {
       user.organizationId,
     );
     return { success: true };
-  }
-
-  /**
-   * Test connection
-   */
-  @Post('test')
-  async testConnection(@Body() dto: TestConnectionDto) {
-    return this.connectorService.testConnection(
-      dto.config.shopUrl ? 'shopify' : 'unknown',
-      dto.config,
-    );
   }
 
   /**

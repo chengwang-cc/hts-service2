@@ -25,6 +25,7 @@ import {
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
 import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
+import { SkipJwtAuth } from '../../../api-keys/decorators/skip-jwt-auth.decorator';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { CalculationService } from '@hts/calculator';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -38,6 +39,7 @@ import { CalculatePublicDto } from '../dto/calculate-public.dto';
  */
 @ApiTags('Calculator')
 @ApiSecurity('api-key')
+@SkipJwtAuth()
 @Controller('api/v1/calculator')
 @UseGuards(ApiKeyGuard)
 export class CalculatorPublicController {

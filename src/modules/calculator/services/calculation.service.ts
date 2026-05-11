@@ -219,7 +219,9 @@ export class CalculationService {
           : null,
       };
 
-      await this.saveCalculationHistory(calculationInput, result);
+      if (calculationInput.organizationId) {
+        await this.saveCalculationHistory(calculationInput, result);
+      }
 
       return result;
     } catch (error) {

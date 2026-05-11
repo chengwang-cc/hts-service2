@@ -17,6 +17,7 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { WidgetModule } from './modules/widget/widget.module';
 import { ExtensionModule } from './modules/extension/extension.module';
+import { ExtensionAuthModule } from './modules/extension-auth/extension-auth.module';
 import { ExportModule } from './modules/export/export.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
@@ -25,6 +26,7 @@ import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
 import { BatchModule } from './modules/batch/batch.module';
+import { ShopifyAppModule } from './modules/shopify-app/shopify-app.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
@@ -104,6 +106,15 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // API Keys module
     ApiKeysModule,
 
+    // Knowledgebase module
+    KnowledgebaseModule,
+
+    // Lookup module
+    LookupModule,
+
+    // Calculator module (must be before PublicApiModule to ensure @Public() routes take priority)
+    CalculatorModule,
+
     // Public API module (versioned external APIs)
     PublicApiModule,
 
@@ -112,6 +123,9 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Extension module (Chrome extension support)
     ExtensionModule,
+
+    // Extension Auth module (public register/login → returns API key)
+    ExtensionAuthModule,
 
     // Export module (Export templates & data completeness)
     ExportModule,
@@ -131,20 +145,14 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // Admin module (HTS import, knowledge base admin, etc.)
     AdminModule,
 
-    // Knowledgebase module
-    KnowledgebaseModule,
-
-    // Lookup module
-    LookupModule,
-
-    // Calculator module
-    CalculatorModule,
-
     // Test module (E2E testing endpoints)
     TestModule,
 
     // Batch module (async bulk HTS lookup)
     BatchModule,
+
+    // Shopify App module (OAuth, embedded app, GDPR webhooks)
+    ShopifyAppModule,
   ],
   controllers: [AppController],
   providers: [

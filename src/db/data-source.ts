@@ -22,9 +22,11 @@ export default new DataSource({
   namingStrategy: new CustomNamingStrategy(),
   synchronize: false, // Default to false
   ssl:
-    process.env.NODE_ENV === 'development'
-      ? false // Disable SSL in development
-      : { rejectUnauthorized: false },
+    process.env.DB_SSL === 'true'
+      ? { rejectUnauthorized: false }
+      : process.env.NODE_ENV === 'development'
+        ? false // Disable SSL in development
+        : { rejectUnauthorized: false },
   migrations:
     process.env.NODE_ENV === 'development'
       ? [__dirname + '/../../src/db/migrations/**/*{.ts,.js}']
