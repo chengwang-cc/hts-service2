@@ -3,6 +3,8 @@ import {
   Post,
   Body,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
   HttpException,
   HttpStatus,
   NotFoundException,
@@ -62,6 +64,14 @@ export class CalculatorPublicController {
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @ApiPermissions('hts:calculate')
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  )
   async calculate(
     @Body() input: CalculatePublicDto,
     @CurrentApiKey() apiKey: ApiKeyEntity,
@@ -75,9 +85,14 @@ export class CalculatorPublicController {
             ? input.additionalInputs.entryDate.trim()
             : undefined;
 
+      const normalizedCountryOfOrigin = input.countryOfOrigin
+        .trim()
+        .toUpperCase();
+
       // Override organizationId with API key's organization
       const calculationInput = {
         ...input,
+        countryOfOrigin: normalizedCountryOfOrigin,
         entryDate,
         organizationId: apiKey.organizationId,
       };
@@ -90,6 +105,7 @@ export class CalculatorPublicController {
         meta: {
           apiVersion: 'v1',
           organizationId: apiKey.organizationId,
+          countryOfOrigin: normalizedCountryOfOrigin,
         },
       };
     } catch (error) {
