@@ -15,7 +15,19 @@ import { UrlType } from '../dto/classify-url.dto';
 import type { ClassificationResult } from './classification.service';
 import { ClassificationService } from './classification.service';
 import { UrlClassifierService } from './url-classifier.service';
-import { LookupClassificationJobEntity } from '../entities/lookup-classification-job.entity';
+import {
+  LookupClassificationJobEntity,
+  type LookupClassificationJobRequestType,
+  type LookupClassificationJobSource,
+  type LookupClassificationJobStatus,
+} from '../entities/lookup-classification-job.entity';
+
+export interface ListJobsOptions {
+  source?: LookupClassificationJobSource | null;
+  status?: LookupClassificationJobStatus | null;
+  limit?: number;
+  offset?: number;
+}
 
 export const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
 
@@ -54,7 +66,11 @@ export class LookupClassificationJobService {
     private readonly queueService: QueueService,
   ) {}
 
-  async createUrlJob(user: any, url: string) {
+  async createUrlJob(
+    user: any,
+    url: string,
+    source: LookupClassificationJobSource = 'WEB',
+  ) {
     if (!user?.organizationId) {
       throw new UnauthorizedException('Authentication required');
     }
@@ -66,6 +82,7 @@ export class LookupClassificationJobService {
         status: 'pending',
         requestType: 'URL',
         sourceUrl: url,
+        source,
       }),
     );
 
@@ -84,7 +101,11 @@ export class LookupClassificationJobService {
     return this.getJob(job.id, user.organizationId);
   }
 
-  async createImageJob(user: any, image: Express.Multer.File) {
+  async createImageJob(
+    user: any,
+    image: Express.Multer.File,
+    source: LookupClassificationJobSource = 'WEB',
+  ) {
     if (!image) {
       throw new BadRequestException('Image file is required (field name: "image")');
     }
@@ -101,6 +122,7 @@ export class LookupClassificationJobService {
         imageMimeType: image.mimetype,
         imageSizeBytes: image.size,
         imageData: image.buffer,
+        source,
       }),
     );
 
@@ -131,8 +153,11 @@ export class LookupClassificationJobService {
     return {
       id: job.id,
       status: job.status,
+      source: job.source,
       requestType: job.requestType,
       sourceUrl: job.sourceUrl,
+      imageOriginalFilename: job.imageOriginalFilename,
+      productDescription: job.productDescription,
       errorMessage: job.errorMessage,
       createdAt: job.createdAt.toISOString(),
       startedAt: job.startedAt?.toISOString() ?? null,
@@ -159,6 +184,127 @@ export class LookupClassificationJobService {
     };
   }
 
+  /**
+   * Record a pre-classified job (e.g. from an external connector like Shopify
+   * sync) directly into history without queueing async work.
+   */
+  async recordCompletedJob(params: {
+    organizationId: string;
+    source: LookupClassificationJobSource;
+    createdBy?: string | null;
+    requestType?: LookupClassificationJobRequestType;
+    sourceUrl?: string | null;
+    productDescription: string;
+    htsCode: string;
+    description?: string | null;
+    confidence?: number | null;
+  }): Promise<void> {
+    const now = new Date();
+    const trimmedDescription = params.productDescription
+      ? params.productDescription.slice(0, 512)
+      : null;
+    const data = {
+      htsCode: params.htsCode,
+      description: params.description ?? null,
+      confidence:
+        typeof params.confidence === 'number' && Number.isFinite(params.confidence)
+          ? params.confidence
+          : 1,
+      reasoning: '',
+      chapter: null,
+      candidates: [],
+      source: {
+        inputMethod: 'TEXT',
+        sourceUrl: params.sourceUrl ?? null,
+        productDescription: params.productDescription,
+      },
+    } as unknown as Record<string, unknown>;
+
+    await this.jobRepository.save(
+      this.jobRepository.create({
+        organizationId: params.organizationId,
+        createdBy: params.createdBy ?? null,
+        status: 'completed',
+        requestType: params.requestType ?? 'URL',
+        source: params.source,
+        sourceUrl: params.sourceUrl ?? null,
+        productDescription: trimmedDescription,
+        startedAt: now,
+        completedAt: now,
+        resultJson: { success: true, data } as any,
+      }),
+    );
+  }
+
+  async listJobs(organizationId: string, options: ListJobsOptions = {}) {
+    if (!organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
+    const offset = Math.max(options.offset ?? 0, 0);
+
+    const qb = this.jobRepository
+      .createQueryBuilder('job')
+      .where('job.organizationId = :organizationId', { organizationId });
+
+    if (options.source) {
+      qb.andWhere('job.source = :source', { source: options.source });
+    }
+    if (options.status) {
+      qb.andWhere('job.status = :status', { status: options.status });
+    }
+
+    const [rows, total] = await qb
+      .orderBy('job.createdAt', 'DESC')
+      .take(limit)
+      .skip(offset)
+      .getManyAndCount();
+
+    return {
+      total,
+      limit,
+      offset,
+      items: rows.map((job) => ({
+        id: job.id,
+        status: job.status,
+        source: job.source,
+        requestType: job.requestType,
+        sourceUrl: job.sourceUrl,
+        imageOriginalFilename: job.imageOriginalFilename,
+        productDescription:
+          job.productDescription ??
+          this.extractProductDescription(job.resultJson) ??
+          null,
+        htsCode: this.extractHtsCode(job.resultJson),
+        confidence: this.extractConfidence(job.resultJson),
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt.toISOString(),
+        completedAt: job.completedAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
+  private extractProductDescription(resultJson: unknown): string | null {
+    const data = (resultJson as LookupClassificationJobResult | null)?.data;
+    if (!data) return null;
+    const source = data.source as Record<string, unknown> | null | undefined;
+    const candidate = source?.productDescription;
+    return typeof candidate === 'string' && candidate.trim() ? candidate : null;
+  }
+
+  private extractHtsCode(resultJson: unknown): string | null {
+    const data = (resultJson as LookupClassificationJobResult | null)?.data;
+    const code = data?.htsCode;
+    return typeof code === 'string' && code.trim() ? code : null;
+  }
+
+  private extractConfidence(resultJson: unknown): number | null {
+    const data = (resultJson as LookupClassificationJobResult | null)?.data;
+    const value = data?.confidence;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
   async processJob(jobId: string): Promise<void> {
     const job = await this.jobRepository.findOne({ where: { id: jobId } });
     if (!job) {
@@ -182,9 +328,16 @@ export class LookupClassificationJobService {
           : await this.classifyFromImage(job.organizationId, job);
 
       const completedAt = new Date();
+      const productDescription =
+        this.extractProductDescription({
+          data: result.data,
+        } as unknown) ?? null;
       await this.jobRepository.update(job.id, {
         status: 'completed',
         completedAt,
+        productDescription: productDescription
+          ? productDescription.slice(0, 512)
+          : null,
         resultJson: {
           ...result,
           timings: {

@@ -40,5 +40,19 @@ export class ConnectorsModule implements OnModuleInit {
     } catch {
       // SearchService not available; sync will skip classification
     }
+
+    // Lazily inject LookupClassificationJobService so we can persist
+    // Shopify-originated classifications into the shared history table.
+    try {
+      const { LookupClassificationJobService } = await import(
+        '../lookup/services/lookup-classification-job.service'
+      );
+      const service = this.moduleRef.get(LookupClassificationJobService, {
+        strict: false,
+      });
+      this.connectorService.setLookupClassificationJobService(service);
+    } catch {
+      // History service not available; Shopify sync will skip history logging
+    }
   }
 }

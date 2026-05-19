@@ -199,6 +199,65 @@ export class LookupController {
     };
   }
 
+  /**
+   * List classification jobs for the current organization.
+   * Supports optional source ('WEB' | 'SHOPIFY' | 'API') and status filters
+   * plus simple limit/offset pagination (limit defaults to 25, max 100).
+   */
+  @Get('classify-hts-jobs')
+  async listClassificationJobs(
+    @CurrentUser() user: any,
+    @Query('source') source?: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    if (!user?.organizationId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    const normalizedSource = this.normalizeSourceFilter(source);
+    const normalizedStatus = this.normalizeStatusFilter(status);
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const parsedOffset = offset ? Number.parseInt(offset, 10) : undefined;
+
+    return {
+      success: true,
+      data: await this.lookupClassificationJobService.listJobs(
+        user.organizationId,
+        {
+          source: normalizedSource,
+          status: normalizedStatus,
+          limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+          offset: Number.isFinite(parsedOffset) ? (parsedOffset as number) : undefined,
+        },
+      ),
+    };
+  }
+
+  private normalizeSourceFilter(
+    raw?: string,
+  ): 'WEB' | 'SHOPIFY' | 'API' | null {
+    if (!raw) return null;
+    const value = raw.trim().toUpperCase();
+    return value === 'WEB' || value === 'SHOPIFY' || value === 'API'
+      ? (value as 'WEB' | 'SHOPIFY' | 'API')
+      : null;
+  }
+
+  private normalizeStatusFilter(
+    raw?: string,
+  ): 'pending' | 'processing' | 'completed' | 'failed' | null {
+    if (!raw) return null;
+    const value = raw.trim().toLowerCase();
+    return value === 'pending' ||
+      value === 'processing' ||
+      value === 'completed' ||
+      value === 'failed'
+      ? (value as 'pending' | 'processing' | 'completed' | 'failed')
+      : null;
+  }
+
   @Public()
   @Get('hts/:htsNumber')
   async getHtsDetail(@Param('htsNumber') htsNumber: string) {

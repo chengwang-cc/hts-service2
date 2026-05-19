@@ -26,6 +26,17 @@ export class ConnectorService {
   ) {}
 
   private searchService: any = null;
+  private lookupClassificationJobService: {
+    recordCompletedJob: (params: {
+      organizationId: string;
+      source: 'WEB' | 'SHOPIFY' | 'API';
+      sourceUrl?: string | null;
+      productDescription: string;
+      htsCode: string;
+      description?: string | null;
+      confidence?: number | null;
+    }) => Promise<void>;
+  } | null = null;
 
   /**
    * Inject SearchService lazily to avoid circular module dependency.
@@ -33,6 +44,14 @@ export class ConnectorService {
    */
   setSearchService(searchService: any): void {
     this.searchService = searchService;
+  }
+
+  /**
+   * Inject LookupClassificationJobService lazily to avoid circular dependency.
+   * Called by the module after construction.
+   */
+  setLookupClassificationJobService(service: any): void {
+    this.lookupClassificationJobService = service;
   }
 
   async createConnector(
@@ -273,6 +292,28 @@ export class ConnectorService {
               htsNumber,
               variant.countryCodeOfOrigin,
             );
+
+            // Record into classification history so it shows up in the user
+            // dashboard alongside web/API requests. Best-effort: history
+            // logging must never break the sync flow itself.
+            try {
+              await this.lookupClassificationJobService?.recordCompletedJob({
+                organizationId: connector.organizationId,
+                source: 'SHOPIFY',
+                sourceUrl: config.shopUrl
+                  ? `https://${config.shopUrl}/admin/products/${product.id}`
+                  : null,
+                productDescription: [product.title, product.description]
+                  .filter(Boolean)
+                  .join(' — ')
+                  .slice(0, 512),
+                htsCode: htsNumber,
+              });
+            } catch (historyError: any) {
+              this.logger.warn(
+                `Failed to record Shopify classification history for SKU ${variant.sku}: ${historyError?.message ?? historyError}`,
+              );
+            }
 
             syncLog.itemsSucceeded++;
           } catch (error: any) {

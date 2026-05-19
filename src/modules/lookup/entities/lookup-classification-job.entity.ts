@@ -15,10 +15,17 @@ export type LookupClassificationJobStatus =
 
 export type LookupClassificationJobRequestType = 'URL' | 'IMAGE_UPLOAD';
 
+export type LookupClassificationJobSource = 'WEB' | 'SHOPIFY' | 'API';
+
 @Entity('lookup_classification_job')
 @Index(['organizationId', 'status'])
 @Index(['createdBy', 'status'])
 @Index(['status', 'createdAt'])
+@Index('IDX_lookup_classification_job_org_source_created_at', [
+  'organizationId',
+  'source',
+  'createdAt',
+])
 export class LookupClassificationJobEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -34,6 +41,12 @@ export class LookupClassificationJobEntity {
 
   @Column('varchar', { length: 20 })
   requestType: LookupClassificationJobRequestType;
+
+  @Column('varchar', { length: 20, default: 'WEB' })
+  source: LookupClassificationJobSource;
+
+  @Column('varchar', { length: 512, nullable: true })
+  productDescription: string | null;
 
   @Column('varchar', { length: 2048, nullable: true })
   sourceUrl: string | null;
