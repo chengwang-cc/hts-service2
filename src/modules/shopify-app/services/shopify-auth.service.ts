@@ -137,8 +137,14 @@ export class ShopifyAuthService {
       throw new UnauthorizedException('Invalid session token format');
     }
 
-    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    let header: { alg?: string };
+    let payload: { iss?: string; aud?: string; exp?: number; sub?: string };
+    try {
+      header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+      payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    } catch {
+      throw new UnauthorizedException('Malformed session token');
+    }
 
     if (header.alg !== 'HS256') {
       throw new UnauthorizedException('Unsupported token algorithm');
@@ -170,10 +176,17 @@ export class ShopifyAuthService {
     }
 
     // Extract shop from iss: "https://mystore.myshopify.com/admin"
-    const issUrl = new URL(payload.iss);
-    const shop = issUrl.host;
+    if (!payload.iss) {
+      throw new UnauthorizedException('Session token missing issuer');
+    }
+    let shop: string;
+    try {
+      shop = new URL(payload.iss).host;
+    } catch {
+      throw new UnauthorizedException('Invalid session token issuer');
+    }
 
-    return { shop, sub: payload.sub };
+    return { shop, sub: payload.sub ?? '' };
   }
 
   /**

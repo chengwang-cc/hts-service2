@@ -16,6 +16,8 @@ import { ShopifySessionGuard } from '../guards/shopify-session.guard';
 import { ShopifySessionEntity } from '../entities/shopify-session.entity';
 import { ConnectorService } from '../../connectors/services/connector.service';
 import { ShopifyConnector } from '../../connectors/services/shopify.connector';
+import { OrganizationEntity } from '../../auth/entities/organization.entity';
+import { ApiKeyService } from '../../api-keys/services/api-key.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
@@ -29,9 +31,119 @@ export class ShopifyAdminController {
   constructor(
     private readonly connectorService: ConnectorService,
     private readonly shopifyConnector: ShopifyConnector,
+    private readonly apiKeyService: ApiKeyService,
     @InjectRepository(ShopifySessionEntity)
     private readonly sessionRepository: Repository<ShopifySessionEntity>,
+    @InjectRepository(OrganizationEntity)
+    private readonly organizationRepository: Repository<OrganizationEntity>,
   ) {}
+
+  /**
+   * POST /shopify/api/connect
+   * Link Shopify session to an HTS account via account number + credential token.
+   * Body: { accountNumber: string (orgId), credentialToken: string (API key) }
+   */
+  @Post('connect')
+  async connectAccount(
+    @Req() req: any,
+    @Body() body: { accountNumber?: string; credentialToken?: string },
+  ) {
+    const session: ShopifySessionEntity = req.shopifySession;
+    const accountNumber = (body.accountNumber || '').trim();
+    const credentialToken = (body.credentialToken || '').trim();
+
+    if (!accountNumber || !credentialToken) {
+      throw new HttpException(
+        'Both accountNumber and credentialToken are required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // 1. Validate accountNumber → organization exists and is active
+    const org = await this.organizationRepository.findOne({
+      where: { id: accountNumber, isActive: true },
+    });
+    if (!org) {
+      throw new HttpException(
+        'Invalid account number. Please check your HTS Dashboard.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // 2. Validate credential token belongs to that organization
+    let apiKey;
+    try {
+      apiKey = await this.apiKeyService.validateApiKey(credentialToken);
+    } catch {
+      throw new HttpException(
+        'Invalid credential token. Please check your HTS Dashboard.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    if (apiKey.organizationId !== accountNumber) {
+      throw new HttpException(
+        'Credential token does not belong to the specified account.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // 3. Create or reuse connector for this shop (idempotent — handles double-click and re-link)
+    let connectorId: string;
+    const existingConnector = await this.connectorService.findConnectorByShopDomain(session.shop);
+    if (existingConnector) {
+      if (existingConnector.organizationId !== accountNumber) {
+        // Shop was previously linked to a different organization. Refuse to silently re-link.
+        throw new HttpException(
+          'This Shopify store is already linked to another HTS account. Please contact support to transfer it.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      // Same org: reactivate + refresh access token (handles re-install, double-click, etc.)
+      await this.connectorService.updateConnector(
+        existingConnector.id,
+        accountNumber,
+        {
+          isActive: true,
+          config: { shopUrl: session.shop, accessToken: session.accessToken },
+        },
+      );
+      connectorId = existingConnector.id;
+      this.logger.log(`Reactivated connector ${connectorId} for ${session.shop}`);
+    } else {
+      const connector = await this.connectorService.createConnector(accountNumber, {
+        connectorType: 'shopify',
+        name: `Shopify: ${session.shop}`,
+        config: { shopUrl: session.shop, accessToken: session.accessToken },
+      });
+      connectorId = connector.id;
+      this.logger.log(`Created connector ${connectorId} for ${session.shop}`);
+    }
+
+    // 4. Link session
+    session.organizationId = accountNumber;
+    session.connectorId = connectorId;
+    await this.sessionRepository.save(session);
+
+    // 5. Register product/order webhooks now that the shop is linked
+    const webhookUrl = `${process.env.API_BASE_URL ?? 'https://api.usahts.com'}/api/v1/webhooks/shopify`;
+    const config = { shopUrl: session.shop, accessToken: session.accessToken };
+    const topics = ['products/create', 'products/update', 'orders/create', 'app/uninstalled'];
+    for (const topic of topics) {
+      try {
+        await this.shopifyConnector.createWebhook(config, webhookUrl, topic);
+      } catch (e: any) {
+        if (!e.message?.includes('already exists') && !e.message?.includes('has already been taken')) {
+          this.logger.warn(`Webhook ${topic} registration failed for ${session.shop}: ${e.message}`);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      connectorId,
+      organizationName: org.name,
+    };
+  }
 
   /**
    * GET /shopify/api/settings
@@ -122,6 +234,7 @@ export class ShopifyAdminController {
       isActive: session.isActive,
       installedAt: session.installedAt,
       scopes: session.scopes,
+      requiresSetup: !session.organizationId || !session.connectorId,
       connector: connectorInfo,
       stats,
       recentLogs,

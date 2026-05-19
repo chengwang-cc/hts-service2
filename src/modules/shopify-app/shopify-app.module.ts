@@ -11,6 +11,7 @@ import { ShopifyAdminController } from './controllers/shopify-admin.controller';
 import { ShopifyGdprController } from './controllers/shopify-gdpr.controller';
 import { ShopifySessionGuard } from './guards/shopify-session.guard';
 import { ConnectorsModule } from '../connectors/connectors.module';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ConnectorsModule } from '../connectors/connectors.module';
       OrganizationEntity,
     ]),
     ConnectorsModule,
+    ApiKeysModule,
   ],
   controllers: [
     ShopifyAuthController,

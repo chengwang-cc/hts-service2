@@ -84,11 +84,12 @@ export class ShopifyAuthController {
       queryString,
     );
 
-    // Find or create a connector for this shop
+    // If a connector already exists for this shop, reactivate it (handles reinstall).
+    // Otherwise, the merchant must explicitly link an account via the embedded app's
+    // "Connect HTS" view (no auto-organization creation).
     try {
       const existingConnector = await this.connectorService.findConnectorByShopDomain(shop);
       if (existingConnector) {
-        // Reactivate existing connector (handles reinstall after uninstall)
         await this.connectorService.updateConnector(
           existingConnector.id,
           existingConnector.organizationId,
@@ -101,41 +102,26 @@ export class ShopifyAuthController {
         session.organizationId = existingConnector.organizationId;
         this.logger.log(`Reactivated connector ${existingConnector.id} for ${shop}`);
       } else {
-        // Auto-create organization if none exists
-        if (!session.organizationId) {
-          const org = this.organizationRepository.create({
-            name: `Shopify: ${shop}`,
-            plan: 'FREE',
-            isActive: true,
-          });
-          const savedOrg = await this.organizationRepository.save(org);
-          session.organizationId = savedOrg.id;
-          this.logger.log(`Auto-created organization ${savedOrg.id} for ${shop}`);
-        }
-
-        // Create new connector
-        const connector = await this.connectorService.createConnector(
-          session.organizationId,
-          {
-            connectorType: 'shopify',
-            name: `Shopify: ${shop}`,
-            config: { shopUrl: shop, accessToken: session.accessToken },
-          },
+        this.logger.log(
+          `No prior connector for ${shop}; merchant will complete setup in embedded app.`,
         );
-        session.connectorId = connector.id;
-        this.logger.log(`Created connector ${connector.id} for ${shop}`);
       }
     } catch (error) {
-      this.logger.warn(`Connector setup failed for ${shop}: ${error.message}`);
+      this.logger.warn(`Connector lookup failed for ${shop}: ${error.message}`);
     }
 
-    // Persist session updates (connectorId, organizationId)
-    if (session.connectorId) {
-      await this.shopifyAuthService.saveSession(session);
-    }
+    // Always persist session (including new access token)
+    await this.shopifyAuthService.saveSession(session);
 
-    // Register webhooks for this store
-    await this.registerWebhooks(shop, session.accessToken);
+    // Register webhooks only for shops that are already linked to an HTS account.
+    // For new installs (no connector yet), webhooks are registered after the merchant
+    // completes the account link via POST /shopify/api/connect.
+    // The app/uninstalled webhook is always registered so we can clean up if needed.
+    if (session.connectorId && session.organizationId) {
+      await this.registerWebhooks(shop, session.accessToken);
+    } else {
+      await this.registerUninstallWebhookOnly(shop, session.accessToken);
+    }
 
     this.logger.log(`OAuth completed for shop: ${shop}`);
 
@@ -166,8 +152,9 @@ export class ShopifyAuthController {
   /**
    * Register webhooks with Shopify after successful OAuth.
    * Uses GraphQL webhookSubscriptionCreate mutation.
+   * Idempotent — "already exists" errors are swallowed.
    */
-  private async registerWebhooks(shop: string, accessToken: string): Promise<void> {
+  async registerWebhooks(shop: string, accessToken: string): Promise<void> {
     const config = { shopUrl: shop, accessToken };
     const webhookUrl = `${this.webhookBaseUrl}/api/v1/webhooks/shopify`;
 
@@ -176,12 +163,31 @@ export class ShopifyAuthController {
         await this.shopifyConnector.createWebhook(config, webhookUrl, topic);
         this.logger.log(`Webhook registered: ${topic} → ${webhookUrl} for ${shop}`);
       } catch (error: any) {
-        // "already exists" is fine — idempotent registration
         if (error.message?.includes('already exists') || error.message?.includes('has already been taken')) {
           this.logger.log(`Webhook already exists: ${topic} for ${shop}`);
         } else {
           this.logger.warn(`Failed to register webhook ${topic} for ${shop}: ${error.message}`);
         }
+      }
+    }
+  }
+
+  /**
+   * Register only the app/uninstalled webhook — used for unlinked shops so we
+   * can still detect uninstalls. Product/order webhooks are deferred until the
+   * merchant completes account linking.
+   */
+  private async registerUninstallWebhookOnly(shop: string, accessToken: string): Promise<void> {
+    const config = { shopUrl: shop, accessToken };
+    const webhookUrl = `${this.webhookBaseUrl}/api/v1/webhooks/shopify`;
+    try {
+      await this.shopifyConnector.createWebhook(config, webhookUrl, 'app/uninstalled');
+      this.logger.log(`app/uninstalled webhook registered for unlinked shop ${shop}`);
+    } catch (error: any) {
+      if (error.message?.includes('already exists') || error.message?.includes('has already been taken')) {
+        this.logger.log(`app/uninstalled webhook already exists for ${shop}`);
+      } else {
+        this.logger.warn(`Failed to register app/uninstalled webhook for ${shop}: ${error.message}`);
       }
     }
   }
@@ -324,10 +330,76 @@ function switchTab(tab) {
 async function loadStatus() {
   try {
     const data = await apiFetch('/status');
-    document.getElementById('syncBtn').disabled = false;
-    renderDashboard(data);
+    if (data.requiresSetup) {
+      renderConnectView(data);
+    } else {
+      document.getElementById('syncBtn').disabled = false;
+      renderDashboard(data);
+    }
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="card"><div class="empty">Failed to load: ' + esc(e.message) + '</div></div>';
+  }
+}
+
+// ── Connect View (shown when no account is linked) ──
+function renderConnectView(data) {
+  const shop = data.shop || '';
+  const registerUrl = 'https://www.usahts.com/auth/register?from=shopify&shop=' + encodeURIComponent(shop);
+
+  let html = '<div class="card">';
+  html += '<h2>Connect HTS</h2>';
+  html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">';
+  html += 'Sign up for HTS to finish setting up your store. We&#39;ll walk you through the rest from your HTS dashboard.';
+  html += '</p>';
+  html += '<a class="btn btn--primary" href="' + esc(registerUrl) + '" target="_blank" rel="noopener">Sign up for HTS</a>';
+  html += '</div>';
+
+  html += '<div class="card">';
+  html += '<h2>HTS store settings</h2>';
+  html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">';
+  html += 'Your API credentials will be accessible in your HTS Dashboard once your HTS account has been created. Once you save them below, your account will be connected.';
+  html += '</p>';
+  html += '<div style="margin-bottom:12px;">';
+  html += '<label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">Account number</label>';
+  html += '<input type="text" id="acctNum" placeholder="c1f17791-9448-4461-b026-f16c69d156f4" style="width:100%;padding:8px 10px;border:1px solid #c9cccf;border-radius:6px;font-family:monospace;font-size:13px;">';
+  html += '</div>';
+  html += '<div style="margin-bottom:12px;">';
+  html += '<label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">Credential token</label>';
+  html += '<input type="password" id="credToken" placeholder="hts_live_..." style="width:100%;padding:8px 10px;border:1px solid #c9cccf;border-radius:6px;font-family:monospace;font-size:13px;">';
+  html += '</div>';
+  html += '<button class="btn btn--primary" onclick="connectAccount()">Save and Connect</button>';
+  html += '<div id="connectAlert" style="margin-top:12px;"></div>';
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+let connectInFlight = false;
+
+async function connectAccount() {
+  if (connectInFlight) return; // prevent double-click
+  const btn = document.querySelector('#connectAlert')?.previousElementSibling;
+  const acctNum = document.getElementById('acctNum').value.trim();
+  const credToken = document.getElementById('credToken').value.trim();
+  const alertEl = document.getElementById('connectAlert');
+  if (!acctNum || !credToken) {
+    alertEl.innerHTML = '<div class="alert alert--error">Please fill in both fields.</div>';
+    return;
+  }
+  connectInFlight = true;
+  if (btn) btn.setAttribute('disabled', 'disabled');
+  alertEl.innerHTML = '<div class="alert alert--info">Connecting...</div>';
+  try {
+    const result = await apiFetch('/connect', {
+      method: 'POST',
+      body: JSON.stringify({ accountNumber: acctNum, credentialToken: credToken }),
+    });
+    alertEl.innerHTML = '<div class="alert alert--success">Connected to ' + esc(result.organizationName || 'HTS') + '. Loading dashboard...</div>';
+    setTimeout(function() { loadStatus(); }, 1000);
+  } catch (e) {
+    alertEl.innerHTML = '<div class="alert alert--error">' + esc(e.message) + '</div>';
+    connectInFlight = false;
+    if (btn) btn.removeAttribute('disabled');
   }
 }
 

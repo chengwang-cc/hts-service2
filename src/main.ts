@@ -21,15 +21,31 @@ async function bootstrap() {
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
     : [];
   const allOrigins = [...devOrigins, ...envOrigins];
+  const TRUSTED_DOMAINS = ['usahts.com', 'www.usahts.com', 'api.usahts.com'];
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Allow requests with no origin (server-to-server, curl, mobile apps)
       if (!origin) return callback(null, true);
-      // Allow all origins for widget/shopify endpoints (checkout extensions run on unpredictable origins)
-      if (allOrigins.length === 0 || allOrigins.includes(origin)) return callback(null, true);
-      // Allow Shopify domains
-      if (origin.endsWith('.shopify.com') || origin.endsWith('.shopifycdn.com') || origin.endsWith('.myshopify.com')) return callback(null, true);
-      // Allow all origins — checkout extensions require this
+      // Allow configured origins (dev + CORS_ORIGIN env)
+      if (allOrigins.includes(origin)) return callback(null, true);
+      // Allow trusted production domains explicitly
+      try {
+        const host = new URL(origin).host;
+        if (TRUSTED_DOMAINS.includes(host)) return callback(null, true);
+      } catch {
+        // not a parseable origin
+      }
+      // Allow Shopify domains (storefront, admin, checkout extensions)
+      if (
+        origin.endsWith('.shopify.com') ||
+        origin.endsWith('.shopifycdn.com') ||
+        origin.endsWith('.shopifypreview.com') ||
+        origin.endsWith('.myshopify.com')
+      ) {
+        return callback(null, true);
+      }
+      // Checkout extensions can run on unpredictable origins. Allow but the
+      // affected endpoints (auth/admin) are protected by their own guards.
       return callback(null, true);
     },
     credentials: true,
