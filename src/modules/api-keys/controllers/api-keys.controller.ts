@@ -107,6 +107,49 @@ export class ApiKeysController {
   }
 
   /**
+   * Rotate an API key: revoke the existing one and issue a fresh key with
+   * the same name/permissions/limits. Returns the plain-text new key once.
+   */
+  @Post(':id/rotate')
+  async rotateApiKey(
+    @Param('id') id: string,
+    @CurrentUser() user: UserEntity,
+  ) {
+    const keys = await this.apiKeyService.listApiKeys(user.organizationId);
+    const existing = keys.find((k) => k.id === id);
+
+    if (!existing) {
+      return { error: 'API key not found' };
+    }
+
+    // Revoke the old key first so the previous secret is immediately unusable.
+    await this.apiKeyService.revokeApiKey(existing.id);
+
+    const { apiKey, plainTextKey } = await this.apiKeyService.generateApiKey({
+      organizationId: existing.organizationId,
+      name: existing.name,
+      description: existing.description ?? undefined,
+      environment: existing.environment as 'test' | 'live',
+      permissions: existing.permissions,
+      rateLimitPerMinute: existing.rateLimitPerMinute ?? undefined,
+      rateLimitPerDay: existing.rateLimitPerDay ?? undefined,
+      expiresAt: existing.expiresAt ?? undefined,
+      ipWhitelist: existing.ipWhitelist ?? undefined,
+      allowedOrigins: existing.allowedOrigins ?? undefined,
+      createdBy: user.id,
+    });
+
+    const { keyHash, ...safeApiKey } = apiKey;
+
+    return {
+      ...safeApiKey,
+      previousKeyId: existing.id,
+      apiKey: plainTextKey,
+      warning: 'Save this credential token now. You will not be able to see it again.',
+    };
+  }
+
+  /**
    * Get usage statistics for an API key
    */
   @Get(':id/usage')
