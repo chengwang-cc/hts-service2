@@ -9,7 +9,9 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { GoogleAuthCallbackGuard } from './guards/google-auth-callback.guard';
+import { RegisterRateLimitGuard } from './guards/register-rate-limit.guard';
 import { AuthController } from './controllers/auth.controller';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 const userTypeOrmModule = TypeOrmModule.forFeature([
   UserEntity,
@@ -25,6 +27,7 @@ const userTypeOrmModule = TypeOrmModule.forFeature([
       secret: process.env.JWT_SECRET || 'your-secret-key',
       signOptions: { expiresIn: '1h' },
     }),
+    ApiKeysModule,
   ],
   controllers: [AuthController],
   providers: [
@@ -34,6 +37,7 @@ const userTypeOrmModule = TypeOrmModule.forFeature([
     JwtAuthGuard,
     GoogleAuthGuard,
     GoogleAuthCallbackGuard,
+    RegisterRateLimitGuard,
   ],
   exports: [
     AuthService,

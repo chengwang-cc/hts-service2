@@ -6,6 +6,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  Patch,
   UnauthorizedException,
   Req,
   Res,
@@ -20,12 +22,18 @@ import { GoogleAuthCallbackGuard } from '../guards/google-auth-callback.guard';
 import { Public } from '../decorators/public.decorator';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { UserEntity } from '../entities/user.entity';
+import { ApiKeyService } from '../../api-keys/services/api-key.service';
+import { RegisterRateLimitGuard } from '../guards/register-rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly apiKeyService: ApiKeyService,
+  ) {}
 
   @Public()
+  @UseGuards(RegisterRateLimitGuard)
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     const user = await this.authService.register(
@@ -34,9 +42,26 @@ export class AuthController {
       registerDto.firstName,
       registerDto.lastName,
       registerDto.organizationId || null,
+      registerDto.company,
     );
 
-    return this.authService.login({ id: user.id });
+    // Generate an initial API key for the new organization (only returned once)
+    const generated = await this.apiKeyService.generateApiKey({
+      organizationId: user.organizationId,
+      name: 'Default API Key',
+      description: 'Auto-generated on account registration',
+      environment: 'live',
+      permissions: ['hts:lookup', 'hts:calculate', 'kb:query'],
+      createdBy: user.id,
+    });
+
+    const auth = await this.authService.login({ id: user.id });
+
+    return {
+      ...auth,
+      organizationId: user.organizationId,
+      apiKey: generated.plainTextKey,
+    };
   }
 
   @Public()
@@ -59,6 +84,43 @@ export class AuthController {
   @Get('profile')
   getProfile(@CurrentUser() user: UserEntity) {
     return this.authService.toClientUser(user);
+  }
+
+  /**
+   * Get shipping/integration metadata for the caller's organization.
+   * Used by the website Settings page to render the Shopify shipping form.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('organization')
+  async getOrganization(@CurrentUser() user: UserEntity) {
+    const org = await this.authService.getOrganizationForUser(user.organizationId);
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+    return org;
+  }
+
+  /**
+   * Update shipping/integration metadata for the caller's organization.
+   * Only the allowed subset of fields (name, country, shippingCarrier,
+   * websiteUrl, integrationType, platform) is persisted.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('organization')
+  @HttpCode(HttpStatus.OK)
+  async updateOrganization(
+    @CurrentUser() user: UserEntity,
+    @Body()
+    body: {
+      name?: string;
+      country?: string | null;
+      shippingCarrier?: string | null;
+      websiteUrl?: string | null;
+      integrationType?: string | null;
+      platform?: string | null;
+    },
+  ) {
+    return this.authService.updateOrganizationForUser(user.organizationId, body ?? {});
   }
 
   @Public()

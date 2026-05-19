@@ -17,6 +17,42 @@ interface GoogleOAuthStatePayload {
   returnTo: string;
 }
 
+export type IntegrationType = 'ecommerce' | 'supply_chain' | null;
+
+export interface ShippingSettings {
+  country: string | null;
+  shippingCarrier: string | null;
+  websiteUrl: string | null;
+  integrationType: IntegrationType;
+  platform: string | null;
+}
+
+export interface UpdateOrganizationPatch {
+  name?: string;
+  country?: string | null;
+  shippingCarrier?: string | null;
+  websiteUrl?: string | null;
+  integrationType?: string | null;
+  platform?: string | null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeString(value: unknown, maxLength: number): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeIntegrationType(value: unknown): IntegrationType {
+  if (value === 'ecommerce' || value === 'supply_chain') return value;
+  return null;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -106,6 +142,14 @@ export class AuthService {
     firstName: string,
     lastName: string,
     organizationId: string | null,
+    company?: {
+      name?: string;
+      websiteUrl?: string;
+      country?: string;
+      shippingCarrier?: string;
+      integrationType?: string;
+      platform?: string;
+    },
   ) {
     const normalizedEmail = email.toLowerCase().trim();
     const existing = await this.userRepository.findOne({
@@ -116,8 +160,28 @@ export class AuthService {
       throw new ConflictException('User with this email already exists');
     }
 
-    const resolvedOrganizationId =
-      organizationId || (await this.createOrganizationForNewUser(firstName, normalizedEmail)).id;
+    // Create or find organization, populating company metadata if provided
+    let resolvedOrganizationId: string;
+    if (organizationId) {
+      resolvedOrganizationId = organizationId;
+    } else {
+      const org = await this.createOrganizationForNewUser(firstName, normalizedEmail);
+      // Apply company metadata to settings JSONB
+      if (company) {
+        if (company.name) org.name = company.name.trim();
+        org.settings = {
+          ...(org.settings || {}),
+          country: company.country,
+          shippingCarrier: company.shippingCarrier,
+          integrationType: company.integrationType,
+          platform: company.platform,
+          websiteUrl: company.websiteUrl,
+        };
+        await this.organizationRepository.save(org);
+      }
+      resolvedOrganizationId = org.id;
+    }
+
     const defaultRole = await this.resolveDefaultSignupRole();
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = this.userRepository.create({
@@ -233,6 +297,108 @@ export class AuthService {
 
   toClientUser(user: UserEntity): Omit<UserEntity, 'password'> & { permissions: string[] } {
     return this.toAuthUser(user);
+  }
+
+  /**
+   * Return the organization record for an authenticated user, exposing only
+   * the fields that are safe to surface (no usage/billing internals).
+   */
+  async getOrganizationForUser(organizationId: string): Promise<{
+    id: string;
+    name: string;
+    plan: string;
+    settings: ShippingSettings;
+  } | null> {
+    if (!organizationId) return null;
+    const org = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!org) return null;
+
+    return {
+      id: org.id,
+      name: org.name,
+      plan: org.plan,
+      settings: this.pickShippingSettings(org.settings),
+    };
+  }
+
+  /**
+   * Update the subset of organization settings that the customer is allowed
+   * to manage from the website (shipping/integration metadata + display name).
+   */
+  async updateOrganizationForUser(
+    organizationId: string,
+    patch: UpdateOrganizationPatch,
+  ): Promise<{
+    id: string;
+    name: string;
+    plan: string;
+    settings: ShippingSettings;
+  }> {
+    const org = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!org) {
+      throw new UnauthorizedException('Organization not found');
+    }
+
+    if (typeof patch.name === 'string') {
+      const trimmed = patch.name.trim();
+      if (trimmed) {
+        org.name = trimmed.slice(0, 255);
+      }
+    }
+
+    const existing = this.pickShippingSettings(org.settings);
+    const next: ShippingSettings = { ...existing };
+
+    if ('country' in patch) {
+      next.country = normalizeString(patch.country, 64);
+    }
+    if ('shippingCarrier' in patch) {
+      next.shippingCarrier = normalizeString(patch.shippingCarrier, 64);
+    }
+    if ('websiteUrl' in patch) {
+      next.websiteUrl = normalizeString(patch.websiteUrl, 512);
+    }
+    if ('integrationType' in patch) {
+      next.integrationType = normalizeIntegrationType(patch.integrationType);
+    }
+    if ('platform' in patch) {
+      next.platform = normalizeString(patch.platform, 64);
+    }
+
+    org.settings = {
+      ...(org.settings ?? {}),
+      country: next.country,
+      shippingCarrier: next.shippingCarrier,
+      websiteUrl: next.websiteUrl,
+      integrationType: next.integrationType,
+      platform: next.platform,
+    };
+
+    const saved = await this.organizationRepository.save(org);
+
+    return {
+      id: saved.id,
+      name: saved.name,
+      plan: saved.plan,
+      settings: this.pickShippingSettings(saved.settings),
+    };
+  }
+
+  private pickShippingSettings(
+    settings: Record<string, any> | null | undefined,
+  ): ShippingSettings {
+    const s = settings ?? {};
+    return {
+      country: stringOrNull(s.country),
+      shippingCarrier: stringOrNull(s.shippingCarrier),
+      websiteUrl: stringOrNull(s.websiteUrl),
+      integrationType: normalizeIntegrationType(s.integrationType),
+      platform: stringOrNull(s.platform),
+    };
   }
 
   private async findUserById(id: string): Promise<UserEntity | null> {
