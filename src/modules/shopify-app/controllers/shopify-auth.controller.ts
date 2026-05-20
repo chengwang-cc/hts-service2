@@ -434,6 +434,17 @@ function formatMoney(amount, currency) {
   return (currency || 'USD') + ' ' + n.toFixed(2);
 }
 
+async function openDashboard() {
+  try {
+    const data = await apiFetch('/dashboard-link', { method: 'POST' });
+    if (data && data.url) {
+      window.open(data.url, '_blank', 'noopener');
+    }
+  } catch (e) {
+    alert('Could not open the HTS dashboard: ' + (e.message || 'unknown error'));
+  }
+}
+
 function renderBilled(billed) {
   if (!billed) return '<span style="color:#9ca0a3;">&mdash;</span>';
   if (billed.reason === 'insufficient_credits') {
@@ -487,20 +498,25 @@ async function loadStatus() {
 // ── Connect View (shown when no account is linked) ──
 function renderConnectView(data) {
   const shop = data.shop || '';
-  const registerUrl = 'https://www.usahts.com/auth/register?from=shopify&shop=' + encodeURIComponent(shop);
 
   let html = '<div class="card">';
-  html += '<h2>Connect HTS</h2>';
+  html += '<h2>Connect to HTS Classify</h2>';
   html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">';
-  html += 'Sign up for HTS to finish setting up your store. We&#39;ll walk you through the rest from your HTS dashboard.';
+  html += 'We&#39;ll create an HTS account for <strong>' + esc(shop) + '</strong> and link it to this store, or reuse an existing account if we recognize the shop. One click, no copy-paste required.';
   html += '</p>';
-  html += '<a class="btn btn--primary" href="' + esc(registerUrl) + '" target="_blank" rel="noopener">Sign up for HTS</a>';
+  html += '<button class="btn btn--primary" id="provisionBtn" onclick="provisionFromShopify()">Connect this store</button>';
+  html += '<div id="provisionAlert" style="margin-top:12px;"></div>';
   html += '</div>';
 
+  // Collapsible legacy path for power users / migration window.
   html += '<div class="card">';
-  html += '<h2>HTS store settings</h2>';
+  html += '<h2 style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;" onclick="toggleLegacyConnect()">';
+  html += '<span id="legacyChevron" style="display:inline-block;transition:transform 0.15s;transform:rotate(-90deg);">&#9660;</span>';
+  html += 'Already have an HTS account?';
+  html += '</h2>';
+  html += '<div id="legacyConnect" style="display:none;">';
   html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">';
-  html += 'Your API credentials will be accessible in your HTS Dashboard once your HTS account has been created. Once you save them below, your account will be connected.';
+  html += 'If you signed up directly at <a href="https://www.usahts.com" target="_blank" rel="noopener">usahts.com</a>, paste your Account Number and Credential Token from the HTS dashboard below to link this store to your existing account.';
   html += '</p>';
   html += '<div style="margin-bottom:12px;">';
   html += '<label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">Account number</label>';
@@ -510,11 +526,61 @@ function renderConnectView(data) {
   html += '<label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">Credential token</label>';
   html += '<input type="password" id="credToken" placeholder="hts_live_..." style="width:100%;padding:8px 10px;border:1px solid #c9cccf;border-radius:6px;font-family:monospace;font-size:13px;">';
   html += '</div>';
-  html += '<button class="btn btn--primary" onclick="connectAccount()">Save and Connect</button>';
+  html += '<button class="btn" onclick="connectAccount()" style="background:white;border:1px solid #c9cccf;">Link existing account</button>';
   html += '<div id="connectAlert" style="margin-top:12px;"></div>';
+  html += '</div>';
   html += '</div>';
 
   document.getElementById('content').innerHTML = html;
+}
+
+function toggleLegacyConnect() {
+  const panel = document.getElementById('legacyConnect');
+  const chev = document.getElementById('legacyChevron');
+  if (!panel) return;
+  if (panel.style.display === 'none' || !panel.style.display) {
+    panel.style.display = 'block';
+    if (chev) chev.style.transform = 'rotate(0deg)';
+  } else {
+    panel.style.display = 'none';
+    if (chev) chev.style.transform = 'rotate(-90deg)';
+  }
+}
+
+let provisionInFlight = false;
+
+async function provisionFromShopify() {
+  if (provisionInFlight) return;
+  const btn = document.getElementById('provisionBtn');
+  const alertEl = document.getElementById('provisionAlert');
+  provisionInFlight = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Connecting...';
+  }
+  alertEl.innerHTML = '';
+  try {
+    const result = await apiFetch('/provision', { method: 'POST' });
+    const modeMsg = result.mode === 'created'
+      ? 'Account created and linked. You can now sync products and start receiving order calculations.'
+      : result.mode === 'reinstall'
+        ? 'Welcome back. We re-linked this store to your existing HTS account.'
+        : 'Connected.';
+    alertEl.innerHTML = '<div class="alert alert--success">' + esc(modeMsg) + '</div>';
+    // Brief pause so the merchant reads the message, then reload to Overview.
+    setTimeout(function() {
+      currentTab = 'overview';
+      loadStatus();
+    }, 1000);
+  } catch (e) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Connect this store';
+    }
+    alertEl.innerHTML = '<div class="alert alert--error">' + esc(e.message || 'Connection failed') + '</div>';
+  } finally {
+    provisionInFlight = false;
+  }
 }
 
 let connectInFlight = false;
@@ -601,7 +667,10 @@ function renderDashboard(data) {
         html += '<p style="margin-top:12px;font-size:13px;color:#996300;">Low balance — buy more credits to keep duty calculations running for new orders.</p>';
       }
       html += '<p style="margin-top:8px;font-size:13px;color:#6d7175;">' + esc(callsLabel) + '. Lifetime purchased: ' + (cr.lifetimePurchased || 0) + '.</p>';
-      html += '<a href="https://www.usahts.com/pricing" target="_top" style="display:inline-block;margin-top:8px;padding:8px 16px;background:#008060;color:white;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">Buy more credits</a>';
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
+      html += '<button onclick="openDashboard()" style="padding:8px 16px;background:#008060;color:white;border:0;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Buy more credits</button>';
+      html += '<button onclick="openDashboard()" style="padding:8px 16px;background:white;color:#202223;border:1px solid #c9cccf;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Open HTS dashboard</button>';
+      html += '</div>';
       html += '</div>';
     }
   }

@@ -23,6 +23,7 @@ import { ApiKeyService } from '../../api-keys/services/api-key.service';
 import { ShopifyOrderTransactionsService } from '../services/shopify-order-transactions.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { BillingChargeService } from '../../billing/services/billing-charge.service';
+import { AuthService } from '../../auth/services/auth.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
@@ -61,6 +62,7 @@ export class ShopifyAdminController {
     private readonly transactionsService: ShopifyOrderTransactionsService,
     private readonly creditPurchaseService: CreditPurchaseService,
     private readonly billingChargeService: BillingChargeService,
+    private readonly authService: AuthService,
     @InjectRepository(ShopifySessionEntity)
     private readonly sessionRepository: Repository<ShopifySessionEntity>,
     @InjectRepository(OrganizationEntity)
@@ -172,6 +174,222 @@ export class ShopifyAdminController {
       connectorId,
       organizationName: org.name,
     };
+  }
+
+  /**
+   * POST /shopify/api/provision
+   *
+   * Phase 5: one-call auto-onboard for an installing merchant. Looks at
+   * the current Shopify session and:
+   *   1. If a connector already exists for this shop (re-install case),
+   *      reuses its organization and relinks the session.
+   *   2. Otherwise, auto-creates a brand-new organization + user from
+   *      the Shopify shop info (queried via GraphQL with the session's
+   *      access token), issues an API key, grants the Phase 4 signup
+   *      bonus, creates a fresh connector, and links the session.
+   *
+   * Idempotent: safe to call multiple times. Returns the same shape as
+   * /connect so the embedded admin can treat them interchangeably.
+   *
+   * No body required — everything comes from the Shopify session.
+   */
+  @Post('provision')
+  async provisionFromShopify(@Req() req: any) {
+    const session: ShopifySessionEntity = req.shopifySession;
+
+    // Fast path: session already linked. Just return the current state so
+    // the embedded admin can move on to the Overview tab.
+    if (session.organizationId && session.connectorId) {
+      const org = await this.organizationRepository.findOne({
+        where: { id: session.organizationId },
+      });
+      return {
+        success: true,
+        mode: 'already_linked',
+        connectorId: session.connectorId,
+        organizationId: session.organizationId,
+        organizationName: org?.name ?? null,
+      };
+    }
+
+    let organizationId: string;
+    let organizationName: string | null = null;
+    let mode: 'reinstall' | 'signin' | 'created';
+    let createdUserSyntheticEmail = false;
+
+    // 1. Reinstall: an active connector already exists for this shop.
+    //    The session was reset by the OAuth callback but the org is intact.
+    const existingConnector =
+      await this.connectorService.findConnectorByShopDomain(session.shop);
+
+    if (existingConnector) {
+      organizationId = existingConnector.organizationId;
+      mode = 'reinstall';
+      const org = await this.organizationRepository.findOne({
+        where: { id: organizationId },
+      });
+      organizationName = org?.name ?? null;
+
+      // Refresh the connector's access token in case Shopify reissued it
+      // after the reinstall.
+      await this.connectorService.updateConnector(
+        existingConnector.id,
+        organizationId,
+        {
+          isActive: true,
+          config: { shopUrl: session.shop, accessToken: session.accessToken },
+        },
+      );
+
+      session.organizationId = organizationId;
+      session.connectorId = existingConnector.id;
+      await this.sessionRepository.save(session);
+    } else {
+      // 2. Brand-new merchant — auto-create org + user via Shopify info.
+      const shopInfo = await this.shopifyConnector.getShopInfo({
+        shopUrl: session.shop,
+        accessToken: session.accessToken,
+      });
+
+      const provision = await this.authService.createUserFromShopify({
+        shopDomain: session.shop,
+        shopEmail: shopInfo.contactEmail || shopInfo.email,
+        shopName: shopInfo.name,
+        country: shopInfo.country,
+      });
+      organizationId = provision.organization.id;
+      organizationName = provision.organization.name;
+      createdUserSyntheticEmail = provision.usedSyntheticEmail;
+      mode = 'created';
+
+      // Generate a default API key so the merchant has one in the dashboard
+      // — matches what the email/Google register flow does.
+      try {
+        await this.apiKeyService.generateApiKey({
+          organizationId,
+          name: 'Shopify integration',
+          description: `Auto-issued on Shopify install for ${session.shop}`,
+          environment: 'live',
+          permissions: ['hts:lookup', 'hts:calculate', 'kb:query'],
+          createdBy: provision.user.id,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `Auto-issue API key failed for new org ${organizationId}: ${err?.message ?? err}`,
+        );
+      }
+
+      // Bind the connector to the brand-new org.
+      const connector = await this.connectorService.createConnector(
+        organizationId,
+        {
+          connectorType: 'shopify',
+          name: `Shopify: ${session.shop}`,
+          config: { shopUrl: session.shop, accessToken: session.accessToken },
+        },
+      );
+
+      session.organizationId = organizationId;
+      session.connectorId = connector.id;
+      await this.sessionRepository.save(session);
+
+      this.logger.log(
+        `Auto-provisioned org ${organizationId} (${organizationName}) + user ${provision.user.id} for ${session.shop}`,
+      );
+    }
+
+    // Register webhooks regardless of mode (idempotent on Shopify's side).
+    const webhookUrl = `${process.env.API_BASE_URL ?? 'https://api.usahts.com'}/api/v1/webhooks/shopify`;
+    const config = { shopUrl: session.shop, accessToken: session.accessToken };
+    const topics = [
+      'products/create',
+      'products/update',
+      'orders/create',
+      'app/uninstalled',
+    ];
+    for (const topic of topics) {
+      try {
+        await this.shopifyConnector.createWebhook(config, webhookUrl, topic);
+      } catch (e: any) {
+        if (
+          !e.message?.includes('already exists') &&
+          !e.message?.includes('has already been taken')
+        ) {
+          this.logger.warn(
+            `Webhook ${topic} registration failed for ${session.shop}: ${e.message}`,
+          );
+        }
+      }
+    }
+
+    return {
+      success: true,
+      mode,
+      connectorId: session.connectorId,
+      organizationId,
+      organizationName,
+      usedSyntheticEmail: createdUserSyntheticEmail,
+    };
+  }
+
+  /**
+   * POST /shopify/api/dashboard-link
+   *
+   * Issues a one-shot signed handoff URL the embedded admin can open in a
+   * new tab to land the merchant signed into the HTS website dashboard
+   * (where they can top up credits, view transactions, edit their
+   * profile, etc.). The merchant doesn't need to remember a password —
+   * the embedded Shopify session is the trust anchor.
+   *
+   * The handoff token is just a normal access JWT generated via
+   * AuthService.login(); the website's /auth/shopify-handoff route reads
+   * it from the query string, stores it as the access token, and bounces
+   * to the dashboard.
+   */
+  @Post('dashboard-link')
+  async dashboardLink(@Req() req: any) {
+    const session: ShopifySessionEntity = req.shopifySession;
+    if (!session.organizationId) {
+      throw new HttpException(
+        'This Shopify store is not linked to an HTS account yet. Click "Connect this store" first.',
+        HttpStatus.PRECONDITION_REQUIRED,
+      );
+    }
+
+    // Resolve a representative user for the org. Pick the most recent
+    // non-deactivated user — usually the one auto-provisioned at install
+    // (or the org admin for legacy-linked accounts).
+    const session_user = await this.sessionRepository.manager
+      .createQueryBuilder()
+      .select('u.id', 'id')
+      .from('users', 'u')
+      .where('u.organization_id = :orgId', { orgId: session.organizationId })
+      .andWhere('u.is_active = true')
+      .orderBy('u.created_at', 'ASC')
+      .limit(1)
+      .getRawOne<{ id: string }>();
+
+    if (!session_user?.id) {
+      throw new HttpException(
+        'No active user found for this organization. Contact support.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const auth = await this.authService.login({ id: session_user.id });
+    const websiteBase =
+      process.env.WEBSITE_BASE_URL?.replace(/\/$/, '') ||
+      'https://www.usahts.com';
+    const target = req.query?.target === 'transactions'
+      ? '/dashboard'
+      : (typeof req.query?.target === 'string' ? '/dashboard' : '/dashboard');
+    const url =
+      `${websiteBase}/auth/shopify-handoff` +
+      `?accessToken=${encodeURIComponent(auth.tokens.accessToken)}` +
+      `&refreshToken=${encodeURIComponent(auth.tokens.refreshToken)}` +
+      `&returnTo=${encodeURIComponent(target)}`;
+
+    return { url };
   }
 
   /**

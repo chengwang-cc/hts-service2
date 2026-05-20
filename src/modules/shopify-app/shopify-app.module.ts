@@ -23,6 +23,7 @@ import { CalculatorModule } from '../calculator/calculator.module';
 import { QueueModule } from '../queue/queue.module';
 import { QueueService } from '../queue/queue.service';
 import { BillingModule } from '../billing/billing.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BillingModule } from '../billing/billing.module';
     CalculatorModule,
     QueueModule,
     BillingModule,
+    AuthModule,
   ],
   controllers: [
     ShopifyAuthController,
