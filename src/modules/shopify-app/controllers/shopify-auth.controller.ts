@@ -323,7 +323,126 @@ function switchTab(tab) {
   if (tab === 'overview') loadStatus();
   else if (tab === 'products') loadProducts();
   else if (tab === 'history') loadStatus();
+  else if (tab === 'transactions') loadTransactions();
   else if (tab === 'settings') loadSettings();
+}
+
+// ── Transactions ──
+let txState = { limit: 25, offset: 0, total: 0 };
+
+async function loadTransactions() {
+  let html = '<div class="tab-bar">';
+  html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
+  html += '<button class="tab" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
+  html += '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab tab--active" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
+  html += '<button class="tab" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
+  html += '</div><div class="loading"><span class="spinner"></span> Loading transactions...</div>';
+  document.getElementById('content').innerHTML = html;
+
+  try {
+    const qs = '?limit=' + txState.limit + '&offset=' + txState.offset;
+    const data = await apiFetch('/transactions' + qs);
+    txState.total = data.total || 0;
+    renderTransactions(data);
+  } catch (e) {
+    document.getElementById('content').innerHTML += '<div class="card"><div class="empty">Failed to load transactions: ' + esc(e.message) + '</div></div>';
+  }
+}
+
+function renderTransactions(data) {
+  let html = '<div class="tab-bar">';
+  html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
+  html += '<button class="tab" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
+  html += '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab tab--active" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
+  html += '<button class="tab" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
+  html += '</div>';
+
+  html += '<div class="card"><h2>Order transactions</h2>';
+  html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">Per-order duty &amp; tax calculations from your store. The "Billed" column will show metered charges once billing is enabled.</p>';
+
+  const items = data.items || [];
+  if (items.length === 0) {
+    html += '<div class="empty">No transactions yet. They will appear here once your customers place orders.</div></div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="text-align:left;background:#fafbfb;border-bottom:1px solid #e4e6e8;">';
+  html += '<th style="padding:10px 8px;font-weight:600;">Date</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;">Order</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;">Lines</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;">Status</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;text-align:right;">Duties</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;text-align:right;">Taxes</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;text-align:right;">Landed cost</th>';
+  html += '<th style="padding:10px 8px;font-weight:600;text-align:right;">Billed</th>';
+  html += '</tr></thead><tbody>';
+  items.forEach(function(t) {
+    const d = new Date(t.calculatedAt);
+    const dateStr = isNaN(d) ? '-' : d.toLocaleString();
+    const cur = t.currency || 'USD';
+    const tot = t.totals || {};
+    html += '<tr style="border-bottom:1px solid #f1f2f3;">';
+    html += '<td style="padding:10px 8px;color:#6d7175;">' + esc(dateStr) + '</td>';
+    html += '<td style="padding:10px 8px;font-family:ui-monospace,monospace;">#' + esc(t.platformOrderId) + '</td>';
+    html += '<td style="padding:10px 8px;">' + t.lineCount;
+    if (t.linesWithErrors > 0) {
+      html += ' <span style="color:#c8470d;">(' + t.linesWithErrors + ' err)</span>';
+    }
+    html += '</td>';
+    html += '<td style="padding:10px 8px;">' + statusBadge(t.status) + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;">' + formatMoney(tot.duties, cur) + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;">' + formatMoney(tot.taxes, cur) + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;font-weight:600;">' + formatMoney(tot.landedCost, cur) + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;color:#9ca0a3;">&mdash;</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+
+  // Pagination
+  const start = (data.offset || 0) + 1;
+  const end = (data.offset || 0) + items.length;
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:13px;color:#6d7175;">';
+  html += '<span>Showing ' + start + '&ndash;' + end + ' of ' + data.total + '</span>';
+  html += '<span>';
+  html += '<button onclick="txPrev()" ' + (txState.offset === 0 ? 'disabled' : '') + ' style="padding:6px 12px;margin-right:6px;border:1px solid #c9cccf;background:white;border-radius:6px;cursor:' + (txState.offset === 0 ? 'not-allowed' : 'pointer') + ';opacity:' + (txState.offset === 0 ? '0.5' : '1') + ';">Previous</button>';
+  const hasNext = (data.offset || 0) + items.length < data.total;
+  html += '<button onclick="txNext()" ' + (hasNext ? '' : 'disabled') + ' style="padding:6px 12px;border:1px solid #c9cccf;background:white;border-radius:6px;cursor:' + (hasNext ? 'pointer' : 'not-allowed') + ';opacity:' + (hasNext ? '1' : '0.5') + ';">Next</button>';
+  html += '</span></div>';
+
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+function statusBadge(status) {
+  const map = {
+    completed: { color: '#0a7c43', bg: '#e8f5ee', label: 'Completed' },
+    partial:   { color: '#996300', bg: '#fff5e1', label: 'Partial' },
+    failed:    { color: '#a82e2e', bg: '#fde8e8', label: 'Failed' },
+    unknown:   { color: '#6d7175', bg: '#f1f2f3', label: 'Unknown' },
+  };
+  const s = map[status] || map.unknown;
+  return '<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;background:' + s.bg + ';color:' + s.color + ';">' + s.label + '</span>';
+}
+
+function formatMoney(amount, currency) {
+  const n = typeof amount === 'number' ? amount : parseFloat(amount || 0);
+  if (!isFinite(n)) return '-';
+  return (currency || 'USD') + ' ' + n.toFixed(2);
+}
+
+function txPrev() {
+  if (txState.offset === 0) return;
+  txState.offset = Math.max(0, txState.offset - txState.limit);
+  loadTransactions();
+}
+function txNext() {
+  if (txState.offset + txState.limit >= txState.total) return;
+  txState.offset += txState.limit;
+  loadTransactions();
 }
 
 // ── Overview ──
@@ -412,6 +531,7 @@ function renderDashboard(data) {
   html += '<button class="tab' + (currentTab === 'overview' ? ' tab--active' : '') + '" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
   html += '<button class="tab' + (currentTab === 'products' ? ' tab--active' : '') + '" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
   html += '<button class="tab' + (currentTab === 'history' ? ' tab--active' : '') + '" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab' + (currentTab === 'transactions' ? ' tab--active' : '') + '" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
   html += '<button class="tab' + (currentTab === 'settings' ? ' tab--active' : '') + '" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
   html += '</div>';
 
@@ -456,6 +576,7 @@ async function loadProducts() {
     '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>' +
     '<button class="tab tab--active" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>' +
     '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>' +
+    '<button class="tab" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>' +
     '<button class="tab" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>' +
     '</div><div class="loading"><span class="spinner"></span> Loading products...</div>';
   try {
@@ -471,6 +592,7 @@ function renderProducts(data) {
   html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
   html += '<button class="tab tab--active" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
   html += '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
   html += '<button class="tab" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
   html += '</div>';
 
@@ -499,6 +621,7 @@ async function loadSettings() {
   html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
   html += '<button class="tab" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
   html += '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
   html += '<button class="tab tab--active" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
   html += '</div><div class="loading"><span class="spinner"></span> Loading settings...</div>';
   document.getElementById('content').innerHTML = html;
@@ -519,6 +642,7 @@ function renderSettings(current) {
   html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
   html += '<button class="tab" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
   html += '<button class="tab" data-tab="history" onclick="switchTab(&#39;history&#39;)">Sync History</button>';
+  html += '<button class="tab" data-tab="transactions" onclick="switchTab(&#39;transactions&#39;)">Transactions</button>';
   html += '<button class="tab tab--active" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
   html += '</div>';
 

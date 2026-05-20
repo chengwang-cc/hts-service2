@@ -11,9 +11,11 @@ import {
   SHOPIFY_ORDER_WRITEBACK_QUEUE,
   type OrderWritebackJobData,
 } from './services/shopify-order-writeback.service';
+import { ShopifyOrderTransactionsService } from './services/shopify-order-transactions.service';
 import { ShopifyAuthController } from './controllers/shopify-auth.controller';
 import { ShopifyAdminController } from './controllers/shopify-admin.controller';
 import { ShopifyGdprController } from './controllers/shopify-gdpr.controller';
+import { ShopifyOrdersController } from './controllers/shopify-orders.controller';
 import { ShopifySessionGuard } from './guards/shopify-session.guard';
 import { ConnectorsModule } from '../connectors/connectors.module';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
@@ -39,13 +41,19 @@ import { QueueService } from '../queue/queue.service';
     ShopifyAuthController,
     ShopifyAdminController,
     ShopifyGdprController,
+    ShopifyOrdersController,
   ],
   providers: [
     ShopifyAuthService,
     ShopifySessionGuard,
     ShopifyOrderWritebackService,
+    ShopifyOrderTransactionsService,
   ],
-  exports: [ShopifyAuthService, ShopifyOrderWritebackService],
+  exports: [
+    ShopifyAuthService,
+    ShopifyOrderWritebackService,
+    ShopifyOrderTransactionsService,
+  ],
 })
 export class ShopifyAppModule implements OnModuleInit {
   constructor(

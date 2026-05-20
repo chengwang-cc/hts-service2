@@ -4,6 +4,7 @@ import {
   Patch,
   Post,
   Body,
+  Query,
   Req,
   UseGuards,
   Logger,
@@ -19,6 +20,7 @@ import { ConnectorService } from '../../connectors/services/connector.service';
 import { ShopifyConnector } from '../../connectors/services/shopify.connector';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { ApiKeyService } from '../../api-keys/services/api-key.service';
+import { ShopifyOrderTransactionsService } from '../services/shopify-order-transactions.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
@@ -54,6 +56,7 @@ export class ShopifyAdminController {
     private readonly connectorService: ConnectorService,
     private readonly shopifyConnector: ShopifyConnector,
     private readonly apiKeyService: ApiKeyService,
+    private readonly transactionsService: ShopifyOrderTransactionsService,
     @InjectRepository(ShopifySessionEntity)
     private readonly sessionRepository: Repository<ShopifySessionEntity>,
     @InjectRepository(OrganizationEntity)
@@ -357,4 +360,46 @@ export class ShopifyAdminController {
       total: products.length,
     };
   }
+
+  /**
+   * GET /shopify/api/transactions
+   * Per-order duty/tax calculations for the embedded admin's Transactions
+   * tab. Org-scoped via the Shopify session, paginated, optionally
+   * date-filtered (`since` / `until` are ISO 8601 strings).
+   */
+  @Get('transactions')
+  async listTransactions(
+    @Req() req: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('since') since?: string,
+    @Query('until') until?: string,
+  ) {
+    const session: ShopifySessionEntity = req.shopifySession;
+    if (!session.organizationId) {
+      // Embedded app was opened before the merchant completed the
+      // accountNumber + credentialToken connect flow. Nothing to list.
+      return { total: 0, limit: 25, offset: 0, items: [] };
+    }
+
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const parsedOffset = offset ? Number.parseInt(offset, 10) : undefined;
+    const sinceDate = parseDateOrNull(since);
+    const untilDate = parseDateOrNull(until);
+
+    return this.transactionsService.list(session.organizationId, {
+      limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+      offset: Number.isFinite(parsedOffset)
+        ? (parsedOffset as number)
+        : undefined,
+      since: sinceDate,
+      until: untilDate,
+    });
+  }
+}
+
+function parseDateOrNull(raw?: string): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
