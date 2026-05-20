@@ -288,65 +288,6 @@ export class ShopifyConnector {
   }
 
   /**
-   * Fetch shop-level metadata used by the Phase 5 auto-provision flow.
-   * Returns null fields rather than throwing — provisioning must still
-   * complete even when Shopify rejects the query (rate-limited, scope
-   * mismatch, etc.).
-   */
-  async getShopInfo(
-    config: ShopifyConfig,
-  ): Promise<{
-    name: string | null;
-    email: string | null;
-    contactEmail: string | null;
-    primaryDomain: string | null;
-    country: string | null;
-  }> {
-    try {
-      const result = await this.graphql<{
-        shop?: {
-          name?: string | null;
-          email?: string | null;
-          contactEmail?: string | null;
-          primaryDomain?: { host?: string | null } | null;
-          billingAddress?: { countryCodeV2?: string | null } | null;
-        } | null;
-      }>(
-        config,
-        `query ShopInfo {
-          shop {
-            name
-            email
-            contactEmail
-            primaryDomain { host }
-            billingAddress { countryCodeV2 }
-          }
-        }`,
-      );
-
-      const shop = result.shop ?? {};
-      return {
-        name: shop.name?.trim() || null,
-        email: shop.email?.trim() || null,
-        contactEmail: shop.contactEmail?.trim() || null,
-        primaryDomain: shop.primaryDomain?.host?.trim() || null,
-        country: shop.billingAddress?.countryCodeV2?.trim().toUpperCase() || null,
-      };
-    } catch (err: any) {
-      this.logger.warn(
-        `getShopInfo failed for ${config.shopUrl}: ${err?.message ?? err}`,
-      );
-      return {
-        name: null,
-        email: null,
-        contactEmail: null,
-        primaryDomain: null,
-        country: null,
-      };
-    }
-  }
-
-  /**
    * Read the harmonized_system_code for a single variant, returning null
    * if Shopify has none. Used by the order-webhook writeback worker —
    * Shopify's orders/create webhook payload carries variant_id but not
