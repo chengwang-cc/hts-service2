@@ -13,6 +13,15 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '../../auth/decorators/public.decorator';
 import { ConnectorService } from '../services/connector.service';
 import { ShopifyConnector } from '../services/shopify.connector';
+import { QueueService } from '../../queue/queue.service';
+
+/**
+ * pg-boss queue + payload shape for the Shopify orders/create handler.
+ * Duplicated here to avoid a cross-module import on the shopify-app
+ * package (which already depends on connectors). The single source of
+ * truth lives in `shopify-app/services/shopify-order-writeback.service.ts`.
+ */
+const SHOPIFY_ORDER_WRITEBACK_QUEUE = 'shopify-order-writeback';
 
 @Public()
 @Controller('webhooks')
@@ -22,6 +31,7 @@ export class WebhooksController {
   constructor(
     private readonly connectorService: ConnectorService,
     private readonly shopifyConnector: ShopifyConnector,
+    private readonly queueService: QueueService,
   ) {}
 
   @Post('shopify')
@@ -118,6 +128,37 @@ export class WebhooksController {
             `Webhook sync failed for connector ${connector.id}: ${error.message}`,
           );
         }
+      }
+    }
+
+    // Handle orders/create — enqueue duty/tax write-back. The worker
+    // (ShopifyOrderWritebackService) does the actual classification +
+    // metafield write; we return 200 immediately so Shopify doesn't retry
+    // on slow calc paths.
+    if (normalizedTopic.includes('orders/create')) {
+      try {
+        await this.queueService.sendJob(
+          SHOPIFY_ORDER_WRITEBACK_QUEUE,
+          {
+            shopDomain,
+            organizationId: connector.organizationId,
+            connectorId: connector.id,
+            order: req.body,
+          },
+          {
+            retryLimit: 3,
+            retryDelay: 60,
+            retryBackoff: true,
+            expireInSeconds: 3600,
+          },
+        );
+      } catch (err: any) {
+        // Failing to enqueue should NOT 5xx the webhook (Shopify retries).
+        // Log and continue — the order is lost for now, but we'd rather
+        // miss one calc than thrash on retries.
+        this.logger.error(
+          `Failed to enqueue orders/create job for ${shopDomain}: ${err?.message ?? err}`,
+        );
       }
     }
 

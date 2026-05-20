@@ -287,6 +287,90 @@ export class ShopifyConnector {
     }
   }
 
+  /**
+   * Read the harmonized_system_code for a single variant, returning null
+   * if Shopify has none. Used by the order-webhook writeback worker —
+   * Shopify's orders/create webhook payload carries variant_id but not
+   * the inventory-item HS code, so we have to query it back.
+   */
+  async getVariantHsCode(
+    config: ShopifyConfig,
+    variantId: string,
+  ): Promise<string | null> {
+    const variantGid = normalizeVariantGid(variantId);
+
+    const result = await this.graphql<{
+      productVariant?: {
+        inventoryItem?: {
+          harmonizedSystemCode?: string | null;
+          countryCodeOfOrigin?: string | null;
+        } | null;
+      } | null;
+    }>(
+      config,
+      `query VariantHsCode($id: ID!) {
+        productVariant(id: $id) {
+          inventoryItem {
+            harmonizedSystemCode
+            countryCodeOfOrigin
+          }
+        }
+      }`,
+      { id: variantGid },
+    );
+
+    const code = result.productVariant?.inventoryItem?.harmonizedSystemCode;
+    return code?.trim() ? code.trim() : null;
+  }
+
+  /**
+   * Upsert a single metafield on a Shopify order (or any owner resource
+   * — we just pass the order's GID as ownerId). Idempotent: Shopify's
+   * metafieldsSet mutation overwrites the value when (ownerId, namespace,
+   * key) already exists.
+   */
+  async setOrderMetafield(
+    config: ShopifyConfig,
+    orderId: string | number,
+    namespace: string,
+    key: string,
+    valueJson: unknown,
+    type: string = 'json',
+  ): Promise<void> {
+    const ownerId = normalizeOrderGid(orderId);
+    const value =
+      typeof valueJson === 'string' ? valueJson : JSON.stringify(valueJson);
+
+    const result = await this.graphql<{
+      metafieldsSet?: {
+        userErrors?: Array<{ field?: string[]; message?: string }>;
+      };
+    }>(
+      config,
+      `mutation SetOrderMetafield($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields { id namespace key }
+          userErrors { field message }
+        }
+      }`,
+      {
+        metafields: [
+          { ownerId, namespace, key, type, value },
+        ],
+      },
+    );
+
+    const errors = result.metafieldsSet?.userErrors ?? [];
+    if (errors.length > 0) {
+      throw new HttpException(
+        `Shopify metafieldsSet failed: ${errors
+          .map((e) => `${(e.field ?? []).join('.')}: ${e.message ?? 'unknown'}`)
+          .join('; ')}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
   async batchUpdateProducts(
     config: ShopifyConfig,
     updates: Array<{
@@ -439,5 +523,12 @@ function normalizeVariantGid(id: string): string {
   const raw = id.trim();
   if (raw.startsWith('gid://')) return raw;
   if (/^\d+$/.test(raw)) return `gid://shopify/ProductVariant/${raw}`;
+  return raw;
+}
+
+function normalizeOrderGid(id: string | number): string {
+  const raw = String(id).trim();
+  if (raw.startsWith('gid://')) return raw;
+  if (/^\d+$/.test(raw)) return `gid://shopify/Order/${raw}`;
   return raw;
 }

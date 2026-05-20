@@ -11,11 +11,13 @@ import {
 import { ConnectorsController } from './controllers/connectors.controller';
 import { WebhooksController } from './controllers/webhooks.controller';
 import { LookupModule } from '../lookup/lookup.module';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ConnectorEntity, SyncLogEntity]),
     LookupModule,
+    QueueModule,
   ],
   controllers: [ConnectorsController, WebhooksController],
   providers: [ConnectorService, ShopifyConnector, BrokerConnector],
