@@ -490,6 +490,14 @@ export class AuthService {
     usedSyntheticEmail: boolean;
   }> {
     const shopDomain = params.shopDomain.trim().toLowerCase();
+    // Defense in depth: shopDomain comes from the trusted ShopifySession,
+    // but reject anything that doesn't look like a Shopify shop hostname
+    // before we use it to build a synthetic email + org name.
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shopDomain)) {
+      throw new ConflictException(
+        `Refusing to provision: "${shopDomain}" is not a valid Shopify shop domain`,
+      );
+    }
     const syntheticEmail = `shop-${shopDomain.replace(/[^a-z0-9.-]/g, '-')}@shopify-merchant.local`;
     const candidateEmail = (params.shopEmail || '').trim().toLowerCase();
 
