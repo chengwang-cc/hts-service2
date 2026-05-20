@@ -35,7 +35,16 @@ interface CheckoutEstimateResult {
   totalLandedCost: Money;
   assumptions?: string[];
   warnings?: string[];
+  /**
+   * @deprecated Use `displayAtCheckout` (true/false) instead. Kept for one
+   * release for older checkout extension builds.
+   */
   dutyDisplayMode?: string;
+  /** Whether the buyer-facing extension should render this result. */
+  displayAtCheckout?: boolean;
+  /** True when calculation was disabled for the shop and no calc ran. */
+  skipped?: boolean;
+  reason?: 'calculation_disabled';
 }
 
 @SkipJwtAuth()
@@ -98,6 +107,24 @@ export class WidgetApiController {
 
     this.logger.log(`[widget/calculate] input: ${JSON.stringify(input)}`);
     this.logger.log(`[widget/calculate] hasShopifySession: ${!!shopifySession}, shop: ${shopifySession?.shop ?? 'none'}`);
+
+    // Short-circuit when the merchant has disabled duty calculation for
+    // this shop. No billable work happens and the response carries enough
+    // context for the checkout extension to render nothing.
+    if (shopifySession && shopifySession.calculateDuty === false) {
+      const zero: Money = { amount: 0, currency };
+      return {
+        calculationId: `SKIPPED-${Date.now()}`,
+        duties: zero,
+        taxes: zero,
+        fees: zero,
+        totalLandedCost: { amount: 0, currency },
+        skipped: true,
+        reason: 'calculation_disabled',
+        displayAtCheckout: false,
+        dutyDisplayMode: 'disabled',
+      };
+    }
 
     let totalDuties = 0;
     let totalTaxes = 0;
@@ -192,6 +219,14 @@ export class WidgetApiController {
     const totalLandedCost =
       totalDeclaredValue + totalDuties + totalTaxes + totalFees;
 
+    // displayAtCheckout is true only when the merchant has both flags on.
+    // If the shop opted out of buyer-facing display we still ran the
+    // calculation (we'll need it for reporting / billing) but tell the
+    // extension not to render.
+    const calculateDuty = shopifySession?.calculateDuty ?? true;
+    const displayAtCheckout =
+      calculateDuty && (shopifySession?.displayAtCheckout ?? true);
+
     return {
       calculationId,
       duties: { amount: round2(totalDuties), currency },
@@ -199,7 +234,10 @@ export class WidgetApiController {
       fees: { amount: round2(totalFees), currency },
       totalLandedCost: { amount: round2(totalLandedCost), currency },
       warnings: warnings.length > 0 ? warnings : undefined,
-      dutyDisplayMode: shopifySession?.dutyDisplayMode || 'ddu',
+      displayAtCheckout,
+      dutyDisplayMode: !calculateDuty
+        ? 'disabled'
+        : shopifySession?.dutyDisplayMode || 'ddu',
     };
   }
 

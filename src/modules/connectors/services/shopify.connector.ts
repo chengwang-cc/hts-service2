@@ -6,7 +6,12 @@ export interface ShopifyProduct {
   description: string;
   variants: Array<{
     id: string;
-    sku: string;
+    /**
+     * Merchant-supplied SKU. May be missing — stores in development or
+     * small shops often skip SKUs. Never use as a primary identifier;
+     * always key off `id` for our internal records.
+     */
+    sku: string | null;
     inventoryItemId?: string;
     harmonizedSystemCode?: string;
     countryCodeOfOrigin?: string;
@@ -117,12 +122,10 @@ export class ShopifyConnector {
 
         const variants = (node.variants?.edges ?? [])
           .map((ve) => ve.node)
-          .filter(
-            (v): v is NonNullable<typeof v> => !!v?.id && !!v.sku?.trim(),
-          )
+          .filter((v): v is NonNullable<typeof v> => !!v?.id)
           .map((v) => ({
             id: v.id!,
-            sku: v.sku!.trim(),
+            sku: v.sku?.trim() ? v.sku.trim() : null,
             inventoryItemId: v.inventoryItem?.id,
             harmonizedSystemCode: v.inventoryItem?.harmonizedSystemCode,
             countryCodeOfOrigin: v.inventoryItem?.countryCodeOfOrigin,
@@ -208,7 +211,7 @@ export class ShopifyConnector {
         .filter((v): v is NonNullable<typeof v> => !!v?.id)
         .map((v) => ({
           id: v.id!,
-          sku: v.sku?.trim() ?? '',
+          sku: v.sku?.trim() ? v.sku.trim() : null,
           inventoryItemId: v.inventoryItem?.id,
           harmonizedSystemCode: v.inventoryItem?.harmonizedSystemCode,
           countryCodeOfOrigin: v.inventoryItem?.countryCodeOfOrigin,

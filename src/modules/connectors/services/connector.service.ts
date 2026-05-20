@@ -238,20 +238,39 @@ export class ConnectorService {
 
       const errors: Array<{ itemId?: string; error: string }> = [];
 
+      let variantsWithoutSku = 0;
       for (const product of products) {
         for (const variant of product.variants) {
           syncLog.itemsProcessed++;
 
-          if (!variant.sku) continue;
+          // Stable identifier the merchant sees + we record on. SKU is
+          // informational only — small stores often don't set it.
+          const variantLabel = variant.sku ?? `variant ${variant.id}`;
+          if (!variant.sku) variantsWithoutSku++;
+
+          // Need at least *some* text to classify. Bail early if the
+          // product has no title AND no description.
+          const searchQuery = [product.title, product.description]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (!searchQuery) {
+            this.logger.warn(
+              `Skipping ${variantLabel} (product ${product.id}): no title/description to classify`,
+            );
+            syncLog.itemsFailed++;
+            errors.push({
+              itemId: variantLabel,
+              error: 'No product title or description to classify',
+            });
+            continue;
+          }
 
           try {
             // Classify the product using search service
             let htsNumber: string | undefined;
 
             if (this.searchService) {
-              const searchQuery = [product.title, product.description]
-                .filter(Boolean)
-                .join(' ');
               const results = await this.searchService.hybridSearch(
                 searchQuery,
                 3,
@@ -275,11 +294,11 @@ export class ConnectorService {
 
             if (!htsNumber) {
               this.logger.warn(
-                `No HTS classification found for SKU ${variant.sku} (${product.title})`,
+                `No HTS classification found for ${variantLabel} (${product.title})`,
               );
               syncLog.itemsFailed++;
               errors.push({
-                itemId: variant.sku,
+                itemId: variantLabel,
                 error: 'No HTS classification found',
               });
               continue;
@@ -303,15 +322,12 @@ export class ConnectorService {
                 sourceUrl: config.shopUrl
                   ? `https://${config.shopUrl}/admin/products/${product.id}`
                   : null,
-                productDescription: [product.title, product.description]
-                  .filter(Boolean)
-                  .join(' — ')
-                  .slice(0, 512),
+                productDescription: searchQuery.slice(0, 512),
                 htsCode: htsNumber,
               });
             } catch (historyError: any) {
               this.logger.warn(
-                `Failed to record Shopify classification history for SKU ${variant.sku}: ${historyError?.message ?? historyError}`,
+                `Failed to record Shopify classification history for ${variantLabel}: ${historyError?.message ?? historyError}`,
               );
             }
 
@@ -319,11 +335,11 @@ export class ConnectorService {
           } catch (error: any) {
             syncLog.itemsFailed++;
             errors.push({
-              itemId: variant.sku,
+              itemId: variantLabel,
               error: error.message,
             });
             this.logger.warn(
-              `Failed to classify/update SKU ${variant.sku}: ${error.message}`,
+              `Failed to classify/update ${variantLabel}: ${error.message}`,
             );
           }
         }
@@ -338,6 +354,7 @@ export class ConnectorService {
         ),
         classified: syncLog.itemsSucceeded,
         failed: syncLog.itemsFailed,
+        classifiedWithoutSku: variantsWithoutSku,
       };
     }
   }
@@ -363,11 +380,15 @@ export class ConnectorService {
     try {
       const product = await this.shopifyConnector.getProduct(config, productId);
       for (const variant of product.variants) {
-        if (!variant.sku) continue;
+        const variantLabel = variant.sku ?? `variant ${variant.id}`;
+        const query = [product.title, product.description].filter(Boolean).join(' ').trim();
+        if (!query) {
+          this.logger.warn(`Webhook sync: skipping ${variantLabel} — no title/description to classify`);
+          continue;
+        }
 
         let htsNumber: string | undefined;
         if (this.searchService) {
-          const query = [product.title, product.description].filter(Boolean).join(' ');
           try {
             // Try hybrid search first (semantic + lexical)
             const results = await this.searchService.hybridSearch(query, 3);
@@ -375,7 +396,7 @@ export class ConnectorService {
               htsNumber = results[0].htsNumber;
             }
           } catch (searchError: any) {
-            this.logger.warn(`Webhook sync: hybrid search failed for SKU ${variant.sku}: ${searchError.message}`);
+            this.logger.warn(`Webhook sync: hybrid search failed for ${variantLabel}: ${searchError.message}`);
           }
 
           // Fallback to autocomplete if hybrid search found nothing
@@ -384,12 +405,12 @@ export class ConnectorService {
               const autoResults = await this.searchService.autocomplete(product.title, 3);
               if (autoResults.length > 0 && autoResults[0].htsNumber) {
                 htsNumber = autoResults[0].htsNumber;
-                this.logger.log(`Webhook sync: fallback autocomplete matched SKU ${variant.sku} → ${htsNumber}`);
+                this.logger.log(`Webhook sync: fallback autocomplete matched ${variantLabel} → ${htsNumber}`);
               } else {
-                this.logger.warn(`Webhook sync: no classification for SKU ${variant.sku} (title: "${product.title.substring(0, 60)}")`);
+                this.logger.warn(`Webhook sync: no classification for ${variantLabel} (title: "${product.title.substring(0, 60)}")`);
               }
             } catch {
-              this.logger.warn(`Webhook sync: autocomplete also failed for SKU ${variant.sku}`);
+              this.logger.warn(`Webhook sync: autocomplete also failed for ${variantLabel}`);
             }
           }
         }
@@ -401,7 +422,7 @@ export class ConnectorService {
             htsNumber,
             variant.countryCodeOfOrigin,
           );
-          this.logger.log(`Webhook sync: classified SKU ${variant.sku} → ${htsNumber}`);
+          this.logger.log(`Webhook sync: classified ${variantLabel} → ${htsNumber}`);
         }
       }
     } catch (error: any) {

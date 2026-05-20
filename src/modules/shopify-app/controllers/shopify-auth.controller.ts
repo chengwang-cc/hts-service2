@@ -505,13 +505,16 @@ async function loadSettings() {
 
   try {
     const data = await apiFetch('/settings');
-    renderSettings(data.dutyDisplayMode || 'ddu');
+    renderSettings({
+      calculateDuty: data.calculateDuty !== false,
+      displayAtCheckout: data.displayAtCheckout !== false,
+    });
   } catch (e) {
     document.getElementById('content').innerHTML += '<div class="card"><div class="empty">Failed to load settings: ' + esc(e.message) + '</div></div>';
   }
 }
 
-function renderSettings(currentMode) {
+function renderSettings(current) {
   let html = '<div class="tab-bar">';
   html += '<button class="tab" data-tab="overview" onclick="switchTab(&#39;overview&#39;)">Overview</button>';
   html += '<button class="tab" data-tab="products" onclick="switchTab(&#39;products&#39;)">Products</button>';
@@ -519,39 +522,57 @@ function renderSettings(currentMode) {
   html += '<button class="tab tab--active" data-tab="settings" onclick="switchTab(&#39;settings&#39;)">Settings</button>';
   html += '</div>';
 
-  html += '<div class="card"><h2>Checkout Display Mode</h2>';
-  html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">Choose how import duties are presented to international shoppers at checkout.</p>';
+  html += '<div class="card"><h2>Duty &amp; tax calculation</h2>';
+  html += '<p style="color:#6d7175;font-size:14px;margin-bottom:16px;">Control whether HTS Classify runs duty/tax calculations on this store\\'s orders, and whether the result is shown to buyers at checkout.</p>';
 
-  const modes = [
-    { value: 'ddu', title: 'Estimate only (DDU)', desc: 'Show duty estimate as info. Buyer pays carrier on delivery. <strong>Recommended for most stores.</strong>' },
-    { value: 'ddp', title: 'Pre-paid duties (DDP)', desc: 'Tells buyers that you (the merchant) handle US customs payment. <strong>Note:</strong> You must price products / shipping to include duty cost, OR enable Shopify\\'s native duty system in Settings &rarr; Markets &rarr; Duties. This setting only controls the messaging — it does not add duties to the cart total.' },
-    { value: 'disabled', title: 'Disabled', desc: 'Hide the duty estimate banner from checkout entirely.' },
-  ];
+  const calcChecked = current.calculateDuty ? 'checked' : '';
+  const displayChecked = current.displayAtCheckout ? 'checked' : '';
+  const displayDisabled = current.calculateDuty ? '' : 'disabled';
 
-  modes.forEach(function(m) {
-    const checked = currentMode === m.value ? 'checked' : '';
-    const activeStyle = currentMode === m.value ? 'border-color:#008060;background:#f1f8f5;' : '';
-    html += '<label style="display:flex;gap:12px;padding:14px;border:1px solid #c9cccf;border-radius:8px;margin-bottom:10px;cursor:pointer;' + activeStyle + '">';
-    html += '<input type="radio" name="dutyMode" value="' + m.value + '" ' + checked + ' onchange="saveSettings(this.value)" style="margin-top:2px;">';
-    html += '<div><div style="font-weight:600;margin-bottom:4px;">' + m.title + '</div>';
-    html += '<div style="font-size:13px;color:#6d7175;">' + m.desc + '</div></div>';
-    html += '</label>';
-  });
+  html += '<label style="display:flex;gap:12px;padding:14px;border:1px solid #c9cccf;border-radius:8px;margin-bottom:10px;cursor:pointer;">';
+  html += '<input type="checkbox" id="calcChk" ' + calcChecked + ' onchange="onSettingsChanged()" style="margin-top:2px;">';
+  html += '<div><div style="font-weight:600;margin-bottom:4px;">Calculate duty &amp; tax</div>';
+  html += '<div style="font-size:13px;color:#6d7175;">When enabled, HTS Classify will compute estimated US import duties and taxes for each order on this store. Each calculation is a billable API call.</div></div>';
+  html += '</label>';
+
+  html += '<label style="display:flex;gap:12px;padding:14px;border:1px solid #c9cccf;border-radius:8px;margin-bottom:10px;cursor:' + (displayDisabled ? 'not-allowed' : 'pointer') + ';' + (displayDisabled ? 'opacity:0.55;' : '') + '">';
+  html += '<input type="checkbox" id="displayChk" ' + displayChecked + ' ' + displayDisabled + ' onchange="onSettingsChanged()" style="margin-top:2px;">';
+  html += '<div><div style="font-weight:600;margin-bottom:4px;">Display duty &amp; tax at checkout</div>';
+  html += '<div style="font-size:13px;color:#6d7175;">When enabled, buyers see the calculated duty / tax estimate in the checkout banner. Requires the calculation checkbox above to be on.</div></div>';
+  html += '</label>';
 
   html += '<div id="settingsAlert" style="margin-top:12px;"></div></div>';
   document.getElementById('content').innerHTML = html;
 }
 
-async function saveSettings(mode) {
+function onSettingsChanged() {
+  const calculateDuty = document.getElementById('calcChk').checked;
+  const displayEl = document.getElementById('displayChk');
+  // Force display off when calc is off; disable the input visually too.
+  if (!calculateDuty) {
+    displayEl.checked = false;
+    displayEl.disabled = true;
+  } else {
+    displayEl.disabled = false;
+  }
+  saveSettings(calculateDuty, displayEl.checked);
+}
+
+async function saveSettings(calculateDuty, displayAtCheckout) {
   const alertEl = document.getElementById('settingsAlert');
   alertEl.innerHTML = '<div class="alert alert--info">Saving...</div>';
   try {
-    await apiFetch('/settings', {
-      method: 'POST',
-      body: JSON.stringify({ dutyDisplayMode: mode }),
+    const updated = await apiFetch('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ calculateDuty: calculateDuty, displayAtCheckout: displayAtCheckout }),
     });
     alertEl.innerHTML = '<div class="alert alert--success">Settings saved.</div>';
-    setTimeout(function() { renderSettings(mode); }, 800);
+    setTimeout(function() {
+      renderSettings({
+        calculateDuty: updated.calculateDuty !== false,
+        displayAtCheckout: updated.displayAtCheckout !== false,
+      });
+    }, 600);
   } catch (e) {
     alertEl.innerHTML = '<div class="alert alert--error">Failed to save: ' + esc(e.message) + '</div>';
   }

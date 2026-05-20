@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Patch,
   Post,
   Body,
   Req,
@@ -21,6 +22,27 @@ import { ApiKeyService } from '../../api-keys/services/api-key.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
+
+interface ShopifySettingsPayload {
+  calculateDuty: boolean;
+  displayAtCheckout: boolean;
+  /**
+   * @deprecated Kept in responses for one release to keep older checkout
+   * extension builds compatible during rollout. Derived from the booleans.
+   */
+  dutyDisplayMode: DutyDisplayMode;
+}
+
+function serializeSettings(session: ShopifySessionEntity): ShopifySettingsPayload {
+  // Defensive coalesce: rows that pre-date the bool-flags migration may
+  // briefly have undefined values during a rollback window.
+  const calculateDuty = session.calculateDuty ?? true;
+  const displayAtCheckout = (session.displayAtCheckout ?? true) && calculateDuty;
+  const dutyDisplayMode: DutyDisplayMode = !calculateDuty
+    ? 'disabled'
+    : ((session.dutyDisplayMode as DutyDisplayMode) || 'ddu');
+  return { calculateDuty, displayAtCheckout, dutyDisplayMode };
+}
 
 @SkipJwtAuth()
 @Controller('shopify/api')
@@ -147,43 +169,75 @@ export class ShopifyAdminController {
 
   /**
    * GET /shopify/api/settings
-   * Get merchant settings for this shop.
+   * Returns the two boolean flags plus a `dutyDisplayMode` compatibility
+   * field derived from them (will be removed once the checkout extension
+   * fully migrates).
    */
   @Get('settings')
-  async getSettings(@Req() req: any) {
+  async getSettings(@Req() req: any): Promise<ShopifySettingsPayload> {
     const session: ShopifySessionEntity = req.shopifySession;
-    return {
-      dutyDisplayMode: session.dutyDisplayMode || 'ddu',
-    };
+    return serializeSettings(session);
   }
 
   /**
-   * POST /shopify/api/settings
    * Update merchant settings for this shop.
+   * PATCH is the canonical method; POST is kept as an alias for one
+   * release so older embedded-app builds keep working.
+   *
+   * Accepted fields:
+   *   - calculateDuty: boolean
+   *   - displayAtCheckout: boolean (forced to false if calculateDuty is false)
+   *   - dutyDisplayMode: string (DEPRECATED — accepted for one release;
+   *     internally mapped to the new booleans)
    */
+  @Patch('settings')
   @Post('settings')
   async updateSettings(
     @Req() req: any,
-    @Body() body: { dutyDisplayMode?: string },
-  ) {
+    @Body()
+    body: {
+      calculateDuty?: boolean;
+      displayAtCheckout?: boolean;
+      dutyDisplayMode?: string;
+    },
+  ): Promise<ShopifySettingsPayload> {
     const session: ShopifySessionEntity = req.shopifySession;
 
-    if (body.dutyDisplayMode && !VALID_DUTY_MODES.includes(body.dutyDisplayMode as DutyDisplayMode)) {
-      throw new HttpException(
-        `Invalid dutyDisplayMode. Must be one of: ${VALID_DUTY_MODES.join(', ')}`,
-        HttpStatus.BAD_REQUEST,
-      );
+    // Legacy path: translate dutyDisplayMode → booleans for old clients.
+    if (body.dutyDisplayMode !== undefined) {
+      if (!VALID_DUTY_MODES.includes(body.dutyDisplayMode as DutyDisplayMode)) {
+        throw new HttpException(
+          `Invalid dutyDisplayMode. Must be one of: ${VALID_DUTY_MODES.join(', ')}`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const mode = body.dutyDisplayMode as DutyDisplayMode;
+      session.dutyDisplayMode = mode;
+      session.calculateDuty = mode !== 'disabled';
+      session.displayAtCheckout = mode !== 'disabled';
     }
 
-    if (body.dutyDisplayMode) {
-      session.dutyDisplayMode = body.dutyDisplayMode;
-      await this.sessionRepository.save(session);
-      this.logger.log(`Settings updated for ${session.shop}: dutyDisplayMode=${body.dutyDisplayMode}`);
+    if (typeof body.calculateDuty === 'boolean') {
+      session.calculateDuty = body.calculateDuty;
+    }
+    if (typeof body.displayAtCheckout === 'boolean') {
+      session.displayAtCheckout = body.displayAtCheckout;
     }
 
-    return {
-      dutyDisplayMode: session.dutyDisplayMode,
-    };
+    // Invariant: cannot display what we haven't calculated.
+    if (!session.calculateDuty) {
+      session.displayAtCheckout = false;
+    }
+
+    // Keep the deprecated column in sync so a rollback window stays safe.
+    session.dutyDisplayMode = !session.calculateDuty ? 'disabled' : 'ddu';
+
+    await this.sessionRepository.save(session);
+    this.logger.log(
+      `Settings updated for ${session.shop}: calculateDuty=${session.calculateDuty} displayAtCheckout=${session.displayAtCheckout}`,
+    );
+
+    return serializeSettings(session);
   }
 
   /**
