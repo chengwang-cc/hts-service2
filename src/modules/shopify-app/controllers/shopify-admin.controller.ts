@@ -365,7 +365,7 @@ export class ShopifyAdminController {
       .from('users', 'u')
       .where('u.organization_id = :orgId', { orgId: session.organizationId })
       .andWhere('u.is_active = true')
-      .orderBy('u.created_at', 'DESC')
+      .orderBy('u.created_at', 'ASC')
       .limit(1)
       .getRawOne<{ id: string }>();
 
