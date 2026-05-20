@@ -19,6 +19,8 @@ import { SubscriptionService } from '../services/subscription.service';
 import { UsageTrackingService } from '../services/usage-tracking.service';
 import { EntitlementService } from '../services/entitlement.service';
 import { StripeService } from '../services/stripe.service';
+import { CreditPurchaseService } from '../services/credit-purchase.service';
+import { BillingChargeService } from '../services/billing-charge.service';
 import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -34,8 +36,38 @@ export class BillingController {
     private readonly usageService: UsageTrackingService,
     private readonly entitlementService: EntitlementService,
     private readonly stripeService: StripeService,
+    private readonly creditPurchaseService: CreditPurchaseService,
+    private readonly billingChargeService: BillingChargeService,
     @Inject('STRIPE_WEBHOOK_SECRET') private readonly webhookSecret: string,
   ) {}
+
+  /**
+   * Get credit balance + pricing summary for the caller's organization.
+   * Used by the website dashboard widget + the Shopify embedded admin
+   * Overview tab.
+   *
+   * Returns:
+   *   balance, lifetimePurchased, lifetimeUsed, lastUsedAt, lastPurchaseAt,
+   *   pricing.perCallCredits, pricing.perCreditCents,
+   *   billingEnabled (false = shadow mode, true = real deductions)
+   */
+  @Get('credits')
+  async getCreditSummary(@CurrentUser() user: any) {
+    const orgId = user.organizationId;
+    const row = await this.creditPurchaseService.getBalanceRow(orgId);
+    return {
+      balance: row?.balance ?? 0,
+      lifetimePurchased: row?.lifetimePurchased ?? 0,
+      lifetimeUsed: row?.lifetimeUsed ?? 0,
+      lastUsedAt: row?.lastUsedAt ?? null,
+      lastPurchaseAt: row?.lastPurchaseAt ?? null,
+      pricing: {
+        perCallCredits: this.billingChargeService.perCallCredits(),
+        perCreditCents: this.billingChargeService.perCreditCents(),
+      },
+      billingEnabled: this.billingChargeService.isBillingEnabled(),
+    };
+  }
 
   /**
    * Get current subscription

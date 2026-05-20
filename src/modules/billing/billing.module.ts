@@ -15,6 +15,7 @@ import { StripeService } from './services/stripe.service';
 import { SubscriptionService } from './services/subscription.service';
 import { UsageTrackingService } from './services/usage-tracking.service';
 import { CreditPurchaseService } from './services/credit-purchase.service';
+import { BillingChargeService } from './services/billing-charge.service';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { CreditPurchaseService } from './services/credit-purchase.service';
     SubscriptionService,
     UsageTrackingService,
     CreditPurchaseService,
+    BillingChargeService,
   ],
   controllers: [BillingController, CreditController, SubscriptionController],
   exports: [
@@ -51,6 +53,7 @@ import { CreditPurchaseService } from './services/credit-purchase.service';
     SubscriptionService,
     UsageTrackingService,
     CreditPurchaseService,
+    BillingChargeService,
   ],
 })
 export class BillingModule {}

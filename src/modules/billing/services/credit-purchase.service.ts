@@ -259,26 +259,75 @@ export class CreditPurchaseService {
   }
 
   /**
-   * Deduct credits from balance (used when API is called with credit mode)
+   * Deduct credits atomically.
+   *
+   * Implemented as a single conditional UPDATE so concurrent callers can't
+   * over-deduct. Returns the post-deduction balance when successful, or
+   * `null` when the org doesn't have enough credits (or no row at all).
+   *
+   * Use this for any per-call metered billing. Webhook retries and
+   * parallel webhook deliveries land here, so atomicity is mandatory.
    */
   async deductCredits(
     organizationId: string,
     amount: number = 1,
-  ): Promise<boolean> {
-    const balance = await this.creditBalanceRepo.findOne({
-      where: { organizationId },
-    });
-
-    if (!balance || balance.balance < amount) {
-      return false; // Insufficient credits
+  ): Promise<{ balance: number; lifetimeUsed: number } | null> {
+    if (amount <= 0) {
+      throw new BadRequestException('deductCredits amount must be positive');
     }
 
-    balance.balance -= amount;
-    balance.lifetimeUsed += amount;
-    balance.lastUsedAt = new Date();
+    const result = await this.creditBalanceRepo
+      .createQueryBuilder()
+      .update(CreditBalanceEntity)
+      .set({
+        balance: () => `balance - ${Number(amount)}`,
+        lifetimeUsed: () => `lifetime_used + ${Number(amount)}`,
+        lastUsedAt: () => 'NOW()',
+        updatedAt: () => 'NOW()',
+      })
+      .where('organization_id = :orgId', { orgId: organizationId })
+      .andWhere('balance >= :amount', { amount })
+      .returning(['balance', 'lifetime_used'])
+      .execute();
 
-    await this.creditBalanceRepo.save(balance);
+    const raw = (result.raw as Array<{ balance: number; lifetime_used: number }>) ?? [];
+    if (raw.length === 0) return null;
+    return {
+      balance: Number(raw[0].balance),
+      lifetimeUsed: Number(raw[0].lifetime_used),
+    };
+  }
 
-    return true;
+  /**
+   * Ensure a credit_balances row exists for the org. Used by:
+   *   - signup flow (initial bonus credits)
+   *   - shadow-mode charge path (so the merchant has a balance to look at)
+   *
+   * Idempotent. Returns the row (existing or newly created).
+   */
+  async ensureBalanceRow(
+    organizationId: string,
+    initialCredits: number = 0,
+  ): Promise<CreditBalanceEntity> {
+    const existing = await this.creditBalanceRepo.findOne({
+      where: { organizationId },
+    });
+    if (existing) return existing;
+
+    const row = this.creditBalanceRepo.create({
+      organizationId,
+      balance: initialCredits,
+      lifetimePurchased: initialCredits,
+      lifetimeUsed: 0,
+      lastPurchaseAt: initialCredits > 0 ? new Date() : null,
+    });
+    return this.creditBalanceRepo.save(row);
+  }
+
+  /** Read-only convenience: full balance row or null. */
+  async getBalanceRow(
+    organizationId: string,
+  ): Promise<CreditBalanceEntity | null> {
+    return this.creditBalanceRepo.findOne({ where: { organizationId } });
   }
 }

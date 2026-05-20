@@ -21,6 +21,8 @@ import { ShopifyConnector } from '../../connectors/services/shopify.connector';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { ApiKeyService } from '../../api-keys/services/api-key.service';
 import { ShopifyOrderTransactionsService } from '../services/shopify-order-transactions.service';
+import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
+import { BillingChargeService } from '../../billing/services/billing-charge.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
@@ -57,6 +59,8 @@ export class ShopifyAdminController {
     private readonly shopifyConnector: ShopifyConnector,
     private readonly apiKeyService: ApiKeyService,
     private readonly transactionsService: ShopifyOrderTransactionsService,
+    private readonly creditPurchaseService: CreditPurchaseService,
+    private readonly billingChargeService: BillingChargeService,
     @InjectRepository(ShopifySessionEntity)
     private readonly sessionRepository: Repository<ShopifySessionEntity>,
     @InjectRepository(OrganizationEntity)
@@ -395,6 +399,47 @@ export class ShopifyAdminController {
       since: sinceDate,
       until: untilDate,
     });
+  }
+
+  /**
+   * GET /shopify/api/credits
+   * Credit balance + pricing for the embedded admin Overview tab.
+   * Mirrors the website's /billing/credits but scoped via Shopify session.
+   */
+  @Get('credits')
+  async getCredits(@Req() req: any) {
+    const session: ShopifySessionEntity = req.shopifySession;
+    if (!session.organizationId) {
+      return {
+        balance: 0,
+        lifetimePurchased: 0,
+        lifetimeUsed: 0,
+        lastUsedAt: null,
+        lastPurchaseAt: null,
+        pricing: {
+          perCallCredits: this.billingChargeService.perCallCredits(),
+          perCreditCents: this.billingChargeService.perCreditCents(),
+        },
+        billingEnabled: this.billingChargeService.isBillingEnabled(),
+        requiresSetup: true,
+      };
+    }
+    const row = await this.creditPurchaseService.getBalanceRow(
+      session.organizationId,
+    );
+    return {
+      balance: row?.balance ?? 0,
+      lifetimePurchased: row?.lifetimePurchased ?? 0,
+      lifetimeUsed: row?.lifetimeUsed ?? 0,
+      lastUsedAt: row?.lastUsedAt ?? null,
+      lastPurchaseAt: row?.lastPurchaseAt ?? null,
+      pricing: {
+        perCallCredits: this.billingChargeService.perCallCredits(),
+        perCreditCents: this.billingChargeService.perCreditCents(),
+      },
+      billingEnabled: this.billingChargeService.isBillingEnabled(),
+      requiresSetup: false,
+    };
   }
 }
 

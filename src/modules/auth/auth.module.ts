@@ -12,6 +12,7 @@ import { GoogleAuthCallbackGuard } from './guards/google-auth-callback.guard';
 import { RegisterRateLimitGuard } from './guards/register-rate-limit.guard';
 import { AuthController } from './controllers/auth.controller';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
+import { BillingModule } from '../billing/billing.module';
 
 const userTypeOrmModule = TypeOrmModule.forFeature([
   UserEntity,
@@ -28,6 +29,7 @@ const userTypeOrmModule = TypeOrmModule.forFeature([
       signOptions: { expiresIn: '1h' },
     }),
     ApiKeysModule,
+    BillingModule,
   ],
   controllers: [AuthController],
   providers: [

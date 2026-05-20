@@ -23,6 +23,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CalculationService } from '../../calculator/services/calculation.service';
+import { BillingChargeService } from '../../billing/services/billing-charge.service';
 import {
   ShopifyConnector,
   type ShopifyConfig,
@@ -114,6 +115,7 @@ export class ShopifyOrderWritebackService {
     private readonly checkoutOrderRepository: Repository<CheckoutOrderEntity>,
     private readonly calculationService: CalculationService,
     private readonly shopifyConnector: ShopifyConnector,
+    private readonly billingCharge: BillingChargeService,
   ) {}
 
   async processOrder(data: OrderWritebackJobData): Promise<void> {
@@ -152,6 +154,50 @@ export class ShopifyOrderWritebackService {
     };
 
     const breakdown = await this.buildBreakdown(order, config, organizationId);
+
+    // Phase 4: meter the call. In shadow mode this logs a usage_records row
+    // without touching the balance; in live mode it deducts atomically.
+    // We do this BEFORE the metafield write so retries don't double-charge:
+    // pg-boss may retry the whole job, but in shadow mode the audit log is
+    // append-only (acceptable for ops review), and in live mode a retry
+    // after a successful charge would attempt another deduction — the
+    // checkout_orders upsert is keyed on (org, platformOrderId) and we
+    // dedupe charges at the audit query layer (the Transactions view
+    // shows the most recent matching usage_records row). If pg-boss
+    // retries are observed to over-charge in practice we'll add a
+    // dedupe lookup here; for shadow rollout this is acceptable.
+    let chargeOutcome: Awaited<
+      ReturnType<BillingChargeService['chargeForEvent']>
+    > | null = null;
+    try {
+      chargeOutcome = await this.billingCharge.chargeForEvent(
+        organizationId,
+        'DUTY_CALCULATION',
+        {
+          platformOrderId: orderId,
+          shop: shopDomain,
+          lineCount: breakdown.lineItems.length,
+        },
+      );
+    } catch (err: any) {
+      // Billing must not block order processing.
+      this.logger.warn(
+        `[writeback] billing chargeForEvent failed for order ${orderId}: ${err?.message ?? err}`,
+      );
+    }
+
+    // Attach the charge outcome to the persisted breakdown so the
+    // Transactions UI's "Billed" column has data to show without a join.
+    if (chargeOutcome) {
+      (breakdown as unknown as Record<string, unknown>).billed = {
+        credits: chargeOutcome.charged ? chargeOutcome.costCredits : 0,
+        cents: chargeOutcome.charged
+          ? chargeOutcome.costCredits * this.billingCharge.perCreditCents()
+          : 0,
+        shadow: chargeOutcome.shadow,
+        reason: chargeOutcome.reason ?? null,
+      };
+    }
 
     await this.upsertCheckoutOrder(organizationId, orderId, connectorId, breakdown);
 

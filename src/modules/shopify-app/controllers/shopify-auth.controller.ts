@@ -397,7 +397,7 @@ function renderTransactions(data) {
     html += '<td style="padding:10px 8px;text-align:right;">' + formatMoney(tot.duties, cur) + '</td>';
     html += '<td style="padding:10px 8px;text-align:right;">' + formatMoney(tot.taxes, cur) + '</td>';
     html += '<td style="padding:10px 8px;text-align:right;font-weight:600;">' + formatMoney(tot.landedCost, cur) + '</td>';
-    html += '<td style="padding:10px 8px;text-align:right;color:#9ca0a3;">&mdash;</td>';
+    html += '<td style="padding:10px 8px;text-align:right;">' + renderBilled(t.billed) + '</td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -434,6 +434,22 @@ function formatMoney(amount, currency) {
   return (currency || 'USD') + ' ' + n.toFixed(2);
 }
 
+function renderBilled(billed) {
+  if (!billed) return '<span style="color:#9ca0a3;">&mdash;</span>';
+  if (billed.reason === 'insufficient_credits') {
+    return '<span style="color:#a82e2e;font-size:12px;">unpaid</span>';
+  }
+  if (billed.credits === 0 && !billed.shadow) {
+    return '<span style="color:#9ca0a3;">&mdash;</span>';
+  }
+  const dollars = (billed.cents / 100).toFixed(2);
+  const label = '$' + dollars;
+  if (billed.shadow) {
+    return label + ' <span style="font-size:11px;color:#996300;">(shadow)</span>';
+  }
+  return label;
+}
+
 function txPrev() {
   if (txState.offset === 0) return;
   txState.offset = Math.max(0, txState.offset - txState.limit);
@@ -453,7 +469,15 @@ async function loadStatus() {
       renderConnectView(data);
     } else {
       document.getElementById('syncBtn').disabled = false;
-      renderDashboard(data);
+      // Fetch credits in parallel — billing widget is part of Overview.
+      let credits = null;
+      try {
+        credits = await apiFetch('/credits');
+      } catch (e) {
+        // Non-fatal — just skip the credits card if billing endpoint blips.
+        credits = null;
+      }
+      renderDashboard(Object.assign({}, data, { credits: credits }));
     }
   } catch (e) {
     document.getElementById('content').innerHTML = '<div class="card"><div class="empty">Failed to load: ' + esc(e.message) + '</div></div>';
@@ -548,6 +572,38 @@ function renderDashboard(data) {
     html += '<div class="stat"><div class="stat-value">' + (s.totalItemsProcessed || 0) + '</div><div class="stat-label">Items Processed</div></div>';
     html += '<div class="stat"><div class="stat-value">' + fmtDuration(s.averageDuration) + '</div><div class="stat-label">Avg Duration</div></div>';
     html += '</div></div>';
+
+    // Credit balance card (Phase 4)
+    if (data.credits) {
+      const cr = data.credits;
+      const balance = (typeof cr.balance === 'number') ? cr.balance : 0;
+      const perCallCredits = (cr.pricing && cr.pricing.perCallCredits) || 1;
+      const perCreditCents = (cr.pricing && cr.pricing.perCreditCents) || 10;
+      const callsRemaining = Math.floor(balance / perCallCredits);
+      const callsLabel = perCallCredits === 1
+        ? balance + ' calls remaining'
+        : callsRemaining + ' calls remaining (' + balance + ' credits)';
+      const cashPerCall = (perCallCredits * perCreditCents) / 100;
+      const shadowBadge = cr.billingEnabled
+        ? ''
+        : '<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;background:#fff5e1;color:#996300;">Shadow mode</span>';
+
+      html += '<div class="card"><h2>Credits' + shadowBadge + '</h2>';
+      html += '<div class="stats">';
+      html += '<div class="stat"><div class="stat-value">' + balance + '</div><div class="stat-label">Balance (credits)</div></div>';
+      html += '<div class="stat"><div class="stat-value">' + callsRemaining + '</div><div class="stat-label">Duty calcs remaining</div></div>';
+      html += '<div class="stat"><div class="stat-value">$' + cashPerCall.toFixed(2) + '</div><div class="stat-label">Per duty calc</div></div>';
+      html += '<div class="stat"><div class="stat-value">' + (cr.lifetimeUsed || 0) + '</div><div class="stat-label">Lifetime used</div></div>';
+      html += '</div>';
+      if (!cr.billingEnabled) {
+        html += '<p style="margin-top:12px;font-size:13px;color:#6d7175;">Shadow mode is on — we log what would be charged for each order but don\\'t deduct from your balance yet. Your free signup balance is reserved for when billing goes live.</p>';
+      } else if (balance < 10) {
+        html += '<p style="margin-top:12px;font-size:13px;color:#996300;">Low balance — buy more credits to keep duty calculations running for new orders.</p>';
+      }
+      html += '<p style="margin-top:8px;font-size:13px;color:#6d7175;">' + esc(callsLabel) + '. Lifetime purchased: ' + (cr.lifetimePurchased || 0) + '.</p>';
+      html += '<a href="https://www.usahts.com/pricing" target="_top" style="display:inline-block;margin-top:8px;padding:8px 16px;background:#008060;color:white;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">Buy more credits</a>';
+      html += '</div>';
+    }
   }
 
   if (currentTab === 'history') {

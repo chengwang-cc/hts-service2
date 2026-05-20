@@ -22,6 +22,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { QueueModule } from '../queue/queue.module';
 import { QueueService } from '../queue/queue.service';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { QueueService } from '../queue/queue.service';
     ApiKeysModule,
     CalculatorModule,
     QueueModule,
+    BillingModule,
   ],
   controllers: [
     ShopifyAuthController,

@@ -12,6 +12,8 @@ import { Profile as GoogleProfile } from 'passport-google-oauth20';
 import { UserEntity } from '../entities/user.entity';
 import { OrganizationEntity } from '../entities/organization.entity';
 import { RoleEntity } from '../entities/role.entity';
+import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
+import { BillingChargeService } from '../../billing/services/billing-charge.service';
 
 interface GoogleOAuthStatePayload {
   returnTo: string;
@@ -63,6 +65,8 @@ export class AuthService {
     @InjectRepository(RoleEntity)
     private readonly roleRepository: Repository<RoleEntity>,
     private readonly jwtService: JwtService,
+    private readonly creditPurchaseService: CreditPurchaseService,
+    private readonly billingChargeService: BillingChargeService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -180,6 +184,22 @@ export class AuthService {
         await this.organizationRepository.save(org);
       }
       resolvedOrganizationId = org.id;
+
+      // Phase 4: grant signup bonus credits so the merchant has runway on
+      // day one. Idempotent — if a balance row already exists (e.g. from a
+      // partial earlier register attempt), we leave it alone. Always runs,
+      // independent of BILLING_ENABLED, so flipping that flag later doesn't
+      // surprise anyone.
+      try {
+        await this.creditPurchaseService.ensureBalanceRow(
+          resolvedOrganizationId,
+          this.billingChargeService.signupBonusCredits(),
+        );
+      } catch {
+        // Granting credits must never block registration. If the billing
+        // schema is unhealthy, the merchant can still register and we can
+        // backfill later.
+      }
     }
 
     const defaultRole = await this.resolveDefaultSignupRole();

@@ -19,6 +19,17 @@ export type TransactionStatus =
   | 'failed'
   | 'unknown';
 
+export interface TransactionBilled {
+  /** Credits charged (0 in shadow mode / on insufficient balance). */
+  credits: number;
+  /** Cash equivalent in cents (0 in shadow mode / on insufficient balance). */
+  cents: number;
+  /** True when the system was in shadow mode at the time of the charge. */
+  shadow: boolean;
+  /** Set when the charge failed in live mode (e.g. 'insufficient_credits'). */
+  reason: string | null;
+}
+
 export interface TransactionSummary {
   id: string;
   platformOrderId: string;
@@ -35,6 +46,8 @@ export interface TransactionSummary {
   lineCount: number;
   linesWithErrors: number;
   status: TransactionStatus;
+  /** Phase 4 billing snapshot. Null for rows created before Phase 4. */
+  billed: TransactionBilled | null;
 }
 
 export interface ListTransactionsOptions {
@@ -139,8 +152,20 @@ export class ShopifyOrderTransactionsService {
       lineCount,
       linesWithErrors,
       status,
+      billed: extractBilled(summary.billed),
     };
   }
+}
+
+function extractBilled(raw: unknown): TransactionBilled | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Record<string, unknown>;
+  return {
+    credits: numericOr0(b.credits),
+    cents: numericOr0(b.cents),
+    shadow: b.shadow === true,
+    reason: typeof b.reason === 'string' ? b.reason : null,
+  };
 }
 
 function numericOr0(v: unknown): number {
