@@ -317,17 +317,28 @@ function redirectToOAuth(reason) {
 
 async function apiFetch(path, opts = {}) {
   const token = await getToken();
-  const res = await fetch(API + path, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token,
-      ...(opts.headers || {}),
-    },
-  });
+  let res;
+  try {
+    res = await fetch(API + path, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        ...(opts.headers || {}),
+      },
+    });
+  } catch (netErr) {
+    // fetch() rejects on DNS failure, offline, CORS preflight failure,
+    // ALB unreachable, etc. Treat all of these as "service unavailable"
+    // so the UI can show a Retry button instead of a stack-trace-style
+    // message.
+    const err = new Error('Could not reach HTS service. Check your connection and try again.');
+    err.isServiceUnavailable = true;
+    throw err;
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    const msg = err.message || 'Request failed';
+    const errJson = await res.json().catch(() => ({ message: res.statusText }));
+    const msg = errJson.message || 'Request failed';
     // Self-healing for the "session row was wiped but Shopify still has the
     // app installed" case (and any other 401 from the Shopify session guard).
     // Trigger a fresh OAuth handshake automatically rather than dead-ending
@@ -336,9 +347,41 @@ async function apiFetch(path, opts = {}) {
       redirectToOAuth(msg);
       throw new Error('Reconnecting to Shopify...');
     }
+    // 5xx → flag so callers render a friendly Retry UI instead of the raw
+    // upstream message. 502/503/504 from the ALB look identical to the
+    // merchant; collapse all of them into one "temporarily unavailable"
+    // story.
+    if (res.status >= 500) {
+      const err = new Error('HTS service is temporarily unavailable.');
+      err.isServiceUnavailable = true;
+      err.upstreamStatus = res.status;
+      throw err;
+    }
     throw new Error(msg);
   }
   return res.json();
+}
+
+// Friendly error renderer shared by every load function. When the failure
+// looks like a service outage (5xx / network), show a Retry button bound
+// to the same load function that just failed; otherwise render the raw
+// message so devs triaging issues still get the upstream text.
+function renderFetchError(targetEl, e, retryFnName) {
+  const isOutage = e && e.isServiceUnavailable === true;
+  if (isOutage) {
+    const onclick = retryFnName ? retryFnName + '()' : 'location.reload()';
+    targetEl.innerHTML =
+      '<div class="card"><div class="empty">' +
+      '<p style="font-weight:600;margin-bottom:8px;font-size:15px;">HTS service is temporarily unavailable.</p>' +
+      '<p style="font-size:13px;color:#6d7175;margin-bottom:16px;">We&#39;re looking into it. Please try again in a moment.</p>' +
+      '<button class="btn btn--primary" onclick="' + onclick + '">Retry</button>' +
+      '</div></div>';
+    return;
+  }
+  targetEl.innerHTML =
+    '<div class="card"><div class="empty">Failed to load: ' +
+    esc((e && e.message) || 'unknown error') +
+    '</div></div>';
 }
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -394,7 +437,7 @@ async function loadTransactions() {
     txState.total = data.total || 0;
     renderTransactions(data);
   } catch (e) {
-    document.getElementById('content').innerHTML += '<div class="card"><div class="empty">Failed to load transactions: ' + esc(e.message) + '</div></div>';
+    renderFetchError(document.getElementById('content'), e, 'loadTransactions');
   }
 }
 
@@ -528,7 +571,7 @@ async function loadStatus() {
       renderDashboard(Object.assign({}, data, { credits: credits }));
     }
   } catch (e) {
-    document.getElementById('content').innerHTML = '<div class="card"><div class="empty">Failed to load: ' + esc(e.message) + '</div></div>';
+    renderFetchError(document.getElementById('content'), e, 'loadStatus');
   }
 }
 
@@ -687,7 +730,7 @@ async function loadProducts() {
     const data = await apiFetch('/products');
     renderProducts(data);
   } catch (e) {
-    document.getElementById('content').innerHTML += '<div class="card"><div class="empty">Failed to load products: ' + esc(e.message) + '</div></div>';
+    renderFetchError(document.getElementById('content'), e, 'loadProducts');
   }
 }
 
@@ -737,7 +780,7 @@ async function loadSettings() {
       displayAtCheckout: data.displayAtCheckout !== false,
     });
   } catch (e) {
-    document.getElementById('content').innerHTML += '<div class="card"><div class="empty">Failed to load settings: ' + esc(e.message) + '</div></div>';
+    renderFetchError(document.getElementById('content'), e, 'loadSettings');
   }
 }
 
