@@ -276,6 +276,45 @@ async function getToken() {
   return sessionToken;
 }
 
+// Read the current shop from the URL Shopify embeds us with. Required for
+// self-healing reconnects when our shopify_sessions row is gone (e.g. after
+// a manual DB cleanup) but Shopify still considers the app installed.
+function getCurrentShop() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const shop = (params.get('shop') || '').trim().toLowerCase();
+    if (/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return shop;
+  } catch (e) {}
+  return '';
+}
+
+// Re-run OAuth in the top-level window. The embedded app is in an iframe
+// served by api.usahts.com; the OAuth handshake has to redirect the top
+// window so Shopify can show its consent screen on the proper origin.
+let oauthRedirectInFlight = false;
+function redirectToOAuth(reason) {
+  if (oauthRedirectInFlight) return;
+  oauthRedirectInFlight = true;
+  const shop = getCurrentShop();
+  if (!shop) {
+    document.getElementById('content').innerHTML =
+      '<div class="card"><div class="empty">Reconnect needed but the shop domain is missing from the URL. Please reinstall the app from the Shopify admin.</div></div>';
+    return;
+  }
+  const url = '${apiBase}/shopify/auth?shop=' + encodeURIComponent(shop);
+  document.getElementById('content').innerHTML =
+    '<div class="card"><div class="loading"><span class="spinner"></span> Reconnecting to Shopify' +
+    (reason ? ' (' + esc(reason) + ')' : '') + '... If nothing happens, ' +
+    '<a href="' + esc(url) + '" target="_top">click here</a>.</div></div>';
+  try {
+    // Top-level navigation is required — the iframe alone can't load Shopify's consent screen.
+    window.top.location.href = url;
+  } catch (e) {
+    // Cross-origin restriction blocked top-window access; the clickable
+    // fallback link above stays visible.
+  }
+}
+
 async function apiFetch(path, opts = {}) {
   const token = await getToken();
   const res = await fetch(API + path, {
@@ -288,7 +327,16 @@ async function apiFetch(path, opts = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err.message || 'Request failed');
+    const msg = err.message || 'Request failed';
+    // Self-healing for the "session row was wiped but Shopify still has the
+    // app installed" case (and any other 401 from the Shopify session guard).
+    // Trigger a fresh OAuth handshake automatically rather than dead-ending
+    // the merchant with an error message.
+    if (res.status === 401 && /no active session|invalid session token|missing shopify session/i.test(msg)) {
+      redirectToOAuth(msg);
+      throw new Error('Reconnecting to Shopify...');
+    }
+    throw new Error(msg);
   }
   return res.json();
 }
