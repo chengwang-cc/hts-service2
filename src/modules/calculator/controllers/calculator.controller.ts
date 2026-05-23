@@ -18,6 +18,33 @@ import { CalculateDto } from '../dto';
 import { CalculationScenarioEntity } from '../entities';
 import { Public } from '../../auth/decorators/public.decorator';
 
+interface ExternalFormulaVariable {
+  name: string;
+  unit: string;
+  type: string;
+  description: string;
+}
+
+interface ExternalFormula {
+  tariffType: string;
+  tariffTypeDescription: string;
+  formula: string;
+  formulaVariables?: ExternalFormulaVariable[];
+  chapter99HtsCode?: string;
+  amount?: number;
+}
+
+interface ExternalTariffResult {
+  htsCode: string;
+  country: string;
+  effectiveHtsCode?: string;
+  message: string;
+  blocked: boolean;
+  block_reason: string | null;
+  exclusiveSection301?: boolean;
+  formulas: ExternalFormula[];
+}
+
 @Controller('calculator')
 export class CalculatorController {
   constructor(
@@ -75,12 +102,58 @@ export class CalculatorController {
   }
 
   /**
-   * Fetch tariff formulas from the external hts-formulas API, evaluate them
-   * server-side, and return calculated duty amounts.  The API key never leaves
-   * the server.
+   * Fetch tariff formula metadata (variables + descriptions) for a single
+   * HTS code / country pair, without evaluating. Used by the calculator UI
+   * to render a form whose inputs match what the formula actually needs.
+   *
+   * GET /calculator/formula?htsCode=&country=
+   *
+   * Proxies ai-service POST /v2/tariff/formulas — ai-service is the single
+   * source of truth for formulas and calculation.
+   */
+  @Public()
+  @Get('formula')
+  async getFormula(
+    @Query('htsCode') htsCode: string,
+    @Query('country') country: string,
+  ): Promise<unknown> {
+    if (!htsCode || !country) {
+      throw new HttpException(
+        'htsCode and country are required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const [item] = await this.fetchFormulasFromAiService([{ htsCode, country }]);
+    if (!item) {
+      throw new HttpException(
+        'No formula returned by upstream',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return {
+      htsCode: item.htsCode ?? htsCode,
+      country: item.country ?? country,
+      effectiveHtsCode: item.effectiveHtsCode ?? null,
+      blocked: !!item.blocked,
+      blockReason: item.block_reason ?? null,
+      message: item.message ?? '',
+      exclusiveSection301: item.exclusiveSection301 ?? false,
+      formulas: (item.formulas ?? []).map((f) => ({
+        tariffType: f.tariffType,
+        tariffTypeDescription: f.tariffTypeDescription,
+        formula: f.formula,
+        formulaVariables: f.formulaVariables ?? [],
+        chapter99HtsCode: f.chapter99HtsCode ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Calculate tariff amounts. Proxies ai-service POST /v2/tariff/rates which
+   * already evaluates per-formula amounts and returns Chapter 99 codes.
    *
    * POST /calculator/tariff-rates
-   * Body: [{ htsCode, country, inputs?: { value?, weight?, quantity? } }]
+   * Body: [{ htsCode, country, inputs?: Record<string, number> }]
    */
   @Public()
   @Post('tariff-rates')
@@ -92,92 +165,111 @@ export class CalculatorController {
       inputs?: Record<string, number>;
     }>,
   ): Promise<unknown> {
-    const apiUrl = this.configService.get<string>(
-      'TARIFF_FORMULAS_API_URL',
-      'https://staging.api.report.chitchats.com/v2/tariff',
-    );
-    const apiKey = this.configService.get<string>('TARIFF_FORMULAS_API_KEY', '');
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['X-API-Key'] = apiKey;
-
     const items = Array.isArray(body) ? body : [];
-    const externalRequests = items.map(({ htsCode, country }) => ({ htsCode, country }));
+    const data = await this.fetchRatesFromAiService(
+      items.map(({ htsCode, country, inputs }) => ({
+        htsCode,
+        country,
+        inputs: inputs ?? {},
+      })),
+    );
 
-    type ExternalFormula = {
-      tariffType: string;
-      tariffTypeDescription: string;
-      formula: string;
-    };
-    type ExternalResult = {
-      htsCode: string;
-      country: string;
-      message: string;
-      blocked: boolean;
-      block_reason: string | null;
-      formulas: ExternalFormula[];
-    };
+    return data.map((item) => {
+      const formulas = Array.isArray(item.formulas) ? item.formulas : [];
+      const breakdown = formulas.map((f) => ({
+        tariffType: f.tariffType,
+        tariffTypeDescription: f.tariffTypeDescription,
+        amount: typeof f.amount === 'number' ? f.amount : 0,
+        formula: f.formula,
+        formulaVariables: f.formulaVariables ?? [],
+        chapter99HtsCode: f.chapter99HtsCode ?? null,
+        error: null,
+      }));
+      const totalDuty = breakdown.reduce((sum, b) => sum + (b.amount ?? 0), 0);
 
+      return {
+        htsCode: item.htsCode,
+        country: item.country,
+        effectiveHtsCode: item.effectiveHtsCode ?? null,
+        blocked: !!item.blocked,
+        blockReason: item.block_reason ?? null,
+        message: item.message ?? '',
+        totalDuty: Math.round(totalDuty * 100) / 100,
+        breakdown,
+      };
+    });
+  }
+
+  private aiServiceUrl(): string {
+    return (
+      this.configService.get<string>('AI_SERVICE_URL') ??
+      this.configService.get<string>(
+        'TARIFF_FORMULAS_API_URL',
+        'http://localhost:3001/v2/tariff',
+      )
+    );
+  }
+
+  private aiServiceHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const apiKey = this.configService.get<string>('AI_SERVICE_API_KEY', '');
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    return headers;
+  }
+
+  private async fetchFormulasFromAiService(
+    requests: Array<{ htsCode: string; country: string }>,
+  ): Promise<ExternalTariffResult[]> {
+    if (!requests.length) return [];
     try {
       const response = await firstValueFrom(
-        this.httpService.post<ExternalResult[]>(
-          `${apiUrl}/hts-formulas`,
-          externalRequests,
-          { headers },
+        this.httpService.post<ExternalTariffResult[]>(
+          `${this.aiServiceUrl()}/formulas`,
+          requests,
+          { headers: this.aiServiceHeaders() },
         ),
       );
-
-      return response.data.map((item, idx) => {
-        const inputs = items[idx]?.inputs ?? {};
-
-        if (item.blocked || !item.formulas?.length) {
-          return {
-            htsCode: item.htsCode,
-            country: item.country,
-            blocked: item.blocked,
-            blockReason: item.block_reason,
-            message: item.message,
-            totalDuty: 0,
-            breakdown: [],
-          };
-        }
-
-        let totalDuty = 0;
-        const breakdown = item.formulas.map((f) => {
-          let amount = 0;
-          try {
-            amount = this.formulaEvaluation.evaluate(f.formula, inputs);
-          } catch {
-            amount = 0;
-          }
-          totalDuty += amount;
-          return {
-            tariffType: f.tariffType,
-            tariffTypeDescription: f.tariffTypeDescription,
-            amount,
-            formula: f.formula,
-          };
-        });
-
-        return {
-          htsCode: item.htsCode,
-          country: item.country,
-          blocked: false,
-          blockReason: null,
-          message: item.message,
-          totalDuty,
-          breakdown,
-        };
-      });
+      return response.data ?? [];
     } catch (err: unknown) {
-      const status =
-        (err as { response?: { status?: number } })?.response?.status ??
-        HttpStatus.BAD_GATEWAY;
-      throw new HttpException(
-        'Tariff formulas service request failed',
-        status >= 400 && status < 600 ? status : HttpStatus.BAD_GATEWAY,
-      );
+      throw this.translateUpstreamError(err);
     }
+  }
+
+  private async fetchRatesFromAiService(
+    requests: Array<{ htsCode: string; country: string; inputs: Record<string, number> }>,
+  ): Promise<ExternalTariffResult[]> {
+    if (!requests.length) return [];
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<ExternalTariffResult[]>(
+          `${this.aiServiceUrl()}/rates`,
+          requests,
+          { headers: this.aiServiceHeaders() },
+        ),
+      );
+      return response.data ?? [];
+    } catch (err: unknown) {
+      throw this.translateUpstreamError(err);
+    }
+  }
+
+  private translateUpstreamError(err: unknown): HttpException {
+    const status =
+      (err as { response?: { status?: number } })?.response?.status ??
+      HttpStatus.BAD_GATEWAY;
+    // Treat upstream auth/quota failures as 502 to avoid leaking key state.
+    const safeStatus =
+      status === 401 || status === 403 || status === 429
+        ? HttpStatus.BAD_GATEWAY
+        : status >= 400 && status < 600
+          ? status
+          : HttpStatus.BAD_GATEWAY;
+    return new HttpException(
+      'Tariff formulas service request failed',
+      safeStatus,
+    );
   }
 
   /**

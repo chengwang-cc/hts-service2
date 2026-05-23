@@ -1,6 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OpenAiService } from './openai.service';
 
+// Identifiers recognised as mathjs builtins, not data variables. Anything
+// referenced in a formula and not in this set is treated as a variable
+// (e.g. value, weight, quantity, degree, count, ...).
+const FORMULA_FUNCTION_NAMES = new Set<string>([
+  'max',
+  'min',
+  'abs',
+  'round',
+  'ceil',
+  'floor',
+  'sqrt',
+  'pow',
+  'exp',
+  'log',
+  'log10',
+  'mod',
+  'sign',
+  'true',
+  'false',
+  'pi',
+  'e',
+]);
+
 /**
  * Formula Generation Service
  * Converts rate text (e.g., "5%", "$2.50/kg") into executable formulas
@@ -749,8 +772,16 @@ ${promptLines}
         };
       }
 
-      // Check only allowed characters
-      if (!/^[\d\s\+\-\*\/\(\)\.a-z_]+$/i.test(formula)) {
+      // Allowed characters: digits, whitespace, basic arithmetic + parentheses,
+      // identifiers (a-z_), and the operators needed by mathjs expressions that
+      // tariff sources actually use:
+      //   ,        function call arguments — e.g. max(a, b), min(a, b)
+      //   < > = !  comparisons — e.g. weight > 100, value == 0
+      //   ? :      ternary — e.g. weight > 100 ? a : b
+      //   ^ %      exponent and modulo
+      // The keyword blocklist above already rejects code-construct strings
+      // (eval, function, =>, require, …) so widening the char set is safe.
+      if (!/^[\d\s+\-*/().,a-z_<>=!?:^%]+$/i.test(formula)) {
         return {
           valid: false,
           error: 'Formula contains invalid characters',
@@ -765,14 +796,17 @@ ${promptLines}
   }
 
   /**
-   * Extract variable names from formula
+   * Extract variable names from formula. Matches any identifier and strips
+   * mathjs function names so callers receive only data variables.
    */
   private extractVariables(formula: string): string[] {
     const variables = new Set<string>();
-    const matches = formula.matchAll(/\b(value|weight|quantity)\b/g);
+    const matches = formula.matchAll(/\b[a-z_][a-z0-9_]*\b/gi);
 
     for (const match of matches) {
-      variables.add(match[1]);
+      const name = match[0];
+      if (FORMULA_FUNCTION_NAMES.has(name)) continue;
+      variables.add(name);
     }
 
     return Array.from(variables);
