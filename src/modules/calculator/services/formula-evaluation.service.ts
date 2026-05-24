@@ -13,9 +13,7 @@ const SYSTEM_VARIABLES = new Set([
 export class UndeclaredFormulaVariableError extends Error {
   readonly code = 'UNDECLARED_FORMULA_VARIABLE';
   constructor(public readonly variableNames: string[]) {
-    super(
-      `Undeclared formula variable(s): ${variableNames.join(', ')}`,
-    );
+    super(`Undeclared formula variable(s): ${variableNames.join(', ')}`);
   }
 }
 
@@ -39,6 +37,12 @@ export interface FormulaEvaluationVariables {
   declaredVariables?: string[];
 }
 
+export interface FormulaAmountConstraints {
+  minAmount?: number | null;
+  maxAmount?: number | null;
+  rounding?: 'component_2dp' | 'defer';
+}
+
 @Injectable()
 export class FormulaEvaluationService {
   private readonly logger = new Logger(FormulaEvaluationService.name);
@@ -54,6 +58,16 @@ export class FormulaEvaluationService {
     formula: string,
     variables: FormulaEvaluationVariables | Record<string, unknown>,
   ): number {
+    return this.evaluateWithConstraints(formula, variables, {
+      rounding: 'component_2dp',
+    }).amount;
+  }
+
+  evaluateWithConstraints(
+    formula: string,
+    variables: FormulaEvaluationVariables | Record<string, unknown>,
+    constraints: FormulaAmountConstraints = {},
+  ): { amount: number; unroundedAmount: number } {
     try {
       const validation = this.formulaGenerationService.validateFormula(formula);
       if (!validation.valid) {
@@ -64,24 +78,41 @@ export class FormulaEvaluationService {
       const result = this.math.evaluate(formula, scope);
 
       if (typeof result === 'number') {
-        return this.roundToTwoDecimals(result);
+        const constrained = this.applyConstraints(result, constraints);
+        return {
+          amount:
+            constraints.rounding === 'defer'
+              ? constrained
+              : this.roundToTwoDecimals(constrained),
+          unroundedAmount: constrained,
+        };
       }
 
       throw new Error(`Formula evaluation returned non-numeric result`);
     } catch (error) {
       if (error instanceof UndeclaredFormulaVariableError) {
-        this.logger.warn(
-          `Rejected formula "${formula}": ${error.message}`,
-        );
+        this.logger.warn(`Rejected formula "${formula}": ${error.message}`);
         throw error;
       }
       this.logger.error(
         `Formula evaluation failed for "${formula}": ${(error as Error).message}`,
       );
-      throw new Error(
-        `Formula evaluation error: ${(error as Error).message}`,
-      );
+      throw new Error(`Formula evaluation error: ${(error as Error).message}`);
     }
+  }
+
+  private applyConstraints(
+    value: number,
+    constraints: FormulaAmountConstraints,
+  ): number {
+    let amount = value;
+    if (typeof constraints.minAmount === 'number') {
+      amount = Math.max(amount, constraints.minAmount);
+    }
+    if (typeof constraints.maxAmount === 'number') {
+      amount = Math.min(amount, constraints.maxAmount);
+    }
+    return amount;
   }
 
   /**
@@ -103,11 +134,11 @@ export class FormulaEvaluationService {
       typeof variables === 'object' &&
       ('additionalInputs' in variables ||
         'declaredVariables' in variables ||
-        ('value' in variables ||
-          'weight' in variables ||
-          'quantity' in variables ||
-          'duty' in variables ||
-          'total' in variables));
+        'value' in variables ||
+        'weight' in variables ||
+        'quantity' in variables ||
+        'duty' in variables ||
+        'total' in variables);
 
     if (!isStructured) {
       // Legacy flat shape — copy every finite number.

@@ -11,6 +11,10 @@ import {
   TariffFormulaResolverService,
   TariffRateBatchService,
   ShadowComparatorService,
+  FormulaSemanticsService,
+  FormulaScopeService,
+  PolicyApplicabilityService,
+  TariffConditionEngineService,
 } from '@hts/calculator';
 import {
   CalculationHistoryEntity,
@@ -45,6 +49,10 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     TariffFormulaResolverService,
     TariffRateBatchService,
     ShadowComparatorService,
+    FormulaSemanticsService,
+    FormulaScopeService,
+    PolicyApplicabilityService,
+    TariffConditionEngineService,
   ],
   exports: [
     RateRetrievalService,
@@ -53,6 +61,10 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     TariffFormulaResolverService,
     TariffRateBatchService,
     ShadowComparatorService,
+    FormulaSemanticsService,
+    FormulaScopeService,
+    PolicyApplicabilityService,
+    TariffConditionEngineService,
   ],
 })
 export class CalculatorModule {}

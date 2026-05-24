@@ -50,6 +50,7 @@ export class HtsFormulaUpdateEntity {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> | null;
 
   /**

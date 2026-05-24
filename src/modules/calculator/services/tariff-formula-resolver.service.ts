@@ -12,6 +12,8 @@ import {
   TariffComponentType,
   TariffFormulaComponent,
 } from './tariff-types';
+import { FormulaSemanticsService } from './formula-semantics.service';
+import { TariffConditionEngineService } from './tariff-condition-engine.service';
 
 /**
  * TariffFormulaResolver
@@ -30,6 +32,8 @@ export class TariffFormulaResolverService {
 
   constructor(
     private readonly rateRetrievalService: RateRetrievalService,
+    private readonly formulaSemantics: FormulaSemanticsService,
+    private readonly conditionEngine: TariffConditionEngineService,
     @InjectRepository(HtsExtraTaxEntity)
     private readonly extraTaxRepository: Repository<HtsExtraTaxEntity>,
   ) {}
@@ -37,9 +41,7 @@ export class TariffFormulaResolverService {
   async resolve(input: ResolveFormulaInput): Promise<ResolveFormulaResult> {
     const htsNumber = (input.htsNumber || '').trim();
     const countryOfOrigin = (input.countryOfOrigin || '').trim().toUpperCase();
-    const destinationCountry = (
-      input.destinationCountry || 'US'
-    ).toUpperCase();
+    const destinationCountry = (input.destinationCountry || 'US').toUpperCase();
 
     if (!htsNumber) {
       return this.blocked(
@@ -70,14 +72,9 @@ export class TariffFormulaResolverService {
     const citations: SourceCitationRef[] = [];
     const components: TariffFormulaComponent[] = [];
 
-    // NOTE on reciprocal-baseline handling on this path: we deliberately do
-    // NOT auto-inject 9903.01.25 here. The per-htsNumber rows imported by
-    // scripts/import-extra-taxes-from-ai-service.ts (taxCode prefix
-    // `AISVC_SECTION_122_*`) already carry the IEEPA-reciprocal 10% slice
-    // ai-service returns. Injecting the heading would *also* fire the
-    // chapter-wide RECIP_BASELINE_FRAMEWORK rule for a double-count.
-    // CalculationService keeps the auto-injection for legacy callers that
-    // rely on the RECIP_BASELINE_FRAMEWORK path instead of the imports.
+    // Reciprocal and other system-selected Chapter 99 headings are applied
+    // before this resolver by PolicyApplicabilityService so formula and live
+    // calculation paths share the same policy selection behavior.
 
     // ── Base / special / non-NTR / ch99-derived primary component ─────────
     let primary: Awaited<ReturnType<RateRetrievalService['getRate']>>;
@@ -103,27 +100,30 @@ export class TariffFormulaResolverService {
       primary.formulaType,
       primary.source,
     );
-    components.push({
-      componentType: primaryComponentType,
-      formula: primary.formula,
-      requiredVariables: (primary.variables || []).map((v) => ({
-        name: v.name,
-        type: v.type,
-        description: v.description,
-        unit: v.unit,
-      })),
-      identifier: htsNumber,
-      description: this.describePrimary(primaryComponentType, primary.source),
-      appliesWhen: { kind: 'always' },
-      confidence: primary.confidence,
-      sourceCitation: {
-        source: this.sourceLabel(primary.source),
-        rowIdentifier: htsNumber,
-        effectiveDate: input.entryDate,
+    components.push(
+      this.withFormulaSemantics({
+        componentType: primaryComponentType,
+        formula: primary.formula,
+        requiredVariables: (primary.variables || []).map((v) => ({
+          name: v.name,
+          type: v.type,
+          description: v.description,
+          unit: v.unit,
+          dimension: v.dimension as FormulaVariable['dimension'],
+        })),
+        identifier: htsNumber,
+        description: this.describePrimary(primaryComponentType, primary.source),
+        appliesWhen: { kind: 'always' },
         confidence: primary.confidence,
-        parserMethod: primary.source,
-      },
-    });
+        sourceCitation: {
+          source: this.sourceLabel(primary.source),
+          rowIdentifier: htsNumber,
+          effectiveDate: input.entryDate,
+          confidence: primary.confidence,
+          parserMethod: primary.source,
+        },
+      }),
+    );
 
     if (primary.overrideExtraTax) {
       // Manual override flagged: skip extra-tax expansion entirely.
@@ -135,6 +135,7 @@ export class TariffFormulaResolverService {
         allRequiredVariables,
         warnings,
         citations,
+        systemSelectedChapter99Headings: [],
         blocked: false,
         message: '',
       };
@@ -163,6 +164,7 @@ export class TariffFormulaResolverService {
       allRequiredVariables,
       warnings,
       citations,
+      systemSelectedChapter99Headings: [],
       blocked: false,
       message: '',
     };
@@ -264,9 +266,7 @@ export class TariffFormulaResolverService {
       order: { priority: 'ASC' },
     });
 
-    const matched = rows.filter((row) =>
-      this.matchesExtraTaxScope(row, args),
-    );
+    const matched = rows.filter((row) => this.matchesExtraTaxScope(row, args));
 
     const components: TariffFormulaComponent[] = [];
 
@@ -274,9 +274,7 @@ export class TariffFormulaResolverService {
     const matchedConditionalExclusions = matched.filter(
       (row) =>
         this.normalizeType(row.extraRateType) === 'CONDITIONAL' &&
-        this.isTruthyFlag(
-          (row.conditions || {}).excludesReciprocalBaseline,
-        ),
+        this.isTruthyFlag((row.conditions || {}).excludesReciprocalBaseline),
     );
     const excludeReciprocalBaseline = matchedConditionalExclusions.length > 0;
 
@@ -289,14 +287,11 @@ export class TariffFormulaResolverService {
       if (!row.rateFormula) {
         continue;
       }
-      if (this.isPolicyMarkerOnly(row.conditions)) {
+      if (this.conditionEngine.isPolicyMarkerOnly(row.conditions)) {
         continue;
       }
 
-      if (
-        excludeReciprocalBaseline &&
-        this.isReciprocalBaselineRule(row)
-      ) {
+      if (excludeReciprocalBaseline && this.isReciprocalBaselineRule(row)) {
         warnings.push(
           `Reciprocal baseline ${row.taxCode} suppressed by conditional exclusion`,
         );
@@ -307,25 +302,33 @@ export class TariffFormulaResolverService {
       const variables = this.deriveExtraTaxVariables(row.rateFormula);
       const appliesWhen = this.buildAppliesWhen(row, args.certificate);
 
-      components.push({
-        componentType,
-        formula: row.rateFormula,
-        rateText: row.rateText || undefined,
-        identifier: row.taxCode,
-        description: row.description || row.taxName,
-        requiredVariables: variables,
-        appliesWhen,
-        confidence: 0.95,
-        sourceCitation: {
-          source: row.legalReference || 'hts_extra_taxes',
-          rowIdentifier: row.taxCode,
-          effectiveDate: row.effectiveDate
-            ? this.formatDate(row.effectiveDate)
-            : undefined,
+      components.push(
+        this.withFormulaSemantics({
+          componentType,
+          formula: row.rateFormula,
+          rateText: row.rateText || undefined,
+          identifier: row.taxCode,
+          description: row.description || row.taxName,
+          requiredVariables: variables,
+          appliesWhen,
+          conditions: row.conditions || null,
+          constraints: {
+            minAmount: row.minimumAmount,
+            maxAmount: row.maximumAmount,
+            rounding: 'component_2dp',
+          },
           confidence: 0.95,
-          parserMethod: 'extra_tax_table',
-        },
-      });
+          sourceCitation: {
+            source: row.legalReference || 'hts_extra_taxes',
+            rowIdentifier: row.taxCode,
+            effectiveDate: row.effectiveDate
+              ? this.formatDate(row.effectiveDate)
+              : undefined,
+            confidence: 0.95,
+            parserMethod: 'extra_tax_table',
+          },
+        }),
+      );
     }
 
     return { components, warnings };
@@ -357,8 +360,7 @@ export class TariffFormulaResolverService {
     if (!htsMatches) return false;
 
     if (
-      taxCountry !== 'ALL' &&
-      taxCountry !== args.countryOfOrigin
+      !this.conditionEngine.isCountryMatch(taxCountry, args.countryOfOrigin)
     ) {
       return false;
     }
@@ -373,30 +375,11 @@ export class TariffFormulaResolverService {
       if (exp && calcDay && exp.getTime() < calcDay.getTime()) return false;
     }
 
-    if (!this.passesConditions(row.conditions, args)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  private passesConditions(
-    conditions: Record<string, any> | null | undefined,
-    args: {
-      selectedChapter99Headings: string[];
-    },
-  ): boolean {
-    if (!conditions) return true;
-    if (this.isPolicyMarkerOnly(conditions)) return false;
-
-    const requiredHeading = this.normalizeChapter99Heading(
-      typeof conditions.htsHeading === 'string'
-        ? conditions.htsHeading
-        : null,
-    );
     if (
-      requiredHeading &&
-      !args.selectedChapter99Headings.includes(requiredHeading)
+      !this.conditionEngine.evaluate(row.conditions, {
+        countryOfOrigin: args.countryOfOrigin,
+        selectedChapter99Headings: args.selectedChapter99Headings,
+      })
     ) {
       return false;
     }
@@ -477,6 +460,8 @@ export class TariffFormulaResolverService {
       name,
       type: 'number',
       description: this.describeVariable(name),
+      unit: this.describeVariableUnit(name),
+      dimension: this.describeVariableDimension(name),
     }));
   }
 
@@ -507,6 +492,24 @@ export class TariffFormulaResolverService {
         return 'Weight of goods (kg)';
       case 'quantity':
         return 'Quantity of items';
+      case 'quantity_each':
+        return 'Number of individual items';
+      case 'quantity_pair':
+        return 'Number of pairs';
+      case 'quantity_dozen':
+        return 'Number of dozens';
+      case 'quantity_set':
+        return 'Number of sets';
+      case 'quantity_gross':
+        return 'Number of gross units';
+      case 'volume_liter':
+        return 'Volume in liters';
+      case 'proof_liter':
+        return 'Alcohol proof liters';
+      case 'area_m2':
+        return 'Area in square meters';
+      case 'length_m':
+        return 'Length in meters';
       case 'duty':
         return 'Computed duty so far';
       case 'total':
@@ -514,6 +517,34 @@ export class TariffFormulaResolverService {
       default:
         return `Additional input: ${name}`;
     }
+  }
+
+  private describeVariableUnit(name: string): string | undefined {
+    if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'quantity_each') return 'each';
+    if (name === 'quantity_pair') return 'pair';
+    if (name === 'quantity_dozen') return 'dozen';
+    if (name === 'quantity_set') return 'set';
+    if (name === 'quantity_gross') return 'gross';
+    if (name === 'volume_liter') return 'L';
+    if (name === 'proof_liter') return 'proof L';
+    if (name === 'area_m2') return 'm2';
+    if (name === 'length_m') return 'm';
+    return undefined;
+  }
+
+  private describeVariableDimension(
+    name: string,
+  ): FormulaVariable['dimension'] {
+    if (name === 'value' || name === 'duty' || name === 'total') {
+      return 'money';
+    }
+    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name.startsWith('quantity')) return 'quantity';
+    if (name.includes('liter')) return 'volume';
+    if (name.includes('area')) return 'area';
+    if (name.includes('length')) return 'length';
+    return undefined;
   }
 
   private isTruthyFlag(value: any): boolean {
@@ -530,11 +561,7 @@ export class TariffFormulaResolverService {
   private isPolicyMarkerOnly(
     conditions: Record<string, any> | null | undefined,
   ): boolean {
-    if (!conditions) return false;
-    return (
-      this.isTruthyFlag((conditions as any).policyMarkerOnly) ||
-      this.isTruthyFlag((conditions as any).requiresManualReview)
-    );
+    return this.conditionEngine.isPolicyMarkerOnly(conditions);
   }
 
   private isReciprocalBaselineRule(row: HtsExtraTaxEntity): boolean {
@@ -592,6 +619,24 @@ export class TariffFormulaResolverService {
       blocked: true,
       blockReason,
       message,
+    };
+  }
+
+  private withFormulaSemantics(
+    component: TariffFormulaComponent,
+  ): TariffFormulaComponent {
+    const semantics = this.formulaSemantics.analyze(
+      component.formula,
+      component.requiredVariables,
+    );
+    return {
+      ...component,
+      formulaCanonical: semantics.canonicalFormula,
+      formulaAst: semantics.formulaAst as Record<string, any>,
+      formulaSemanticHash: semantics.semanticHash,
+      unitDimensions: this.formulaSemantics.variablesToDimensions(
+        component.requiredVariables,
+      ),
     };
   }
 }

@@ -53,6 +53,7 @@ export class RateRetrievalService {
       type: string;
       description?: string;
       unit?: string;
+      dimension?: string;
     }> | null;
   }> {
     const normalizedCountry = countryOfOrigin.toUpperCase();
@@ -537,7 +538,12 @@ export class RateRetrievalService {
       string,
       any
     >;
-    const adjustmentRate = this.toComparableRate(synthesis.adjustmentRate);
+    const adjustmentRate = Array.isArray(synthesis.adjustmentRates)
+      ? synthesis.adjustmentRates.reduce((sum: number, value: any) => {
+          const parsed = this.toComparableRate(value);
+          return parsed === null ? sum : sum + parsed;
+        }, 0)
+      : this.toComparableRate(synthesis.adjustmentRate);
     if (adjustmentRate === null || adjustmentRate <= 0) {
       return null;
     }
@@ -660,6 +666,7 @@ export class RateRetrievalService {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> | null {
     if (!Array.isArray(variableNames) || variableNames.length === 0) {
       return null;
@@ -678,8 +685,47 @@ export class RateRetrievalService {
           ? 'Declared value of goods in USD'
           : name === 'weight'
             ? 'Weight of goods in kilograms'
-            : 'Number of imported items',
+            : this.describeVariable(name),
+      unit: this.describeUnit(name),
+      dimension: this.describeDimension(name),
     }));
+  }
+
+  private describeVariable(name: string): string {
+    if (name === 'quantity_each') return 'Number of individual items';
+    if (name === 'quantity_pair') return 'Number of pairs';
+    if (name === 'quantity_dozen') return 'Number of dozens';
+    if (name === 'quantity_set') return 'Number of sets';
+    if (name === 'quantity_gross') return 'Number of gross units';
+    if (name === 'volume_liter') return 'Volume in liters';
+    if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'area_m2') return 'Area in square meters';
+    if (name === 'length_m') return 'Length in meters';
+    return 'Number of imported items';
+  }
+
+  private describeUnit(name: string): string | undefined {
+    if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'quantity_each') return 'each';
+    if (name === 'quantity_pair') return 'pair';
+    if (name === 'quantity_dozen') return 'dozen';
+    if (name === 'quantity_set') return 'set';
+    if (name === 'quantity_gross') return 'gross';
+    if (name === 'volume_liter') return 'L';
+    if (name === 'proof_liter') return 'proof L';
+    if (name === 'area_m2') return 'm2';
+    if (name === 'length_m') return 'm';
+    return undefined;
+  }
+
+  private describeDimension(name: string): string | undefined {
+    if (name === 'value') return 'money';
+    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name.startsWith('quantity')) return 'quantity';
+    if (name.includes('liter')) return 'volume';
+    if (name.includes('area')) return 'area';
+    if (name.includes('length')) return 'length';
+    return undefined;
   }
 
   private async resolveHistorical2025Formula(

@@ -23,6 +23,7 @@ export interface FormulaVariable {
   name: string;
   type: string;
   unit?: string;
+  dimension?: 'money' | 'weight' | 'quantity' | 'volume' | 'area' | 'length';
   description?: string;
 }
 
@@ -52,16 +53,32 @@ export interface TariffFormulaComponent {
   componentType: TariffComponentType;
   /** mathjs-compatible expression */
   formula: string;
+  /** Canonical expression used for semantic comparisons */
+  formulaCanonical?: string;
+  /** Parser/compiler AST for audit and semantic comparisons */
+  formulaAst?: Record<string, any>;
+  /** Stable hash derived from canonical formula + variable set */
+  formulaSemanticHash?: string;
+  /** Source variable dimensions keyed by variable name */
+  unitDimensions?: Record<string, string>;
   /** Canonical source phrasing if available */
   rateText?: string;
   /** Variables the formula needs to evaluate (allowlist for scope) */
   requiredVariables: FormulaVariable[];
+  /** Amount-level constraints such as MPF min/max and rounding policy */
+  constraints?: {
+    minAmount?: number | null;
+    maxAmount?: number | null;
+    rounding?: 'component_2dp' | 'defer';
+  };
   /** Human-readable identifier (e.g. tax code, htsNumber) */
   identifier?: string;
   /** Human-readable description for UIs */
   description?: string;
   /** When this component is allowed to apply at calc time */
   appliesWhen: TariffApplyCondition;
+  /** Raw typed condition payload until persisted condition_ast lands */
+  conditions?: Record<string, any> | null;
   /** Source citation */
   sourceCitation: SourceCitationRef;
   /** Confidence 0..1 */
@@ -95,6 +112,8 @@ export interface ResolveFormulaResult {
   components: TariffFormulaComponent[];
   /** Aggregated set of variables that any component needs */
   allRequiredVariables: FormulaVariable[];
+  /** Headings selected by policy logic rather than caller input */
+  systemSelectedChapter99Headings?: string[];
   /** Resolver-level warnings (missing data, fallback used, etc.) */
   warnings: string[];
   /** Citations distinct from components (e.g. version snapshot) */
@@ -133,6 +152,7 @@ export interface BatchFormulaLineResult {
   blocked: boolean;
   blockReason: string | null;
   message: string;
+  systemSelectedChapter99Headings?: string[];
   formulas: Array<{
     componentType: TariffComponentType;
     tariffType: string;
@@ -151,6 +171,7 @@ export interface BatchRateLineResult {
   blocked: boolean;
   blockReason: string | null;
   message: string;
+  systemSelectedChapter99Headings?: string[];
   /** Top-level total duty = sum of all evaluated component amounts */
   totalDuty: number;
   /** Per-component breakdown with evaluated amounts */

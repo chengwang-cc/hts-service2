@@ -95,5 +95,15 @@ describe('FormulaEvaluationService', () => {
     it('rejects forbidden keywords (eval)', () => {
       expect(() => svc.evaluate('eval(value)', { value: 100 })).toThrow();
     });
+
+    it('applies min/max constraints without losing the unrounded amount', () => {
+      const result = svc.evaluateWithConstraints(
+        'value * 0.001',
+        { value: 100 },
+        { minAmount: 27.75, maxAmount: 579.23 },
+      );
+
+      expect(result).toEqual({ amount: 27.75, unroundedAmount: 27.75 });
+    });
   });
 });

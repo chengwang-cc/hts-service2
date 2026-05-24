@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TariffFormulaResolverService } from './tariff-formula-resolver.service';
 import { FormulaEvaluationService } from './formula-evaluation.service';
+import { FormulaScopeService } from './formula-scope.service';
+import { PolicyApplicabilityService } from './policy-applicability.service';
+import { TariffConditionEngineService } from './tariff-condition-engine.service';
 import {
   BatchFormulaLineResult,
   BatchRateLineResult,
@@ -28,6 +31,9 @@ export class TariffRateBatchService {
   constructor(
     private readonly resolver: TariffFormulaResolverService,
     private readonly evaluator: FormulaEvaluationService,
+    private readonly formulaScope: FormulaScopeService,
+    private readonly policyApplicability: PolicyApplicabilityService,
+    private readonly conditionEngine: TariffConditionEngineService,
   ) {}
 
   async batchCalculate(
@@ -51,13 +57,22 @@ export class TariffRateBatchService {
   ): Promise<BatchFormulaLineResult[]> {
     const out: BatchFormulaLineResult[] = [];
     for (const r of requests) {
+      const policySelection =
+        this.policyApplicability.applySystemChapter99Selections({
+          additionalInputs: {},
+          countryOfOrigin: r.country,
+          calculationDate: this.parseCalculationDate(r.entryDate),
+        });
       const resolved = await this.resolver.resolve({
         htsNumber: r.htsCode,
         countryOfOrigin: r.country,
         destinationCountry: 'US',
         entryDate: r.entryDate,
         htsVersion: r.htsVersion,
-        selectedChapter99Headings: r.selectedChapter99Headings,
+        selectedChapter99Headings: this.mergeHeadings(
+          r.selectedChapter99Headings,
+          policySelection.selectedChapter99Headings,
+        ),
       });
 
       out.push({
@@ -67,6 +82,8 @@ export class TariffRateBatchService {
         blocked: resolved.blocked,
         blockReason: resolved.blockReason ?? null,
         message: resolved.message,
+        systemSelectedChapter99Headings:
+          policySelection.systemSelectedChapter99Headings,
         formulas: resolved.components.map((c) => ({
           componentType: c.componentType,
           tariffType: this.tariffTypeFromComponent(c.componentType),
@@ -74,7 +91,7 @@ export class TariffRateBatchService {
           formula: c.formula,
           formulaVariables: c.requiredVariables,
           chapter99HtsCode:
-            c.componentType === 'chapter_99' ? c.identifier ?? null : null,
+            c.componentType === 'chapter_99' ? (c.identifier ?? null) : null,
           confidence: c.confidence,
         })),
       });
@@ -85,6 +102,16 @@ export class TariffRateBatchService {
   private async calculateOne(
     req: BatchRateRequest,
   ): Promise<BatchRateLineResult> {
+    const policySelection =
+      this.policyApplicability.applySystemChapter99Selections({
+        additionalInputs: req.inputs || {},
+        countryOfOrigin: req.country,
+        calculationDate: this.parseCalculationDate(req.entryDate),
+      });
+    const selectedChapter99Headings = this.mergeHeadings(
+      req.selectedChapter99Headings,
+      policySelection.selectedChapter99Headings,
+    );
     const resolved = await this.resolver.resolve({
       htsNumber: req.htsCode,
       countryOfOrigin: req.country,
@@ -92,7 +119,7 @@ export class TariffRateBatchService {
       entryDate: req.entryDate,
       htsVersion: req.htsVersion,
       certificate: req.certificate,
-      selectedChapter99Headings: req.selectedChapter99Headings,
+      selectedChapter99Headings,
     });
 
     if (resolved.blocked) {
@@ -103,16 +130,31 @@ export class TariffRateBatchService {
         blocked: true,
         blockReason: resolved.blockReason ?? null,
         message: resolved.message,
+        systemSelectedChapter99Headings:
+          policySelection.systemSelectedChapter99Headings,
         totalDuty: 0,
         breakdown: [],
       };
     }
 
-    const inputs = req.inputs || {};
+    const inputs = policySelection.additionalInputs || req.inputs || {};
+    const scoped = this.formulaScope.buildBaseScope({
+      declaredValue: inputs.value,
+      weightKg: inputs.weight,
+      quantity: inputs.quantity,
+      quantityUnit: inputs.quantityUnit,
+      additionalInputs: inputs,
+    });
     const baseVars = {
-      value: typeof inputs.value === 'number' ? inputs.value : 0,
-      weight: typeof inputs.weight === 'number' ? inputs.weight : 0,
-      quantity: typeof inputs.quantity === 'number' ? inputs.quantity : 0,
+      value: scoped.value ?? 0,
+      weight: scoped.weight ?? 0,
+      quantity: scoped.quantity ?? 0,
+    };
+    const additionalInputs = scoped.additionalInputs;
+    const effectiveReq: BatchRateRequest = {
+      ...req,
+      inputs,
+      selectedChapter99Headings,
     };
 
     // Evaluate non-fee/post components first to compute `duty` and `total`,
@@ -134,45 +176,61 @@ export class TariffRateBatchService {
     const evaluated: Evaluated[] = [];
     let runningDuty = 0;
     for (const c of primary) {
-      if (!this.shouldEvaluate(c, req)) {
+      if (!this.shouldEvaluate(c, effectiveReq)) {
         continue;
       }
       const variables = this.buildScope({
         component: c,
         baseVars,
-        additional: inputs,
+        additional: additionalInputs,
         duty: runningDuty,
         total: baseVars.value + runningDuty,
       });
-      const evaledResult = this.safeEvaluate(c.formula, variables);
+      const evaledResult = this.safeEvaluate(
+        c.formula,
+        variables,
+        c.constraints,
+      );
       if (evaledResult.error) {
         evaluated.push({ component: c, amount: 0, error: evaledResult.error });
         continue;
       }
       runningDuty += evaledResult.amount;
-      evaluated.push({ component: c, amount: evaledResult.amount, error: null });
+      evaluated.push({
+        component: c,
+        amount: evaledResult.amount,
+        error: null,
+      });
     }
 
     const postTariffTotal = baseVars.value + runningDuty;
     let runningFees = 0;
     for (const c of post) {
-      if (!this.shouldEvaluate(c, req)) {
+      if (!this.shouldEvaluate(c, effectiveReq)) {
         continue;
       }
       const variables = this.buildScope({
         component: c,
         baseVars,
-        additional: inputs,
+        additional: additionalInputs,
         duty: runningDuty,
         total: postTariffTotal,
       });
-      const evaledResult = this.safeEvaluate(c.formula, variables);
+      const evaledResult = this.safeEvaluate(
+        c.formula,
+        variables,
+        c.constraints,
+      );
       if (evaledResult.error) {
         evaluated.push({ component: c, amount: 0, error: evaledResult.error });
         continue;
       }
       runningFees += evaledResult.amount;
-      evaluated.push({ component: c, amount: evaledResult.amount, error: null });
+      evaluated.push({
+        component: c,
+        amount: evaledResult.amount,
+        error: null,
+      });
     }
 
     const totalDuty = runningDuty + runningFees;
@@ -184,6 +242,8 @@ export class TariffRateBatchService {
       blocked: false,
       blockReason: null,
       message: resolved.message,
+      systemSelectedChapter99Headings:
+        policySelection.systemSelectedChapter99Headings,
       totalDuty: this.round2(totalDuty),
       breakdown: evaluated.map((e) => ({
         componentType: e.component.componentType,
@@ -195,7 +255,7 @@ export class TariffRateBatchService {
         formulaVariables: e.component.requiredVariables,
         chapter99HtsCode:
           e.component.componentType === 'chapter_99'
-            ? e.component.identifier ?? null
+            ? (e.component.identifier ?? null)
             : null,
         error: e.error,
       })),
@@ -207,6 +267,20 @@ export class TariffRateBatchService {
     req: BatchRateRequest,
   ): boolean {
     const when = component.appliesWhen;
+    if (
+      component.conditions &&
+      !this.conditionEngine.evaluate(component.conditions, {
+        countryOfOrigin: req.country,
+        declaredValue:
+          typeof req.inputs?.value === 'number' ? req.inputs.value : undefined,
+        additionalInputs: req.inputs,
+        selectedChapter99Headings: req.selectedChapter99Headings || [],
+        tradeAgreementCode: req.certificate?.agreement,
+        tradeAgreementCertificate: req.certificate?.claimed,
+      })
+    ) {
+      return false;
+    }
     if (when.kind === 'always') return true;
     if (when.kind === 'country_in') {
       return when.countries.includes((req.country || '').toUpperCase());
@@ -215,7 +289,9 @@ export class TariffRateBatchService {
       return !when.countries.includes((req.country || '').toUpperCase());
     }
     if (when.kind === 'requires_chapter99_selection') {
-      const selected = new Set(req.selectedChapter99Headings || []);
+      const selected = new Set(
+        this.mergeHeadings(req.selectedChapter99Headings, []),
+      );
       return selected.has(when.heading);
     }
     if (when.kind === 'requires_certificate') {
@@ -260,9 +336,14 @@ export class TariffRateBatchService {
   private safeEvaluate(
     formula: string,
     variables: Record<string, number>,
+    constraints?: TariffFormulaComponent['constraints'],
   ): { amount: number; error: string | null } {
     try {
-      const amount = this.evaluator.evaluate(formula, variables);
+      const { amount } = this.evaluator.evaluateWithConstraints(
+        formula,
+        variables,
+        constraints,
+      );
       return { amount, error: null };
     } catch (error: any) {
       this.logger.warn(
@@ -301,5 +382,36 @@ export class TariffRateBatchService {
 
   private round2(v: number): number {
     return Math.round(v * 100) / 100;
+  }
+
+  private mergeHeadings(
+    explicit: string[] | undefined,
+    system: string[],
+  ): string[] {
+    const out = new Set<string>();
+    for (const heading of explicit || []) {
+      const normalized =
+        this.policyApplicability.normalizeChapter99Heading(heading);
+      if (normalized) out.add(normalized);
+    }
+    for (const heading of system || []) {
+      const normalized =
+        this.policyApplicability.normalizeChapter99Heading(heading);
+      if (normalized) out.add(normalized);
+    }
+    return Array.from(out);
+  }
+
+  private parseCalculationDate(entryDate?: string): Date {
+    if (!entryDate || typeof entryDate !== 'string') {
+      return new Date();
+    }
+    const trimmed = entryDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const d = new Date(`${trimmed}T12:00:00Z`);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? new Date() : d;
   }
 }

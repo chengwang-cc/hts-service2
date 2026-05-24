@@ -97,6 +97,7 @@ export class HtsEntity {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> | null;
 
   /**
@@ -130,6 +131,7 @@ export class HtsEntity {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> | null;
 
   @Column('boolean', { default: false })
@@ -187,6 +189,7 @@ export class HtsEntity {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> | null;
 
   @Column('boolean', { default: false })
@@ -209,6 +212,7 @@ export class HtsEntity {
       type: string;
       description?: string;
       unit?: string;
+      dimension?: string;
     }>;
     countries?: string[];
   } | null;

@@ -348,7 +348,15 @@ Unit of Quantity: ${unitOfQuantity || 'Not specified'}
 Available variables:
 - value: The declared value of the goods (in dollars)
 - weight: Weight in kg
-- quantity: Number of items
+- quantity_each: Number of individual items
+- quantity_pair: Number of pairs
+- quantity_dozen: Number of dozens
+- quantity_set: Number of sets
+- quantity_gross: Number of gross units
+- volume_liter: Volume in liters
+- proof_liter: Alcohol proof liters
+- area_m2: Area in square meters
+- length_m: Length in meters
 
 Rules:
 1. Use mathematical operators: *, +, -, /, ()
@@ -420,10 +428,20 @@ Examples:
       if (!hasValidFormula || !hasValidVariables || !hasValidConfidence) {
         throw new Error('Invalid AI response format');
       }
+      const formulaValidation = this.validateFormula(result.formula);
+      if (!formulaValidation.valid) {
+        throw new Error(
+          `AI returned invalid formula: ${formulaValidation.error}`,
+        );
+      }
+      const variables = this.mergeAiVariables(
+        result.variables,
+        formulaValidation.variables,
+      );
 
       return {
         formula: result.formula,
-        variables: result.variables,
+        variables,
         confidence: Math.max(0, Math.min(1, result.confidence - 0.1)), // Reduce confidence for AI
       };
     } catch (error) {
@@ -469,22 +487,13 @@ Examples:
       return 'weight';
     }
 
-    // Quantity-based units
-    if (
-      /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
-        normalized,
-      ) ||
-      /^(ea|each|unit|units|piece|pieces|item|items|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
-        compact,
-      ) ||
-      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
-        normalizedWithoutQualifiers,
-      ) ||
-      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no|doz|dozen|pair|pairs|pr|set|sets|gross|cent)$/.test(
-        compactWithoutQualifiers,
-      )
-    ) {
-      return 'quantity';
+    const quantityVariable =
+      this.mapQuantityUnit(normalized) ||
+      this.mapQuantityUnit(compact) ||
+      this.mapQuantityUnit(normalizedWithoutQualifiers) ||
+      this.mapQuantityUnit(compactWithoutQualifiers);
+    if (quantityVariable) {
+      return quantityVariable;
     }
 
     // Volume-based units
@@ -502,7 +511,13 @@ Examples:
         compactWithoutQualifiers,
       )
     ) {
-      return 'quantity'; // Treat as quantity for now
+      if (
+        /proof\s*l/i.test(normalized) ||
+        /^(proofliter|proofliters|pfliter|pfliters)$/.test(compact)
+      ) {
+        return 'proof_liter';
+      }
+      return 'volume_liter';
     }
 
     // Area-based units
@@ -511,7 +526,7 @@ Examples:
         normalized,
       )
     ) {
-      return 'quantity';
+      return 'area_m2';
     }
 
     // Length-based units
@@ -520,7 +535,7 @@ Examples:
         normalized,
       )
     ) {
-      return 'quantity';
+      return 'length_m';
     }
 
     // Default to quantity if unitOfQuantity matches
@@ -533,12 +548,29 @@ Examples:
           unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, ''),
         ))
     ) {
-      return 'quantity';
+      const sourceUnit = unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return this.mapQuantityUnit(sourceUnit) || 'quantity_each';
     }
 
     this.logger.warn(
       `Unknown unit: ${unit}, unable to map to formula variable`,
     );
+    return null;
+  }
+
+  private mapQuantityUnit(unit: string): string | null {
+    if (
+      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no)$/.test(
+        unit,
+      )
+    ) {
+      return 'quantity_each';
+    }
+    if (/^(doz|dozen)$/.test(unit)) return 'quantity_dozen';
+    if (/^(pair|pairs|pr)$/.test(unit)) return 'quantity_pair';
+    if (/^(set|sets)$/.test(unit)) return 'quantity_set';
+    if (/^(gross)$/.test(unit)) return 'quantity_gross';
+    if (/^(cent)$/.test(unit)) return 'quantity_each';
     return null;
   }
 
@@ -658,7 +690,15 @@ Convert each customs duty rate into a mathematical formula.
 Available variables:
 - value: The declared value of the goods (in dollars)
 - weight: Weight in kg
-- quantity: Number of items
+- quantity_each: Number of individual items
+- quantity_pair: Number of pairs
+- quantity_dozen: Number of dozens
+- quantity_set: Number of sets
+- quantity_gross: Number of gross units
+- volume_liter: Volume in liters
+- proof_liter: Alcohol proof liters
+- area_m2: Area in square meters
+- length_m: Length in meters
 
 Rules:
 1. Use mathematical operators: *, +, -, /, ()
@@ -737,18 +777,55 @@ ${promptLines}
             hasValidConfidence
           );
         })
-        .map((result: any) => ({
-          index: result.index,
-          formula: result.formula,
-          variables: result.variables,
-          confidence: Math.max(0, Math.min(1, result.confidence - 0.1)),
-        }));
+        .map((result: any) => {
+          const validation = this.validateFormula(result.formula);
+          if (!validation.valid) {
+            return null;
+          }
+          return {
+            index: result.index,
+            formula: result.formula,
+            variables: this.mergeAiVariables(
+              result.variables,
+              validation.variables,
+            ),
+            confidence: Math.max(0, Math.min(1, result.confidence - 0.1)),
+          };
+        })
+        .filter(
+          (
+            result,
+          ): result is {
+            index: number;
+            formula: string;
+            variables: string[];
+            confidence: number;
+          } => !!result,
+        );
 
       return normalized;
     } catch (error) {
       this.logger.error(`AI batch formula generation failed: ${error.message}`);
       return [];
     }
+  }
+
+  private mergeAiVariables(
+    declared: unknown[],
+    referenced: string[],
+  ): string[] {
+    const out = new Set<string>();
+    for (const value of declared || []) {
+      if (typeof value === 'string' && value.trim()) {
+        out.add(value.trim());
+      }
+    }
+    for (const value of referenced || []) {
+      if (value && value.trim()) {
+        out.add(value.trim());
+      }
+    }
+    return Array.from(out);
   }
 
   /**

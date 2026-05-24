@@ -241,11 +241,14 @@ export class HtsFormulaGenerationService {
     type: string;
     description?: string;
     unit?: string;
+    dimension?: string;
   }> {
     return variables.map((name) => ({
       name,
       type: 'number',
       description: this.describeVariable(name),
+      unit: this.describeUnit(name),
+      dimension: this.describeDimension(name),
     }));
   }
 
@@ -257,8 +260,64 @@ export class HtsFormulaGenerationService {
         return 'Weight of goods in kilograms';
       case 'quantity':
         return 'Number of items';
+      case 'quantity_each':
+        return 'Number of individual items';
+      case 'quantity_pair':
+        return 'Number of pairs';
+      case 'quantity_dozen':
+        return 'Number of dozens';
+      case 'quantity_set':
+        return 'Number of sets';
+      case 'quantity_gross':
+        return 'Number of gross units';
+      case 'volume_liter':
+        return 'Volume in liters';
+      case 'proof_liter':
+        return 'Alcohol proof liters';
+      case 'area_m2':
+        return 'Area in square meters';
+      case 'length_m':
+        return 'Length in meters';
       default:
         return 'Input variable';
     }
+  }
+
+  private describeUnit(name: string): string | undefined {
+    switch (name) {
+      case 'weight':
+      case 'weight_kg':
+        return 'kg';
+      case 'quantity_each':
+        return 'each';
+      case 'quantity_pair':
+        return 'pair';
+      case 'quantity_dozen':
+        return 'dozen';
+      case 'quantity_set':
+        return 'set';
+      case 'quantity_gross':
+        return 'gross';
+      case 'volume_liter':
+        return 'L';
+      case 'proof_liter':
+        return 'proof L';
+      case 'area_m2':
+        return 'm2';
+      case 'length_m':
+        return 'm';
+      default:
+        return undefined;
+    }
+  }
+
+  private describeDimension(name: string): string | undefined {
+    if (name === 'value') return 'money';
+    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name.startsWith('quantity')) return 'quantity';
+    if (name.includes('liter')) return 'volume';
+    if (name.includes('area')) return 'area';
+    if (name.includes('length')) return 'length';
+    return undefined;
   }
 }

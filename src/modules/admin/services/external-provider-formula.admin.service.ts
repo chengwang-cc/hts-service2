@@ -9,10 +9,15 @@ import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import {
   ExternalProviderFormulaEntity,
+  FormulaGenerationService,
   HtsEntity,
   HtsFormulaUpdateService,
   OpenAiService,
 } from '@hts/core';
+import {
+  FormulaSemanticsService,
+  TariffFormulaResolverService,
+} from '@hts/calculator';
 import {
   AnalyzeExternalProviderDiscrepancyDto,
   CompareExternalProviderFormulaDto,
@@ -86,6 +91,9 @@ export class ExternalProviderFormulaAdminService {
     @InjectRepository(HtsEntity)
     private readonly htsRepo: Repository<HtsEntity>,
     private readonly formulaUpdateService: HtsFormulaUpdateService,
+    private readonly formulaGenerationService: FormulaGenerationService,
+    private readonly formulaSemantics: FormulaSemanticsService,
+    private readonly tariffFormulaResolver: TariffFormulaResolverService,
   ) {}
 
   async upsertSnapshot(
@@ -329,6 +337,12 @@ export class ExternalProviderFormulaAdminService {
       liveHtsEntity,
       normalizedCountry,
     );
+    const liveResolvedFormula = await this.resolveLiveCanonicalFormula({
+      htsNumber: (dto.htsNumber || '').trim(),
+      countryCode: normalizedCountry,
+      entryDate: dto.entryDate,
+      providerSnapshot,
+    });
     const providerFormulaNormalized = providerSnapshot
       ? this.normalizeFormula(
           providerSnapshot.formulaNormalized ||
@@ -336,9 +350,9 @@ export class ExternalProviderFormulaAdminService {
             null,
         )
       : null;
-    const liveFormulaNormalized = this.normalizeFormula(
-      liveProjection?.selectedFormula || null,
-    );
+    const liveFormulaNormalized =
+      liveResolvedFormula.combinedNormalized ||
+      this.normalizeFormula(liveProjection?.selectedFormula || null);
 
     if (!providerSnapshot) {
       return {
@@ -379,7 +393,11 @@ export class ExternalProviderFormulaAdminService {
       };
     }
 
-    const isMatch = providerFormulaNormalized === liveFormulaNormalized;
+    const isMatch =
+      providerFormulaNormalized === liveFormulaNormalized ||
+      liveResolvedFormula.componentNormalized.includes(
+        providerFormulaNormalized,
+      );
     return {
       providerSnapshot,
       liveHts: liveProjection,
@@ -656,13 +674,23 @@ export class ExternalProviderFormulaAdminService {
       activeHts?.sourceVersion ||
       activeHts?.version ||
       'GLOBAL';
+    const formulaValidation =
+      this.formulaGenerationService.validateFormula(formula);
+    if (!formulaValidation.valid) {
+      throw new BadRequestException(
+        `Cannot publish override: invalid formula (${formulaValidation.error || 'unknown validation error'}).`,
+      );
+    }
+    const formulaVariables = (formulaValidation.variables || []).map((name) =>
+      this.buildFormulaVariable(name),
+    );
 
     const formulaUpdate = await this.formulaUpdateService.upsert({
       htsNumber: snapshot.htsNumber,
       countryCode: snapshot.countryCode,
       formulaType,
       formula,
-      formulaVariables: undefined,
+      formulaVariables,
       comment:
         dto.comment ||
         `Published from ${snapshot.provider} snapshot ${snapshot.id} on ${new Date().toISOString()}`,
@@ -672,13 +700,11 @@ export class ExternalProviderFormulaAdminService {
       updateVersion,
     });
 
-    const livePatch = await this.applyOverrideToActiveHts(
-      snapshot.htsNumber,
-      snapshot.countryCode,
-      formulaType,
-      formula,
-      dto.comment || null,
-    );
+    const livePatch = {
+      htsId: activeHts?.id || null,
+      sourceVersion: activeHts?.sourceVersion || activeHts?.version || null,
+      patched: false,
+    };
 
     snapshot.reviewStatus = 'PUBLISHED';
     snapshot.reviewDecisionComment =
@@ -846,13 +872,132 @@ export class ExternalProviderFormulaAdminService {
   }
 
   private normalizeFormula(value: string | null): string | null {
-    if (!value) return null;
-    const normalized = value
-      .replace(/\s+/g, ' ')
-      .replace(/\s*([()+\-*/=,:])\s*/g, '$1')
-      .trim()
-      .toUpperCase();
-    return normalized || null;
+    return this.formulaSemantics.normalizeForSemanticComparison(value);
+  }
+
+  private async resolveLiveCanonicalFormula(input: {
+    htsNumber: string;
+    countryCode: string;
+    entryDate: string;
+    providerSnapshot: ExternalProviderFormulaEntity | null;
+  }): Promise<{
+    combinedNormalized: string | null;
+    componentNormalized: string[];
+  }> {
+    try {
+      const selectedChapter99Headings = this.extractProviderChapter99Headings(
+        input.providerSnapshot?.inputContext || {},
+      );
+      const resolved = await this.tariffFormulaResolver.resolve({
+        htsNumber: input.htsNumber,
+        countryOfOrigin: input.countryCode,
+        destinationCountry: 'US',
+        entryDate: input.entryDate,
+        selectedChapter99Headings,
+      });
+      const componentNormalized = resolved.components
+        .map((component) =>
+          this.normalizeFormula(
+            component.formulaCanonical || component.formula || null,
+          ),
+        )
+        .filter((value): value is string => !!value);
+      const combinedNormalized =
+        componentNormalized.length > 0
+          ? componentNormalized.slice().sort().join('+')
+          : null;
+      return { combinedNormalized, componentNormalized };
+    } catch (error: any) {
+      this.logger.warn(
+        `Live resolver comparison failed: ${error?.message || 'unknown error'}`,
+      );
+      return { combinedNormalized: null, componentNormalized: [] };
+    }
+  }
+
+  private extractProviderChapter99Headings(
+    inputContext: Record<string, any>,
+  ): string[] {
+    const out = new Set<string>();
+    const selections = inputContext?.chapter99Selections;
+    if (selections && typeof selections === 'object') {
+      for (const [code, enabled] of Object.entries(selections)) {
+        if (!enabled) continue;
+        out.add(code);
+      }
+    }
+    const direct = inputContext?.chapter99Heading || inputContext?.chapter99Hts;
+    if (typeof direct === 'string' && direct.trim()) {
+      out.add(direct.trim());
+    }
+    if (Array.isArray(inputContext?.chapter99Headings)) {
+      for (const heading of inputContext.chapter99Headings) {
+        if (typeof heading === 'string' && heading.trim()) {
+          out.add(heading.trim());
+        }
+      }
+    }
+    return Array.from(out);
+  }
+
+  private buildFormulaVariable(name: string): {
+    name: string;
+    type: string;
+    description?: string;
+    unit?: string;
+    dimension?: string;
+  } {
+    return {
+      name,
+      type: 'number',
+      description: this.describeFormulaVariable(name),
+      unit: this.describeFormulaUnit(name),
+      dimension: this.describeFormulaDimension(name),
+    };
+  }
+
+  private describeFormulaVariable(name: string): string {
+    if (name === 'value') return 'Declared value of goods in USD';
+    if (name === 'weight' || name === 'weight_kg') return 'Weight in kilograms';
+    if (name === 'quantity') return 'Legacy quantity input';
+    if (name === 'quantity_each') return 'Number of individual items';
+    if (name === 'quantity_pair') return 'Number of pairs';
+    if (name === 'quantity_dozen') return 'Number of dozens';
+    if (name === 'quantity_set') return 'Number of sets';
+    if (name === 'quantity_gross') return 'Number of gross units';
+    if (name === 'volume_liter') return 'Volume in liters';
+    if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'area_m2') return 'Area in square meters';
+    if (name === 'length_m') return 'Length in meters';
+    if (name === 'duty') return 'Computed duty so far';
+    if (name === 'total') return 'Declared value plus duty so far';
+    return 'Additional formula input';
+  }
+
+  private describeFormulaUnit(name: string): string | undefined {
+    if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'quantity_each') return 'each';
+    if (name === 'quantity_pair') return 'pair';
+    if (name === 'quantity_dozen') return 'dozen';
+    if (name === 'quantity_set') return 'set';
+    if (name === 'quantity_gross') return 'gross';
+    if (name === 'volume_liter') return 'L';
+    if (name === 'proof_liter') return 'proof L';
+    if (name === 'area_m2') return 'm2';
+    if (name === 'length_m') return 'm';
+    return undefined;
+  }
+
+  private describeFormulaDimension(name: string): string | undefined {
+    if (name === 'value' || name === 'duty' || name === 'total') {
+      return 'money';
+    }
+    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name.startsWith('quantity')) return 'quantity';
+    if (name.includes('liter')) return 'volume';
+    if (name.includes('area')) return 'area';
+    if (name.includes('length')) return 'length';
+    return undefined;
   }
 
   private projectLiveFormula(
@@ -1002,10 +1147,16 @@ export class ExternalProviderFormulaAdminService {
     }
 
     const normalizedFormulaType = (formulaType || '').toUpperCase();
+    const validation = this.formulaGenerationService.validateFormula(formula);
+    const variables = (validation.variables || []).map((name) =>
+      this.buildFormulaVariable(name),
+    );
     if (normalizedFormulaType === 'OTHER') {
       hts.otherRateFormula = formula;
+      hts.otherRateVariables = variables;
     } else if (normalizedFormulaType === 'ADJUSTED') {
       hts.adjustedFormula = formula;
+      hts.adjustedFormulaVariables = variables;
       const countries = new Set(
         (hts.chapter99ApplicableCountries || []).map((code) =>
           code.toUpperCase(),
@@ -1023,11 +1174,12 @@ export class ExternalProviderFormulaAdminService {
       hts.otherChapter99Detail = {
         ...(hts.otherChapter99Detail || {}),
         formula,
-        variables: hts.otherChapter99Detail?.variables || undefined,
+        variables,
         countries: Array.from(countries),
       };
     } else {
       hts.rateFormula = formula;
+      hts.rateVariables = variables;
     }
 
     hts.confirmed = true;

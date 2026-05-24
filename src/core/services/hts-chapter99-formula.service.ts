@@ -9,6 +9,7 @@ type FormulaVariable = {
   type: string;
   description?: string;
   unit?: string;
+  dimension?: string;
 };
 
 type Chapter99SynthesisOptions = {
@@ -198,11 +199,11 @@ export class HtsChapter99FormulaService {
         continue;
       }
 
-      const selected = this.selectChapter99Entry(
+      const selectedEntries = this.selectAllChapter99Entries(
         nonReciprocalLinks,
         chapter99ByCode,
       );
-      if (!selected) {
+      if (selectedEntries.length === 0) {
         unresolved++;
         entry.chapter99Links = chapter99Links;
         entry.nonNtrApplicableCountries = nextNonNtr;
@@ -229,7 +230,10 @@ export class HtsChapter99FormulaService {
         continue;
       }
 
-      const chapter99RateText = this.extractChapter99RateText(selected.entry);
+      const chapter99RateText = selectedEntries
+        .map((selected) => this.extractChapter99RateText(selected.entry))
+        .filter(Boolean)
+        .join(' + ');
       const baseFormulaResult =
         entry.rateFormula ||
         this.formulaGenerationService.generateFormulaByPattern(
@@ -252,7 +256,7 @@ export class HtsChapter99FormulaService {
             reciprocalOnly: false,
             reason: 'base general formula unavailable',
             links: chapter99Links,
-            selectedChapter99: selected.entry.htsNumber,
+            selectedChapter99: selectedEntries.map((s) => s.entry.htsNumber),
             generatedAt: new Date().toISOString(),
           },
         };
@@ -266,11 +270,10 @@ export class HtsChapter99FormulaService {
         continue;
       }
 
-      const chapter99Countries = this.inferApplicableCountries(selected.entry);
-      const adjustedFormula = this.buildAdjustedFormula(
+      const chapter99Countries = this.mergeApplicableCountries(selectedEntries);
+      const adjustedFormula = this.buildAdjustedFormulaFromSelections(
         baseFormulaResult,
-        selected.adjustmentRate,
-        selected.referencesApplicableSubheading,
+        selectedEntries,
       );
       const baseVariables = this.mergeVariableObjects(
         entry.rateVariables,
@@ -287,10 +290,11 @@ export class HtsChapter99FormulaService {
           unresolved: false,
           reciprocalOnly: false,
           links: chapter99Links,
-          selectedChapter99: selected.entry.htsNumber,
-          adjustmentRate: selected.adjustmentRate,
-          referencesApplicableSubheading:
-            selected.referencesApplicableSubheading,
+          selectedChapter99: selectedEntries.map((s) => s.entry.htsNumber),
+          adjustmentRates: selectedEntries.map((s) => s.adjustmentRate),
+          referencesApplicableSubheading: selectedEntries.some(
+            (s) => s.referencesApplicableSubheading,
+          ),
           generatedAt: new Date().toISOString(),
         },
       };
@@ -666,7 +670,9 @@ export class HtsChapter99FormulaService {
     // Stable sort: prefer rows that explicitly reference the subheading,
     // then most-recent effective date, then largest adjustment rate.
     return out.sort((a, b) => {
-      if (a.referencesApplicableSubheading !== b.referencesApplicableSubheading) {
+      if (
+        a.referencesApplicableSubheading !== b.referencesApplicableSubheading
+      ) {
         return a.referencesApplicableSubheading ? -1 : 1;
       }
       const ad = a.entry.effectiveDate
@@ -742,6 +748,51 @@ export class HtsChapter99FormulaService {
     }
 
     return `(${base}) + (value * ${adjustmentRate})`;
+  }
+
+  private buildAdjustedFormulaFromSelections(
+    baseFormula: string,
+    selectedEntries: Array<{
+      entry: HtsEntity;
+      adjustmentRate: number;
+      referencesApplicableSubheading: boolean;
+    }>,
+  ): string {
+    const base = baseFormula.trim();
+    if (!base) return '0';
+    const addOns = selectedEntries
+      .map((selected) => selected.adjustmentRate)
+      .filter((rate) => rate > 0)
+      .map((rate) => `(value * ${rate})`);
+    if (addOns.length === 0) {
+      return base;
+    }
+    return [`(${base})`, ...addOns].join(' + ');
+  }
+
+  private mergeApplicableCountries(
+    selectedEntries: Array<{
+      entry: HtsEntity;
+      adjustmentRate: number;
+      referencesApplicableSubheading: boolean;
+    }>,
+  ): string[] | null {
+    const countries = new Set<string>();
+    let hasOpenScope = false;
+    for (const selected of selectedEntries) {
+      const inferred = this.inferApplicableCountries(selected.entry);
+      if (!inferred || inferred.length === 0) {
+        hasOpenScope = true;
+        continue;
+      }
+      for (const country of inferred) {
+        countries.add(country);
+      }
+    }
+    if (countries.size === 0 && hasOpenScope) {
+      return null;
+    }
+    return countries.size > 0 ? Array.from(countries).sort() : null;
   }
 
   private inferApplicableCountries(entry: HtsEntity): string[] | null {
@@ -830,6 +881,8 @@ export class HtsChapter99FormulaService {
         name,
         type: 'number',
         description: this.describeVariable(name),
+        unit: this.describeUnit(name),
+        dimension: this.describeDimension(name),
       });
     }
 
@@ -846,7 +899,40 @@ export class HtsChapter99FormulaService {
     if (name === 'quantity') {
       return 'Number of imported items';
     }
+    if (name === 'quantity_each') return 'Number of individual items';
+    if (name === 'quantity_pair') return 'Number of pairs';
+    if (name === 'quantity_dozen') return 'Number of dozens';
+    if (name === 'quantity_set') return 'Number of sets';
+    if (name === 'quantity_gross') return 'Number of gross units';
+    if (name === 'volume_liter') return 'Volume in liters';
+    if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'area_m2') return 'Area in square meters';
+    if (name === 'length_m') return 'Length in meters';
     return 'Input variable';
+  }
+
+  private describeUnit(name: string): string | undefined {
+    if (name === 'weight') return 'kg';
+    if (name === 'quantity_each') return 'each';
+    if (name === 'quantity_pair') return 'pair';
+    if (name === 'quantity_dozen') return 'dozen';
+    if (name === 'quantity_set') return 'set';
+    if (name === 'quantity_gross') return 'gross';
+    if (name === 'volume_liter') return 'L';
+    if (name === 'proof_liter') return 'proof L';
+    if (name === 'area_m2') return 'm2';
+    if (name === 'length_m') return 'm';
+    return undefined;
+  }
+
+  private describeDimension(name: string): string | undefined {
+    if (name === 'value') return 'money';
+    if (name === 'weight') return 'weight';
+    if (name.startsWith('quantity')) return 'quantity';
+    if (name.includes('liter')) return 'volume';
+    if (name.includes('area')) return 'area';
+    if (name.includes('length')) return 'length';
+    return undefined;
   }
 
   private normalizeFootnotePayload(payload: unknown): string | null {

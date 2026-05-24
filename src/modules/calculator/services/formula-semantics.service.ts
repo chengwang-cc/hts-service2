@@ -72,7 +72,9 @@ export class FormulaSemanticsService {
       formula,
       formulaAst,
       canonicalFormula,
-      semanticHash: this.hash(`${canonicalFormula}|${referencedVariables.join(',')}`),
+      semanticHash: this.hash(
+        `${canonicalFormula}|${referencedVariables.join(',')}`,
+      ),
       variables: referencedVariables,
       validationErrors,
     };

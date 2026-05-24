@@ -4,6 +4,9 @@ import { Repository } from 'typeorm';
 import { TradeAgreementEligibilityEntity } from '../entities';
 import { RateRetrievalService } from './rate-retrieval.service';
 import { FormulaEvaluationService } from './formula-evaluation.service';
+import { FormulaScopeService } from './formula-scope.service';
+import { PolicyApplicabilityService } from './policy-applicability.service';
+import { TariffConditionEngineService } from './tariff-condition-engine.service';
 import { HtsExtraTaxEntity, CalculationHistoryEntity } from '@hts/core';
 import type { TariffSelectionMode } from '../dto/calculate.dto';
 
@@ -12,7 +15,11 @@ const FEE_TAX_CODE_PREFIXES = ['MPF', 'HMF'];
 function classifyTaxAsFee(taxCode: string): boolean {
   const upper = (taxCode || '').toUpperCase();
   if (FEE_TAX_CODE_PREFIXES.some((p) => upper.startsWith(p))) return true;
-  if (upper.includes('_FEE') || upper.endsWith('_FEE') || upper.includes('FEE_')) {
+  if (
+    upper.includes('_FEE') ||
+    upper.endsWith('_FEE') ||
+    upper.includes('FEE_')
+  ) {
     return true;
   }
   return false;
@@ -123,6 +130,9 @@ export class CalculationService {
     private readonly tradeAgreementEligibilityRepository: Repository<TradeAgreementEligibilityEntity>,
     private readonly rateRetrievalService: RateRetrievalService,
     private readonly formulaEvaluationService: FormulaEvaluationService,
+    private readonly formulaScope: FormulaScopeService,
+    private readonly policyApplicability: PolicyApplicabilityService,
+    private readonly conditionEngine: TariffConditionEngineService,
   ) {}
 
   async calculate(input: CalculationInput): Promise<CalculationResult> {
@@ -132,22 +142,19 @@ export class CalculationService {
       const normalizedInput = this.normalizeCalculationInput(input);
       const calculationDate = this.resolveCalculationDate(normalizedInput);
       const canonicalEntryDate = this.formatDateOnly(calculationDate);
+      const policySelection =
+        this.policyApplicability.applySystemChapter99Selections({
+          additionalInputs: normalizedInput.additionalInputs,
+          countryOfOrigin: normalizedInput.countryOfOrigin,
+          calculationDate,
+        });
       const calculationInput: CalculationInput = {
         ...normalizedInput,
         entryDate: canonicalEntryDate,
-        // Auto-inject reciprocal-tariff Chapter 99 headings the caller
-        // didn't explicitly pass. ai-service does this implicitly; without
-        // it, the seeded RECIP_BASELINE_9903_01_25 + country exception
-        // rows in `hts_extra_taxes` never fire and we systematically
-        // under-report duty vs ai-service.
-        additionalInputs: this.applyReciprocalAutoHeadings(
-          normalizedInput.additionalInputs,
-          normalizedInput.countryOfOrigin,
-          calculationDate,
-        ),
+        additionalInputs: policySelection.additionalInputs,
       };
-      const selectedChapter99Headings = this.extractSelectedChapter99Headings(
-        calculationInput.additionalInputs,
+      const selectedChapter99Headings = new Set(
+        policySelection.selectedChapter99Headings,
       );
       const rateInfo = await this.rateRetrievalService.getRate(
         calculationInput.htsNumber,
@@ -159,10 +166,17 @@ export class CalculationService {
         },
       );
 
-      const baseVariables = {
-        value: calculationInput.declaredValue,
-        weight: calculationInput.weightKg,
+      const baseScope = this.formulaScope.buildBaseScope({
+        declaredValue: calculationInput.declaredValue,
+        weightKg: calculationInput.weightKg,
         quantity: calculationInput.quantity,
+        quantityUnit: calculationInput.quantityUnit,
+        additionalInputs: calculationInput.additionalInputs,
+      });
+      const baseVariables = {
+        value: baseScope.value,
+        weight: baseScope.weight,
+        quantity: baseScope.quantity,
       };
 
       const declaredBaseVariables = (rateInfo.variables || []).map(
@@ -186,7 +200,7 @@ export class CalculationService {
           tradeAgreementInfo.preferentialFormula,
           {
             ...baseVariables,
-            additionalInputs: calculationInput.additionalInputs || {},
+            additionalInputs: baseScope.additionalInputs,
             declaredVariables: declaredBaseVariables,
           },
         );
@@ -198,7 +212,7 @@ export class CalculationService {
       } else {
         baseDuty = this.formulaEvaluationService.evaluate(rateInfo.formula, {
           ...baseVariables,
-          additionalInputs: calculationInput.additionalInputs || {},
+          additionalInputs: baseScope.additionalInputs,
           declaredVariables: declaredBaseVariables,
         });
         formulaUsed = rateInfo.formula;
@@ -316,9 +330,10 @@ export class CalculationService {
     calculationDate: Date,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
     const chapter = input.htsNumber.substring(0, 2);
-    const selectedChapter99Headings = this.extractSelectedChapter99Headings(
-      input.additionalInputs,
-    );
+    const selectedChapter99Headings =
+      this.policyApplicability.extractSelectedChapter99Headings(
+        input.additionalInputs,
+      );
 
     // Load ADD_ON/STANDALONE/CONDITIONAL so conditional exclusions can gate ADD_ON rules.
     const allTariffs = await this.extraTaxRepository.find({
@@ -392,16 +407,23 @@ export class CalculationService {
       // Evaluate formula
       if (tariff.rateFormula) {
         try {
-          const amount = this.formulaEvaluationService.evaluate(
-            tariff.rateFormula,
-            {
-              ...variables,
-              additionalInputs: input.additionalInputs || {},
-              declaredVariables: this.extractFormulaIdentifiers(
-                tariff.rateFormula,
-              ),
-            },
-          );
+          const evaluated =
+            this.formulaEvaluationService.evaluateWithConstraints(
+              tariff.rateFormula,
+              {
+                ...variables,
+                additionalInputs: input.additionalInputs || {},
+                declaredVariables: this.extractFormulaIdentifiers(
+                  tariff.rateFormula,
+                ),
+              },
+              {
+                minAmount: tariff.minimumAmount,
+                maxAmount: tariff.maximumAmount,
+                rounding: 'component_2dp',
+              },
+            );
+          const amount = evaluated.amount;
           if (amount <= 0) {
             continue;
           }
@@ -432,9 +454,10 @@ export class CalculationService {
     calculationDate: Date,
   ): Promise<Array<{ type: string; amount: number; description: string }>> {
     const chapter = input.htsNumber.substring(0, 2);
-    const selectedChapter99Headings = this.extractSelectedChapter99Headings(
-      input.additionalInputs,
-    );
+    const selectedChapter99Headings =
+      this.policyApplicability.extractSelectedChapter99Headings(
+        input.additionalInputs,
+      );
 
     // Query for all active POST_CALCULATION taxes
     const allTaxes = await this.extraTaxRepository.find({
@@ -473,21 +496,25 @@ export class CalculationService {
       // Evaluate formula
       if (tax.rateFormula) {
         try {
-          let amount = this.formulaEvaluationService.evaluate(tax.rateFormula, {
-            ...variables,
-            additionalInputs: input.additionalInputs || {},
-            declaredVariables: this.extractFormulaIdentifiers(tax.rateFormula),
-          });
+          const evaluated =
+            this.formulaEvaluationService.evaluateWithConstraints(
+              tax.rateFormula,
+              {
+                ...variables,
+                additionalInputs: input.additionalInputs || {},
+                declaredVariables: this.extractFormulaIdentifiers(
+                  tax.rateFormula,
+                ),
+              },
+              {
+                minAmount: tax.minimumAmount,
+                maxAmount: tax.maximumAmount,
+                rounding: 'component_2dp',
+              },
+            );
+          const amount = evaluated.amount;
           if (amount <= 0) {
             continue;
-          }
-
-          // Apply min/max constraints
-          if (tax.minimumAmount !== null) {
-            amount = Math.max(amount, tax.minimumAmount);
-          }
-          if (tax.maximumAmount !== null) {
-            amount = Math.min(amount, tax.maximumAmount);
           }
 
           results.push({
@@ -700,7 +727,10 @@ export class CalculationService {
     }
     if (!htsMatches) return false;
 
-    const countryMatches = this.isCountryMatch(taxCountry, inputCountry);
+    const countryMatches = this.conditionEngine.isCountryMatch(
+      taxCountry,
+      inputCountry,
+    );
     if (!countryMatches) return false;
 
     const normalizedCalcDate = this.toDateOnlyUtc(calculationDate);
@@ -727,121 +757,14 @@ export class CalculationService {
     input: CalculationInput,
     selectedChapter99Headings: Set<string>,
   ): boolean {
-    if (!conditions || typeof conditions !== 'object') {
-      return true;
-    }
-
-    // Marker-only rows are metadata and should not execute as charge rows.
-    if (this.isPolicyMarkerOnly(conditions)) {
-      return false;
-    }
-
-    if (
-      this.isTruthyFlag(conditions.requiresAnnexMapping) &&
-      !this.isTruthyFlag(input.additionalInputs?.annexEligibilityConfirmed)
-    ) {
-      return false;
-    }
-
-    if (
-      this.isTruthyFlag(conditions.frameworkRateOnly) &&
-      !this.isTruthyFlag(input.additionalInputs?.allowFrameworkRate)
-    ) {
-      return false;
-    }
-
-    const requiredHeading = this.normalizeChapter99Heading(
-      typeof conditions.htsHeading === 'string' ? conditions.htsHeading : null,
-    );
-    if (requiredHeading && !selectedChapter99Headings.has(requiredHeading)) {
-      return false;
-    }
-
-    const exceptionHeading = this.normalizeChapter99Heading(
-      typeof conditions.exceptionHeading === 'string'
-        ? conditions.exceptionHeading
-        : null,
-    );
-    if (exceptionHeading && !selectedChapter99Headings.has(exceptionHeading)) {
-      return false;
-    }
-
-    if (
-      typeof conditions.tradeAgreementCode === 'string' &&
-      conditions.tradeAgreementCode.trim()
-    ) {
-      const expected = conditions.tradeAgreementCode.trim().toUpperCase();
-      if ((input.tradeAgreementCode || '').toUpperCase() !== expected) {
-        return false;
-      }
-    }
-
-    if (
-      this.isTruthyFlag(conditions.requiresCertificate) &&
-      !this.isTruthyFlag(input.tradeAgreementCertificate)
-    ) {
-      return false;
-    }
-
-    const minValue = this.toFiniteNumber(conditions.minValue);
-    if (minValue !== null && input.declaredValue < minValue) {
-      return false;
-    }
-
-    const maxValue = this.toFiniteNumber(conditions.maxValue);
-    if (maxValue !== null && input.declaredValue > maxValue) {
-      return false;
-    }
-
-    if (
-      Array.isArray(conditions.countryIn) &&
-      conditions.countryIn.length > 0
-    ) {
-      const inputCountry = (input.countryOfOrigin || '').toUpperCase();
-      const whitelist = conditions.countryIn.map((code: any) =>
-        String(code || '')
-          .toUpperCase()
-          .trim(),
-      );
-      const countryAllowed = whitelist.some((code) =>
-        this.isCountryMatch(code, inputCountry),
-      );
-      if (!countryAllowed) {
-        return false;
-      }
-    }
-
-    if (
-      Array.isArray(conditions.countryNotIn) &&
-      conditions.countryNotIn.length > 0
-    ) {
-      const inputCountry = (input.countryOfOrigin || '').toUpperCase();
-      const blacklist = conditions.countryNotIn.map((code: any) =>
-        String(code || '')
-          .toUpperCase()
-          .trim(),
-      );
-      const countryBlocked = blacklist.some((code) =>
-        this.isCountryMatch(code, inputCountry),
-      );
-      if (countryBlocked) {
-        return false;
-      }
-    }
-
-    if (
-      typeof conditions.modeOfTransport === 'string' &&
-      conditions.modeOfTransport.trim()
-    ) {
-      const actualMode = String(input.additionalInputs?.modeOfTransport || '')
-        .trim()
-        .toUpperCase();
-      if (actualMode !== conditions.modeOfTransport.trim().toUpperCase()) {
-        return false;
-      }
-    }
-
-    return true;
+    return this.conditionEngine.evaluate(conditions, {
+      countryOfOrigin: input.countryOfOrigin,
+      declaredValue: input.declaredValue,
+      tradeAgreementCode: input.tradeAgreementCode,
+      tradeAgreementCertificate: input.tradeAgreementCertificate,
+      additionalInputs: input.additionalInputs,
+      selectedChapter99Headings,
+    });
   }
 
   private extractSelectedChapter99Headings(
@@ -940,19 +863,17 @@ export class CalculationService {
       return false;
     }
     return (
-      this.isTruthyFlag((conditions as any).policyMarkerOnly) ||
-      this.isTruthyFlag((conditions as any).requiresManualReview)
+      this.policyApplicability.isTruthyFlag(
+        (conditions as any).policyMarkerOnly,
+      ) ||
+      this.policyApplicability.isTruthyFlag(
+        (conditions as any).requiresManualReview,
+      )
     );
   }
 
   private isTruthyFlag(value: any): boolean {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return value !== 0;
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      return ['1', 'true', 'yes', 'y', 'on'].includes(normalized);
-    }
-    return false;
+    return this.policyApplicability.isTruthyFlag(value);
   }
 
   private toFiniteNumber(value: any): number | null {
@@ -1074,7 +995,10 @@ export class CalculationService {
     Date.UTC(2025, 3, 5), // April 5, 2025
   );
 
-  private static readonly RECIPROCAL_COUNTRY_EXCEPTIONS: Record<string, string> = {
+  private static readonly RECIPROCAL_COUNTRY_EXCEPTIONS: Record<
+    string,
+    string
+  > = {
     CA: '9903.01.26',
     MX: '9903.01.27',
   };
