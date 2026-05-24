@@ -39,4 +39,36 @@ describe('TariffConditionEngineService', () => {
 
     expect(allowed).toBe(true);
   });
+
+  it('keeps resolver scope checks from rejecting runtime-only conditions', () => {
+    expect(
+      engine.evaluateScope(
+        {
+          requiresAnnexMapping: true,
+          frameworkRateOnly: true,
+          requiresCertificate: true,
+          tradeAgreementCode: 'USMCA',
+        },
+        {
+          countryOfOrigin: 'CN',
+          selectedChapter99Headings: [],
+        },
+      ),
+    ).toBe(true);
+
+    expect(
+      engine.evaluate(
+        {
+          requiresAnnexMapping: true,
+          frameworkRateOnly: true,
+          requiresCertificate: true,
+          tradeAgreementCode: 'USMCA',
+        },
+        {
+          countryOfOrigin: 'CN',
+          selectedChapter99Headings: [],
+        },
+      ),
+    ).toBe(false);
+  });
 });

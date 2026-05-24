@@ -246,8 +246,13 @@ export class FormulaGenerationService {
         eachStyleMatch[2],
         eachStyleMatch[3] || null,
       );
-      const variable =
-        this.mapUnitToVariable(eachStyleMatch[4], unitOfQuantity) || 'quantity';
+      const variable = this.mapUnitToVariable(
+        eachStyleMatch[4],
+        unitOfQuantity,
+      );
+      if (!variable) {
+        return null;
+      }
       return { variable, amount };
     }
 
@@ -270,7 +275,7 @@ export class FormulaGenerationService {
     if (/^\d+(?:\.\d+)?$/.test(token)) {
       const denominator = parseFloat(token);
       if (Number.isFinite(denominator) && denominator > 0) {
-        amount = amount / denominator;
+        amount = this.normalizeFormulaNumber(amount / denominator);
       }
 
       const inferredUnit = (unitOfQuantity || '')
@@ -280,7 +285,10 @@ export class FormulaGenerationService {
         inferredUnit.length > 0
           ? this.mapUnitToVariable(inferredUnit, unitOfQuantity)
           : null;
-      const variable = inferredVariable || 'quantity';
+      if (!inferredVariable) {
+        return null;
+      }
+      const variable = inferredVariable;
       return { variable, amount };
     }
 
@@ -292,7 +300,7 @@ export class FormulaGenerationService {
       }
     }
     if (denominator !== null) {
-      amount = amount / denominator;
+      amount = this.normalizeFormulaNumber(amount / denominator);
     }
 
     const variable = this.mapUnitToVariable(token, unitOfQuantity);
@@ -318,7 +326,11 @@ export class FormulaGenerationService {
     if (isCents) {
       amount = amount / 100;
     }
-    return amount;
+    return this.normalizeFormulaNumber(amount);
+  }
+
+  private normalizeFormulaNumber(value: number): number {
+    return Number(value.toPrecision(12));
   }
 
   private normalizeRateText(rateText: string): string {
@@ -538,7 +550,7 @@ Examples:
       return 'length_m';
     }
 
-    // Default to quantity if unitOfQuantity matches
+    // Accept an inferred source unit only when it maps to a known dimension.
     if (
       unitOfQuantity &&
       (compact.includes(
@@ -549,7 +561,7 @@ Examples:
         ))
     ) {
       const sourceUnit = unitOfQuantity.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return this.mapQuantityUnit(sourceUnit) || 'quantity_each';
+      return this.mapQuantityUnit(sourceUnit);
     }
 
     this.logger.warn(

@@ -292,9 +292,11 @@ export class HtsChapter99FormulaService {
           links: chapter99Links,
           selectedChapter99: selectedEntries.map((s) => s.entry.htsNumber),
           adjustmentRates: selectedEntries.map((s) => s.adjustmentRate),
+          components: this.buildChapter99ComponentMetadata(selectedEntries),
           referencesApplicableSubheading: selectedEntries.some(
             (s) => s.referencesApplicableSubheading,
           ),
+          adjustedFormulaIsCache: true,
           generatedAt: new Date().toISOString(),
         },
       };
@@ -768,6 +770,39 @@ export class HtsChapter99FormulaService {
       return base;
     }
     return [`(${base})`, ...addOns].join(' + ');
+  }
+
+  private buildChapter99ComponentMetadata(
+    selectedEntries: Array<{
+      entry: HtsEntity;
+      adjustmentRate: number;
+      referencesApplicableSubheading: boolean;
+    }>,
+  ): Array<{
+    htsNumber: string;
+    rateText: string;
+    formula: string | null;
+    adjustmentRate: number;
+    referencesApplicableSubheading: boolean;
+    description: string | null;
+    effectiveDate: string | null;
+    countries: string[] | null;
+  }> {
+    return selectedEntries.map((selected) => ({
+      htsNumber: selected.entry.htsNumber,
+      rateText: this.extractChapter99RateText(selected.entry),
+      formula:
+        selected.adjustmentRate > 0
+          ? `value * ${selected.adjustmentRate}`
+          : null,
+      adjustmentRate: selected.adjustmentRate,
+      referencesApplicableSubheading: selected.referencesApplicableSubheading,
+      description: selected.entry.description || null,
+      effectiveDate: selected.entry.effectiveDate
+        ? new Date(selected.entry.effectiveDate).toISOString().slice(0, 10)
+        : null,
+      countries: this.inferApplicableCountries(selected.entry),
+    }));
   }
 
   private mergeApplicableCountries(

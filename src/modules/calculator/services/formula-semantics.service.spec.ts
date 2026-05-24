@@ -27,4 +27,14 @@ describe('FormulaSemanticsService', () => {
       'Undeclared variable: steel_value',
     );
   });
+
+  it('returns validation errors instead of throwing for malformed formulas', () => {
+    const result = service.analyze('value *', [
+      { name: 'value', type: 'number', dimension: 'money' },
+    ]);
+
+    expect(result.formulaAst).toEqual({ kind: 'raw', expression: 'value *' });
+    expect(result.canonicalFormula).toBe('value*');
+    expect(result.validationErrors.length).toBeGreaterThan(0);
+  });
 });

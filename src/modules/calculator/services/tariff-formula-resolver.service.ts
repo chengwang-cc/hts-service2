@@ -376,7 +376,7 @@ export class TariffFormulaResolverService {
     }
 
     if (
-      !this.conditionEngine.evaluate(row.conditions, {
+      !this.conditionEngine.evaluateScope(row.conditions, {
         countryOfOrigin: args.countryOfOrigin,
         selectedChapter99Headings: args.selectedChapter99Headings,
       })

@@ -153,7 +153,7 @@ export class TariffRateBatchService {
     const additionalInputs = scoped.additionalInputs;
     const effectiveReq: BatchRateRequest = {
       ...req,
-      inputs,
+      inputs: additionalInputs,
       selectedChapter99Headings,
     };
 
@@ -310,13 +310,16 @@ export class TariffRateBatchService {
     additional: Record<string, number>;
     duty: number;
     total: number;
-  }): Record<string, number> {
-    const scope: Record<string, number> = {
+  }): Record<string, unknown> {
+    const additionalInputs: Record<string, number> = {};
+    const scope: Record<string, unknown> = {
       value: args.baseVars.value,
       weight: args.baseVars.weight,
       quantity: args.baseVars.quantity,
       duty: args.duty,
       total: args.total,
+      additionalInputs,
+      declaredVariables: args.component.requiredVariables.map((v) => v.name),
     };
 
     const declared = new Set(
@@ -327,7 +330,7 @@ export class TariffRateBatchService {
       if (k === 'value' || k === 'weight' || k === 'quantity') continue;
       if (!declared.has(k)) continue;
       if (typeof v !== 'number' || !Number.isFinite(v)) continue;
-      scope[k] = v;
+      additionalInputs[k] = v;
     }
 
     return scope;
@@ -335,7 +338,7 @@ export class TariffRateBatchService {
 
   private safeEvaluate(
     formula: string,
-    variables: Record<string, number>,
+    variables: Record<string, unknown>,
     constraints?: TariffFormulaComponent['constraints'],
   ): { amount: number; error: string | null } {
     try {

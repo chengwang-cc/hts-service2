@@ -159,6 +159,60 @@ export class TariffConditionEngineService {
     return true;
   }
 
+  evaluateScope(
+    conditions: Record<string, any> | null | undefined,
+    context: Pick<
+      TariffConditionContext,
+      'countryOfOrigin' | 'selectedChapter99Headings'
+    >,
+  ): boolean {
+    if (!conditions || typeof conditions !== 'object') {
+      return true;
+    }
+    if (this.isPolicyMarkerOnly(conditions)) {
+      return false;
+    }
+
+    const selected = new Set(context.selectedChapter99Headings || []);
+    const requiredHeading = this.policy.normalizeChapter99Heading(
+      typeof conditions.htsHeading === 'string' ? conditions.htsHeading : null,
+    );
+    if (requiredHeading && !selected.has(requiredHeading)) {
+      return false;
+    }
+
+    const exceptionHeading = this.policy.normalizeChapter99Heading(
+      typeof conditions.exceptionHeading === 'string'
+        ? conditions.exceptionHeading
+        : null,
+    );
+    if (exceptionHeading && !selected.has(exceptionHeading)) {
+      return false;
+    }
+
+    if (
+      Array.isArray(conditions.countryIn) &&
+      conditions.countryIn.length > 0
+    ) {
+      const countryAllowed = conditions.countryIn.some((code: any) =>
+        this.isCountryMatch(String(code || ''), context.countryOfOrigin),
+      );
+      if (!countryAllowed) return false;
+    }
+
+    if (
+      Array.isArray(conditions.countryNotIn) &&
+      conditions.countryNotIn.length > 0
+    ) {
+      const countryBlocked = conditions.countryNotIn.some((code: any) =>
+        this.isCountryMatch(String(code || ''), context.countryOfOrigin),
+      );
+      if (countryBlocked) return false;
+    }
+
+    return true;
+  }
+
   isPolicyMarkerOnly(conditions: Record<string, any> | null | undefined) {
     if (!conditions || typeof conditions !== 'object') {
       return false;

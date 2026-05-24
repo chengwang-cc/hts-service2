@@ -60,7 +60,13 @@ export class FormulaSemanticsService {
       validationErrors.push(error?.message || 'Formula parse failed');
     }
 
-    const canonicalFormula = this.canonicalize(formula);
+    let canonicalFormula: string;
+    try {
+      canonicalFormula = this.canonicalize(formula);
+    } catch (error: any) {
+      canonicalFormula = this.normalizeRawFormula(formula);
+      validationErrors.push(error?.message || 'Formula canonicalization failed');
+    }
     const referencedVariables = this.extractVariablesFromAst(formulaAst);
     for (const referenced of referencedVariables) {
       if (!this.isKnownVariable(referenced, variableNames)) {
@@ -148,11 +154,15 @@ export class FormulaSemanticsService {
         return `${node.name}(${node.args.map((arg) => this.astToString(arg)).join(',')})`;
       case 'raw':
       default:
-        return node.expression
-          .replace(/\s+/g, ' ')
-          .replace(/\s*([()+\-*/=,:])\s*/g, '$1')
-          .trim();
+        return this.normalizeRawFormula(node.expression);
     }
+  }
+
+  private normalizeRawFormula(formula: string): string {
+    return String(formula || '')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*([()+\-*/=,:])\s*/g, '$1')
+      .trim();
   }
 
   private astKey(node: FormulaAstNode): string {
