@@ -52,7 +52,15 @@
     "lookup:eval:report": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-accuracy-report.ts",
     "lookup:plans:check": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-query-plan-check.ts",
     "lookup:embeddings:refresh": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/refresh-hts-embeddings.ts",
-    "kill-port": "./scripts/kill-port.sh"
+    "kill-port": "./scripts/kill-port.sh",
+    "shadow-compare": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/shadow-compare.ts",
+    "promote-extra-taxes": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/promote-extra-taxes.ts",
+    "seed:jurisdictions": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/seed-jurisdictions.ts",
+    "parity": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/run-parity-comparison.ts",
+    "parity:smoke": "npm run parity -- --scope smoke",
+    "parity:sample": "npm run parity -- --scope sample",
+    "parity:full": "npm run parity -- --scope full",
+    "import-extras": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/import-extra-taxes-from-ai-service.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -143,6 +151,26 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^@hts/core$": "<rootDir>/core/index",
+      "^@hts/core/(.*)$": "<rootDir>/core/$1",
+      "^@hts/knowledgebase$": "<rootDir>/modules/knowledgebase/index",
+      "^@hts/knowledgebase/(.*)$": "<rootDir>/modules/knowledgebase/$1",
+      "^@hts/calculator$": "<rootDir>/modules/calculator/index",
+      "^@hts/calculator/(.*)$": "<rootDir>/modules/calculator/$1",
+      "^@hts/billing$": "<rootDir>/modules/billing/index",
+      "^@hts/billing/(.*)$": "<rootDir>/modules/billing/$1",
+      "^@hts/connectors$": "<rootDir>/modules/connectors/index",
+      "^@hts/connectors/(.*)$": "<rootDir>/modules/connectors/$1",
+      "^@hts/export$": "<rootDir>/modules/export/index",
+      "^@hts/export/(.*)$": "<rootDir>/modules/export/$1",
+      "^@hts/i18n$": "<rootDir>/modules/i18n/index",
+      "^@hts/i18n/(.*)$": "<rootDir>/modules/i18n/$1",
+      "^@hts/lookup$": "<rootDir>/modules/lookup/index",
+      "^@hts/lookup/(.*)$": "<rootDir>/modules/lookup/$1",
+      "^@hts/onboarding$": "<rootDir>/modules/onboarding/index",
+      "^@hts/onboarding/(.*)$": "<rootDir>/modules/onboarding/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

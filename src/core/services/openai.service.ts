@@ -303,7 +303,13 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): Promise<ChatCompletion> {
-    const { model = 'gpt-5.4-mini', temperature = 0.7, max_tokens, top_p } = options;
+    const {
+      model = 'gpt-5.4-mini',
+      temperature = 0.7,
+      max_tokens,
+      top_p,
+      response_format,
+    } = options;
 
     try {
       const startTime = Date.now();
@@ -314,6 +320,9 @@ export class OpenAiService {
         temperature,
         max_tokens,
         top_p,
+        // Forward response_format when caller asks for it (json_object /
+        // json_schema). Used by parity-ai-validate to force strict JSON.
+        ...(response_format ? { response_format } : {}),
         stream: false, // Ensure not streaming
       });
 

@@ -11,6 +11,8 @@ import { WidgetKeyGuard } from './guards/widget-key.guard';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { ShopifyAppModule } from '../shopify-app/shopify-app.module';
 import { ConnectorsModule } from '../connectors/connectors.module';
+import { CatalogModule } from '../catalog/catalog.module';
+import { LandedCostModule } from '../landed-cost/landed-cost.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { ConnectorsModule } from '../connectors/connectors.module';
     CalculatorModule,
     forwardRef(() => ShopifyAppModule),
     ConnectorsModule,
+    CatalogModule,
+    LandedCostModule,
   ],
   controllers: [WidgetController, WidgetApiController],
   providers: [WidgetService, WidgetKeyGuard],

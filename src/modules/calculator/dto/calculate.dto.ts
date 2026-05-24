@@ -1,10 +1,20 @@
+import { Type } from 'class-transformer';
 import {
-  IsString,
+  IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
-  IsBoolean,
+  IsString,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { AdditionalInputsDto } from './additional-inputs.dto';
+
+export type TariffSelectionMode =
+  | 'preferred'
+  | 'maximum'
+  | 'median'
+  | 'minimum';
 
 export class CalculateDto {
   @IsString()
@@ -12,6 +22,14 @@ export class CalculateDto {
 
   @IsString()
   countryOfOrigin: string;
+
+  /**
+   * Destination jurisdiction. Defaults to 'US' during P0 (the only supported
+   * destination today). Required for non-US destinations in P1+.
+   */
+  @IsString()
+  @IsOptional()
+  destinationCountry?: string;
 
   @IsNumber()
   @Min(0)
@@ -59,6 +77,17 @@ export class CalculateDto {
   @IsOptional()
   tradeAgreementCertificate?: boolean;
 
+  /**
+   * Selection mode for incomplete (6-digit) HS classifications.
+   * Used by landed-cost / 6-digit fallback in P3. Ignored when a full
+   * 10-digit HTS code is provided.
+   */
+  @IsEnum(['preferred', 'maximum', 'median', 'minimum'])
   @IsOptional()
-  additionalInputs?: Record<string, any>;
+  tariffSelectionMode?: TariffSelectionMode;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AdditionalInputsDto)
+  additionalInputs?: AdditionalInputsDto;
 }

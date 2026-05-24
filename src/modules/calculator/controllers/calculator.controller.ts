@@ -5,44 +5,30 @@ import {
   Body,
   Param,
   Query,
+  Req,
   HttpException,
   HttpStatus,
+  UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
-import { firstValueFrom } from 'rxjs';
-import { CalculationService, FormulaEvaluationService } from '../services';
+import {
+  CalculationService,
+  FormulaEvaluationService,
+} from '../services';
+import { TariffFormulaResolverService } from '../services/tariff-formula-resolver.service';
+import { TariffRateBatchService } from '../services/tariff-rate-batch.service';
 import { CalculateDto } from '../dto';
 import { CalculationScenarioEntity } from '../entities';
+import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
+import { ApiPermissions } from '../../api-keys/decorators/api-permissions.decorator';
+import { SkipJwtAuth } from '../../api-keys/decorators/skip-jwt-auth.decorator';
 import { Public } from '../../auth/decorators/public.decorator';
 
-interface ExternalFormulaVariable {
-  name: string;
-  unit: string;
-  type: string;
-  description: string;
-}
-
-interface ExternalFormula {
-  tariffType: string;
-  tariffTypeDescription: string;
-  formula: string;
-  formulaVariables?: ExternalFormulaVariable[];
-  chapter99HtsCode?: string;
-  amount?: number;
-}
-
-interface ExternalTariffResult {
-  htsCode: string;
-  country: string;
-  effectiveHtsCode?: string;
-  message: string;
-  blocked: boolean;
-  block_reason: string | null;
-  exclusiveSection301?: boolean;
-  formulas: ExternalFormula[];
+interface CallerContext {
+  organizationId: string;
+  userId?: string;
 }
 
 @Controller('calculator')
@@ -50,19 +36,23 @@ export class CalculatorController {
   constructor(
     private readonly calculationService: CalculationService,
     private readonly formulaEvaluation: FormulaEvaluationService,
-    private readonly httpService: HttpService,
-    private readonly configService: ConfigService,
+    private readonly tariffFormulaResolver: TariffFormulaResolverService,
+    private readonly tariffRateBatch: TariffRateBatchService,
     @InjectRepository(CalculationScenarioEntity)
     private readonly scenarioRepository: Repository<CalculationScenarioEntity>,
   ) {}
 
-  @Public()
+  // ── Single calculate ───────────────────────────────────────────────────
+  // Both JWT users and API-key clients can call this. Organization is
+  // derived from the auth context, never from a query parameter.
+
   @Post('calculate')
   async calculate(
     @Body() calculateDto: CalculateDto,
-    @Query('organizationId') organizationId: string,
-    @Query('userId') userId?: string,
+    @Req() req: any,
   ) {
+    const ctx = this.requireCallerContext(req);
+
     const tradeAgreementCode =
       calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
     const tradeAgreementCertificate =
@@ -70,92 +60,136 @@ export class CalculatorController {
         ? calculateDto.tradeAgreementCertificate
         : calculateDto.claimPreferential;
 
-    const result = await this.calculationService.calculate({
+    return this.calculationService.calculate({
+      ...calculateDto,
+      tradeAgreementCode,
+      tradeAgreementCertificate,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+    });
+  }
+
+  @SkipJwtAuth()
+  @UseGuards(ApiKeyGuard)
+  @ApiPermissions('calculator:write')
+  @Post('calculate.api')
+  async calculateApi(
+    @Body() calculateDto: CalculateDto,
+    @Req() req: any,
+  ) {
+    const organizationId = req.organizationId as string;
+    if (!organizationId) {
+      throw new ForbiddenException('Missing organization on API key');
+    }
+
+    const tradeAgreementCode =
+      calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
+    const tradeAgreementCertificate =
+      typeof calculateDto.tradeAgreementCertificate === 'boolean'
+        ? calculateDto.tradeAgreementCertificate
+        : calculateDto.claimPreferential;
+
+    return this.calculationService.calculate({
       ...calculateDto,
       tradeAgreementCode,
       tradeAgreementCertificate,
       organizationId,
-      userId,
     });
-
-    return result;
   }
 
+  // ── History (now tenant-scoped) ────────────────────────────────────────
+
   @Get('calculations/:calculationId')
-  async getCalculation(@Param('calculationId') calculationId: string) {
+  async getCalculation(
+    @Param('calculationId') calculationId: string,
+    @Req() req: any,
+  ) {
+    const ctx = this.requireCallerContext(req);
+
     const calculation =
       await this.calculationService.getCalculationHistory(calculationId);
 
     if (!calculation) {
-      return {
-        statusCode: 404,
-        message: 'Calculation not found',
-      };
+      throw new HttpException(
+        { statusCode: 404, message: 'Calculation not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (
+      calculation.organizationId &&
+      calculation.organizationId !== ctx.organizationId
+    ) {
+      // Don't leak existence of other-tenant data.
+      throw new HttpException(
+        { statusCode: 404, message: 'Calculation not found' },
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return calculation;
   }
 
+  // ── Health ─────────────────────────────────────────────────────────────
+
+  @Public()
   @Get('health')
   health() {
     return { status: 'ok', service: 'calculator' };
   }
 
-  /**
-   * Fetch tariff formula metadata (variables + descriptions) for a single
-   * HTS code / country pair, without evaluating. Used by the calculator UI
-   * to render a form whose inputs match what the formula actually needs.
-   *
-   * GET /calculator/formula?htsCode=&country=
-   *
-   * Proxies ai-service POST /v2/tariff/formulas — ai-service is the single
-   * source of truth for formulas and calculation.
-   */
-  @Public()
+  // ── Local formula metadata (replaces ai-service /v2/tariff/formulas) ───
+
   @Get('formula')
   async getFormula(
     @Query('htsCode') htsCode: string,
     @Query('country') country: string,
+    @Query('entryDate') entryDate?: string,
+    @Query('htsVersion') htsVersion?: string,
+    @Req() req?: any,
   ): Promise<unknown> {
+    // Auth is already enforced by the global JWT guard; just sanity-check
+    // the call site exists.
+    this.requireCallerContext(req);
+
     if (!htsCode || !country) {
       throw new HttpException(
         'htsCode and country are required',
         HttpStatus.BAD_REQUEST,
       );
     }
-    const [item] = await this.fetchFormulasFromAiService([{ htsCode, country }]);
+
+    const [item] = await this.tariffRateBatch.batchFormulas([
+      { htsCode, country, entryDate, htsVersion },
+    ]);
+
     if (!item) {
       throw new HttpException(
-        'No formula returned by upstream',
-        HttpStatus.BAD_GATEWAY,
+        'No formula returned',
+        HttpStatus.NOT_FOUND,
       );
     }
+
     return {
-      htsCode: item.htsCode ?? htsCode,
-      country: item.country ?? country,
+      htsCode,
+      country,
       effectiveHtsCode: item.effectiveHtsCode ?? null,
-      blocked: !!item.blocked,
-      blockReason: item.block_reason ?? null,
-      message: item.message ?? '',
-      exclusiveSection301: item.exclusiveSection301 ?? false,
-      formulas: (item.formulas ?? []).map((f) => ({
+      blocked: item.blocked,
+      blockReason: item.blockReason,
+      message: item.message,
+      exclusiveSection301: false,
+      formulas: item.formulas.map((f) => ({
         tariffType: f.tariffType,
         tariffTypeDescription: f.tariffTypeDescription,
         formula: f.formula,
-        formulaVariables: f.formulaVariables ?? [],
+        formulaVariables: f.formulaVariables,
         chapter99HtsCode: f.chapter99HtsCode ?? null,
       })),
     };
   }
 
-  /**
-   * Calculate tariff amounts. Proxies ai-service POST /v2/tariff/rates which
-   * already evaluates per-formula amounts and returns Chapter 99 codes.
-   *
-   * POST /calculator/tariff-rates
-   * Body: [{ htsCode, country, inputs?: Record<string, number> }]
-   */
-  @Public()
+  // ── Local batch rates (replaces ai-service /v2/tariff/rates) ───────────
+
   @Post('tariff-rates')
   async getTariffRates(
     @Body()
@@ -163,125 +197,38 @@ export class CalculatorController {
       htsCode: string;
       country: string;
       inputs?: Record<string, number>;
+      entryDate?: string;
+      htsVersion?: string;
+      selectedChapter99Headings?: string[];
     }>,
+    @Req() req: any,
   ): Promise<unknown> {
+    this.requireCallerContext(req);
+
     const items = Array.isArray(body) ? body : [];
-    const data = await this.fetchRatesFromAiService(
-      items.map(({ htsCode, country, inputs }) => ({
-        htsCode,
-        country,
-        inputs: inputs ?? {},
-      })),
-    );
+    const results = await this.tariffRateBatch.batchCalculate(items);
 
-    return data.map((item) => {
-      const formulas = Array.isArray(item.formulas) ? item.formulas : [];
-      const breakdown = formulas.map((f) => ({
-        tariffType: f.tariffType,
-        tariffTypeDescription: f.tariffTypeDescription,
-        amount: typeof f.amount === 'number' ? f.amount : 0,
-        formula: f.formula,
-        formulaVariables: f.formulaVariables ?? [],
-        chapter99HtsCode: f.chapter99HtsCode ?? null,
-        error: null,
-      }));
-      const totalDuty = breakdown.reduce((sum, b) => sum + (b.amount ?? 0), 0);
-
-      return {
-        htsCode: item.htsCode,
-        country: item.country,
-        effectiveHtsCode: item.effectiveHtsCode ?? null,
-        blocked: !!item.blocked,
-        blockReason: item.block_reason ?? null,
-        message: item.message ?? '',
-        totalDuty: Math.round(totalDuty * 100) / 100,
-        breakdown,
-      };
-    });
+    return results.map((r) => ({
+      htsCode: r.htsCode,
+      country: r.country,
+      effectiveHtsCode: r.effectiveHtsCode ?? null,
+      blocked: r.blocked,
+      blockReason: r.blockReason,
+      message: r.message,
+      totalDuty: r.totalDuty,
+      breakdown: r.breakdown,
+    }));
   }
 
-  private aiServiceUrl(): string {
-    return (
-      this.configService.get<string>('AI_SERVICE_URL') ??
-      this.configService.get<string>(
-        'TARIFF_FORMULAS_API_URL',
-        'http://localhost:3001/v2/tariff',
-      )
-    );
-  }
+  // ── Scenarios (tenant-scoped) ──────────────────────────────────────────
 
-  private aiServiceHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    const apiKey = this.configService.get<string>('AI_SERVICE_API_KEY', '');
-    if (apiKey) headers['X-API-Key'] = apiKey;
-    return headers;
-  }
-
-  private async fetchFormulasFromAiService(
-    requests: Array<{ htsCode: string; country: string }>,
-  ): Promise<ExternalTariffResult[]> {
-    if (!requests.length) return [];
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post<ExternalTariffResult[]>(
-          `${this.aiServiceUrl()}/formulas`,
-          requests,
-          { headers: this.aiServiceHeaders() },
-        ),
-      );
-      return response.data ?? [];
-    } catch (err: unknown) {
-      throw this.translateUpstreamError(err);
-    }
-  }
-
-  private async fetchRatesFromAiService(
-    requests: Array<{ htsCode: string; country: string; inputs: Record<string, number> }>,
-  ): Promise<ExternalTariffResult[]> {
-    if (!requests.length) return [];
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post<ExternalTariffResult[]>(
-          `${this.aiServiceUrl()}/rates`,
-          requests,
-          { headers: this.aiServiceHeaders() },
-        ),
-      );
-      return response.data ?? [];
-    } catch (err: unknown) {
-      throw this.translateUpstreamError(err);
-    }
-  }
-
-  private translateUpstreamError(err: unknown): HttpException {
-    const status =
-      (err as { response?: { status?: number } })?.response?.status ??
-      HttpStatus.BAD_GATEWAY;
-    // Treat upstream auth/quota failures as 502 to avoid leaking key state.
-    const safeStatus =
-      status === 401 || status === 403 || status === 429
-        ? HttpStatus.BAD_GATEWAY
-        : status >= 400 && status < 600
-          ? status
-          : HttpStatus.BAD_GATEWAY;
-    return new HttpException(
-      'Tariff formulas service request failed',
-      safeStatus,
-    );
-  }
-
-  /**
-   * Save a calculation scenario for reuse
-   * POST /calculator/scenarios
-   */
   @Post('scenarios')
   async saveScenario(
     @Body() scenarioData: Partial<CalculationScenarioEntity>,
-    @Query('organizationId') organizationId: string,
-    @Query('userId') userId?: string,
+    @Req() req: any,
   ) {
+    const ctx = this.requireCallerContext(req);
+
     if (!scenarioData.name || !scenarioData.htsNumber) {
       throw new HttpException(
         'Scenario name and HTS number are required',
@@ -291,8 +238,8 @@ export class CalculatorController {
 
     const scenario = this.scenarioRepository.create({
       ...scenarioData,
-      organizationId,
-      userId: userId || null,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId || null,
     });
 
     const saved = await this.scenarioRepository.save(scenario);
@@ -304,20 +251,24 @@ export class CalculatorController {
     };
   }
 
-  /**
-   * Calculate using a saved scenario
-   * POST /calculator/scenarios/:id/calculate
-   */
   @Post('scenarios/:id/calculate')
   async calculateScenario(
     @Param('id') scenarioId: string,
-    @Body() overrides?: Partial<CalculateDto>,
+    @Body() overrides: Partial<CalculateDto> | undefined,
+    @Req() req: any,
   ) {
+    const ctx = this.requireCallerContext(req);
+
     const scenario = await this.scenarioRepository.findOne({
       where: { id: scenarioId },
     });
 
     if (!scenario) {
+      throw new HttpException('Scenario not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (scenario.organizationId !== ctx.organizationId) {
+      // Cross-tenant — return 404 to avoid existence leak.
       throw new HttpException('Scenario not found', HttpStatus.NOT_FOUND);
     }
 
@@ -333,10 +284,10 @@ export class CalculatorController {
           ? overrides.claimPreferential
           : scenario.claimPreferential;
 
-    // Merge scenario with any overrides
-    const calculationInput = {
+    const result = await this.calculationService.calculate({
       htsNumber: overrides?.htsNumber || scenario.htsNumber,
       countryOfOrigin: overrides?.countryOfOrigin || scenario.countryOfOrigin,
+      destinationCountry: overrides?.destinationCountry,
       declaredValue: overrides?.declaredValue ?? scenario.declaredValue,
       currency: overrides?.currency || scenario.currency,
       weightKg: overrides?.weightKg ?? scenario.weightKg ?? undefined,
@@ -346,38 +297,33 @@ export class CalculatorController {
       entryDate:
         overrides?.entryDate ??
         (typeof scenario.additionalInputs?.entryDate === 'string'
-          ? scenario.additionalInputs.entryDate
+          ? (scenario.additionalInputs as any).entryDate
           : undefined),
-      additionalInputs:
-        overrides?.additionalInputs ?? scenario.additionalInputs ?? undefined,
+      additionalInputs: (overrides?.additionalInputs ??
+        scenario.additionalInputs ??
+        undefined) as Record<string, any> | undefined,
       htsVersion: overrides?.htsVersion ?? undefined,
       tradeAgreementCode,
       tradeAgreementCertificate,
+      tariffSelectionMode: overrides?.tariffSelectionMode,
       organizationId: scenario.organizationId,
-      userId: scenario.userId ?? undefined,
+      userId: scenario.userId ?? ctx.userId ?? undefined,
       scenarioId: scenario.id,
-    };
-
-    const result = await this.calculationService.calculate(calculationInput);
+    });
 
     return {
       success: true,
       data: result,
-      scenario: {
-        id: scenario.id,
-        name: scenario.name,
-      },
+      scenario: { id: scenario.id, name: scenario.name },
     };
   }
 
-  /**
-   * Get saved scenarios for an organization
-   * GET /calculator/scenarios
-   */
   @Get('scenarios')
-  async getScenarios(@Query('organizationId') organizationId: string) {
+  async getScenarios(@Req() req: any) {
+    const ctx = this.requireCallerContext(req);
+
     const scenarios = await this.scenarioRepository.find({
-      where: { organizationId },
+      where: { organizationId: ctx.organizationId },
       order: { createdAt: 'DESC' },
     });
 
@@ -386,5 +332,24 @@ export class CalculatorController {
       data: scenarios,
       count: scenarios.length,
     };
+  }
+
+  // ── helpers ────────────────────────────────────────────────────────────
+
+  private requireCallerContext(req: any): CallerContext {
+    const fromUser = req?.user;
+    if (fromUser?.organizationId) {
+      return {
+        organizationId: fromUser.organizationId,
+        userId: fromUser.id,
+      };
+    }
+
+    const fromApiKey = req?.organizationId;
+    if (fromApiKey) {
+      return { organizationId: fromApiKey };
+    }
+
+    throw new ForbiddenException('Authenticated organization is required');
   }
 }

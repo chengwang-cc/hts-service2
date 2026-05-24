@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Body,
+  Optional,
   UseGuards,
   Req,
   HttpException,
@@ -21,6 +22,8 @@ import {
 } from '../../calculator/services/calculation.service';
 import { ShopifyConnector } from '../../connectors/services/shopify.connector';
 import { ShopifySessionEntity } from '../../shopify-app/entities/shopify-session.entity';
+import { CatalogService } from '../../catalog/services/catalog.service';
+import { LandedCostService } from '../../landed-cost/services/landed-cost.service';
 
 interface Money {
   amount: number;
@@ -58,7 +61,100 @@ export class WidgetApiController {
     private readonly shopifyConnector: ShopifyConnector,
     @InjectRepository(CheckoutOrderEntity)
     private readonly checkoutOrderRepository: Repository<CheckoutOrderEntity>,
+    @Optional() private readonly catalogService?: CatalogService,
+    @Optional() private readonly landedCostService?: LandedCostService,
   ) {}
+
+  /**
+   * P3.6 — when the request enables `useQuoteApi`, route the widget call
+   * through LandedCostService so the result is a real quote with an id +
+   * expiresAt. We keep the legacy per-line CalculationService path as the
+   * default to avoid breaking existing widget builds.
+   */
+  private async runViaLandedCost(args: {
+    organizationId: string;
+    apiKeyId?: string;
+    input: CheckoutEstimateDto;
+    currency: string;
+  }): Promise<CheckoutEstimateResult & { quoteId: string; expiresAt: string }> {
+    const items = args.input.lines
+      .filter((l) => l.hsCode?.trim())
+      .map((l) => ({
+        sku: l.sku,
+        description: l.sku || 'line item',
+        hsCode: l.hsCode!,
+        countryOfOrigin: l.countryOfOrigin || 'US',
+        quantity: l.quantity,
+        unitValue: l.declaredValue.amount,
+        weightKg: l.weightKg,
+      }));
+
+    // AUDIT FIX H1 — landed-cost requires at least one line; reject
+    // here before constructing an invalid quote request that would
+    // fail DTO validation anyway (and surface a nicer error).
+    if (items.length === 0) {
+      throw new HttpException(
+        'No line items with HS codes to calculate',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const quote = await this.landedCostService!.createQuote({
+      organizationId: args.organizationId,
+      apiKeyId: args.apiKeyId,
+      request: {
+        currency: args.currency,
+        destination: { country: 'US' },
+        origin: { country: items[0].countryOfOrigin },
+        items,
+      } as any,
+    });
+
+    return {
+      calculationId: quote.quoteId,
+      quoteId: quote.quoteId,
+      expiresAt: quote.expiresAt,
+      duties: { amount: quote.totals.duty, currency: args.currency },
+      taxes: { amount: quote.totals.tax, currency: args.currency },
+      fees: { amount: quote.totals.fees, currency: args.currency },
+      totalLandedCost: {
+        amount: quote.totals.landedCost,
+        currency: args.currency,
+      },
+      warnings: quote.warnings.length > 0 ? quote.warnings : undefined,
+      displayAtCheckout: true,
+      dutyDisplayMode: 'ddu',
+    };
+  }
+
+  /**
+   * P2.3 — resolve missing HS code from the catalog: confirmed
+   * ClassificationEntity for the product, OR product.defaultHsCode.
+   * Returns the resolved code and whether the country-of-origin should
+   * inherit the product's default.
+   */
+  private async resolveMissingHsFromCatalog(
+    organizationId: string,
+    sku: string | undefined,
+    destination: string,
+  ): Promise<{ hsCode?: string; countryOfOrigin?: string }> {
+    if (!this.catalogService || !sku) return {};
+    const hit = await this.catalogService.findVariantBySku(organizationId, sku);
+    if (!hit) return {};
+
+    let hsCode: string | undefined;
+    const cls = await this.catalogService.findFreshClassification(
+      hit.product.id,
+      destination,
+    );
+    if (cls) hsCode = cls.destinationCode;
+    if (!hsCode) hsCode = hit.product.defaultHsCode ?? undefined;
+
+    return {
+      hsCode,
+      countryOfOrigin: hit.product.defaultCountryOfOrigin ?? undefined,
+    };
+  }
 
   /**
    * If the request comes from a Shopify session, look up missing HS codes
@@ -102,11 +198,33 @@ export class WidgetApiController {
   ): Promise<CheckoutEstimateResult> {
     const organizationId = req.organizationId as string;
     const shopifySession: ShopifySessionEntity | undefined = req.shopifySession;
+    const widgetConfig: any = req.widgetConfig;
+    const defaultCountryOfOrigin: string | undefined =
+      widgetConfig?.defaults?.countryOfOrigin?.toString().trim().toUpperCase();
     const currency = input.lines[0]?.declaredValue?.currency ?? 'USD';
     const warnings: string[] = [];
 
-    this.logger.log(`[widget/calculate] input: ${JSON.stringify(input)}`);
-    this.logger.log(`[widget/calculate] hasShopifySession: ${!!shopifySession}, shop: ${shopifySession?.shop ?? 'none'}`);
+    // Structured log — never log SKU values, prices, descriptions, or HS codes
+    // in plaintext. Aggregate to size/currency/shipTo only.
+    this.logger.log(
+      `[widget/calculate] org=${organizationId} lines=${input.lines.length} currency=${currency} hasShopifySession=${!!shopifySession} useQuoteApi=${!!input.useQuoteApi}`,
+    );
+
+    // P3.6 — route through the LandedCostService when opted in.
+    if (input.useQuoteApi && this.landedCostService) {
+      try {
+        return await this.runViaLandedCost({
+          organizationId,
+          apiKeyId: req.apiKey?.id,
+          input,
+          currency,
+        });
+      } catch (e: any) {
+        this.logger.warn(
+          `[widget/calculate] landed-cost path failed, falling back to legacy: ${e?.message}`,
+        );
+      }
+    }
 
     // Short-circuit when the merchant has disabled duty calculation for
     // this shop. No billable work happens and the response carries enough
@@ -135,7 +253,9 @@ export class WidgetApiController {
     // Resolve missing HS codes by looking up SKUs in Shopify (if Shopify session)
     if (shopifySession) {
       const skuToHs = await this.resolveHsCodesFromShopify(shopifySession, input.lines);
-      this.logger.log(`[widget/calculate] SKU→HS lookup result: ${JSON.stringify(Array.from(skuToHs.entries()))}`);
+      this.logger.log(
+        `[widget/calculate] sku_lookup matches=${skuToHs.size}`,
+      );
       input.lines = input.lines.map((line) => {
         if (!line.hsCode?.trim() && line.sku) {
           const resolved = skuToHs.get(line.sku);
@@ -145,7 +265,26 @@ export class WidgetApiController {
         }
         return line;
       });
-      this.logger.log(`[widget/calculate] lines after resolution: ${JSON.stringify(input.lines)}`);
+    }
+
+    // P2.3 — catalog-first fallback: if a line is missing hsCode, try the
+    // organization's catalog (Product.defaultHsCode or a confirmed
+    // ClassificationEntity) before declaring it un-calculable.
+    for (let i = 0; i < input.lines.length; i++) {
+      const line = input.lines[i];
+      if (line.hsCode?.trim()) continue;
+      const resolved = await this.resolveMissingHsFromCatalog(
+        organizationId,
+        line.sku,
+        'US',
+      );
+      if (resolved.hsCode) {
+        input.lines[i] = {
+          ...line,
+          hsCode: resolved.hsCode,
+          countryOfOrigin: line.countryOfOrigin || resolved.countryOfOrigin,
+        };
+      }
     }
 
     const linesWithHs = input.lines.filter((line) => line.hsCode?.trim());
@@ -154,7 +293,7 @@ export class WidgetApiController {
     if (linesWithoutHs.length > 0) {
       const skus = linesWithoutHs.map((l) => l.sku).join(', ');
       warnings.push(
-        `${linesWithoutHs.length} line item(s) skipped (no HS code): ${skus}`,
+        `${linesWithoutHs.length} line item(s) skipped (no HS code, no catalog match): ${skus}`,
       );
     }
 
@@ -166,11 +305,22 @@ export class WidgetApiController {
     }
 
     for (const line of linesWithHs) {
+      // Resolve country of origin: line → widget default → warning + skip line.
+      // Never silently default to 'CN'.
+      const resolvedCoo =
+        line.countryOfOrigin?.toUpperCase() || defaultCountryOfOrigin;
+      if (!resolvedCoo) {
+        warnings.push(
+          `Line item (SKU ${line.sku ?? '?'}) skipped: no country of origin and no widget default configured`,
+        );
+        continue;
+      }
+
       try {
         const result: CalculationResult =
           await this.calculationService.calculate({
             htsNumber: line.hsCode!,
-            countryOfOrigin: line.countryOfOrigin ?? 'CN',
+            countryOfOrigin: resolvedCoo,
             declaredValue: line.declaredValue.amount * line.quantity,
             currency: line.declaredValue.currency,
             weightKg: line.weightKg
@@ -184,34 +334,23 @@ export class WidgetApiController {
           batchCalculationId = result.calculationId;
         }
 
-        totalDuties += result.totalDuty;
-        totalTaxes += result.totalTaxes;
+        totalDuties += result.totals?.baseDuty ?? result.baseDuty ?? 0;
+        totalDuties += result.totals?.additionalTariffs ?? result.additionalTariffs ?? 0;
+        totalTaxes += result.totals?.taxes ?? result.totalTaxes ?? 0;
+        totalFees += result.totals?.fees ?? result.fees ?? 0;
         totalDeclaredValue += line.declaredValue.amount * line.quantity;
-
-        // Extract fees from breakdown (MPF, HMF, etc.)
-        if (result.breakdown?.taxes && Array.isArray(result.breakdown.taxes)) {
-          for (const tax of result.breakdown.taxes) {
-            if (
-              tax.type === 'MPF' ||
-              tax.type === 'HMF' ||
-              tax.type?.toLowerCase().includes('fee')
-            ) {
-              totalFees += tax.amount ?? 0;
-              totalTaxes -= tax.amount ?? 0; // Don't double-count fees in taxes
-            }
-          }
-        }
       } catch (error) {
         this.logger.warn(
-          `Calculation failed for HS code ${line.hsCode}: ${error.message}`,
+          `Calculation failed for SKU ${line.sku ?? '?'}: ${(error as Error).message}`,
         );
         warnings.push(
-          `Calculation failed for SKU ${line.sku} (${line.hsCode}): ${error.message}`,
+          `Calculation failed for SKU ${line.sku ?? '?'}: ${(error as Error).message}`,
         );
       }
     }
 
-    // Ensure non-negative values after fee extraction
+    // Defensive: clamp to non-negative.
+    totalDuties = Math.max(0, totalDuties);
     totalTaxes = Math.max(0, totalTaxes);
     totalFees = Math.max(0, totalFees);
 

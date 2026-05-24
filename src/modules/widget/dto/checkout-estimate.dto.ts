@@ -3,6 +3,7 @@ import {
   IsOptional,
   IsNumber,
   IsNotEmpty,
+  IsBoolean,
   IsArray,
   ArrayMinSize,
   ValidateNested,
@@ -72,4 +73,14 @@ export class CheckoutEstimateDto {
   @IsOptional()
   @IsString()
   platformOrderRef?: string;
+
+  /**
+   * P3.6 — opt in to the new LandedCostService quote API. When true the
+   * widget returns a `quoteId` + `expiresAt` and stores per-line state in
+   * `landed_cost_quotes`/`landed_cost_lines`. Default false keeps the
+   * legacy per-line CalculationService path.
+   */
+  @IsOptional()
+  @IsBoolean()
+  useQuoteApi?: boolean;
 }

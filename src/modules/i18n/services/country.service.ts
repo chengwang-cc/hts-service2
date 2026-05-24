@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CountryConfigEntity } from '../entities/country-config.entity';
@@ -11,8 +11,27 @@ export interface CountryInfo {
   locale: string;
 }
 
+/**
+ * @deprecated for calculation paths (P1.2).
+ *
+ * `CountryConfigEntity` and the hard-coded built-in configs below are kept
+ * for display localization only (currency formatting, locale, timezone).
+ *
+ * Calculation code MUST use:
+ *   - {@link JurisdictionService} for jurisdiction metadata + EU vs
+ *     member-state resolution
+ *   - {@link TaxRuleEntity} for VAT / GST / consumption tax rules
+ *   - {@link FeeRuleEntity} for MPF / HMF / declaration / brokerage fees
+ *   - {@link LowValueRuleEntity} for low-value / IOSS / threshold rules
+ *   - {@link TradeAgreementEntity} for FTA eligibility
+ *
+ * Treating `EU` as a single pseudo-country here is wrong; resolve to a
+ * Member State via JurisdictionService.resolveDestination.
+ */
 @Injectable()
 export class CountryService {
+  private readonly logger = new Logger(CountryService.name);
+
   constructor(
     @InjectRepository(CountryConfigEntity)
     private readonly countryRepo: Repository<CountryConfigEntity>,

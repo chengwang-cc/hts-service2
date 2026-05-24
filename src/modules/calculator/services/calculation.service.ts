@@ -5,10 +5,23 @@ import { TradeAgreementEligibilityEntity } from '../entities';
 import { RateRetrievalService } from './rate-retrieval.service';
 import { FormulaEvaluationService } from './formula-evaluation.service';
 import { HtsExtraTaxEntity, CalculationHistoryEntity } from '@hts/core';
+import type { TariffSelectionMode } from '../dto/calculate.dto';
+
+const FEE_TAX_CODE_PREFIXES = ['MPF', 'HMF'];
+
+function classifyTaxAsFee(taxCode: string): boolean {
+  const upper = (taxCode || '').toUpperCase();
+  if (FEE_TAX_CODE_PREFIXES.some((p) => upper.startsWith(p))) return true;
+  if (upper.includes('_FEE') || upper.endsWith('_FEE') || upper.includes('FEE_')) {
+    return true;
+  }
+  return false;
+}
 
 export interface CalculationInput {
   htsNumber: string;
   countryOfOrigin: string;
+  destinationCountry?: string;
   declaredValue: number;
   entryDate?: string;
   currency?: string;
@@ -24,6 +37,22 @@ export interface CalculationInput {
   claimPreferential?: boolean;
   additionalInputs?: Record<string, any>;
   htsVersion?: string;
+  tariffSelectionMode?: TariffSelectionMode;
+}
+
+export interface CalculationLineItem {
+  type: string;
+  amount: number;
+  description: string;
+}
+
+export interface CalculationTotals {
+  baseDuty: number;
+  additionalTariffs: number;
+  fees: number;
+  taxes: number;
+  totalDuty: number;
+  landedCost: number;
 }
 
 export interface CalculationResult {
@@ -31,12 +60,17 @@ export interface CalculationResult {
   baseDuty: number;
   additionalTariffs: number;
   totalTaxes: number;
+  /** New: fees broken out separately (MPF/HMF/declaration-style fees). */
+  fees: number;
   totalDuty: number;
   landedCost: number;
+  /** Structured totals; preferred shape for new clients. */
+  totals: CalculationTotals;
   breakdown: any;
   formulaUsed: string;
   rateSource: string;
   confidence: number;
+  destinationCountry: string;
   tradeAgreementInfo?: {
     agreement: string;
     eligible: boolean;
@@ -101,6 +135,16 @@ export class CalculationService {
       const calculationInput: CalculationInput = {
         ...normalizedInput,
         entryDate: canonicalEntryDate,
+        // Auto-inject reciprocal-tariff Chapter 99 headings the caller
+        // didn't explicitly pass. ai-service does this implicitly; without
+        // it, the seeded RECIP_BASELINE_9903_01_25 + country exception
+        // rows in `hts_extra_taxes` never fire and we systematically
+        // under-report duty vs ai-service.
+        additionalInputs: this.applyReciprocalAutoHeadings(
+          normalizedInput.additionalInputs,
+          normalizedInput.countryOfOrigin,
+          calculationDate,
+        ),
       };
       const selectedChapter99Headings = this.extractSelectedChapter99Headings(
         calculationInput.additionalInputs,
@@ -121,6 +165,10 @@ export class CalculationService {
         quantity: calculationInput.quantity,
       };
 
+      const declaredBaseVariables = (rateInfo.variables || []).map(
+        (v) => v.name,
+      );
+
       // Check for trade agreement eligibility
       const tradeAgreementInfo =
         await this.checkTradeAgreement(calculationInput);
@@ -136,7 +184,11 @@ export class CalculationService {
       ) {
         baseDuty = this.formulaEvaluationService.evaluate(
           tradeAgreementInfo.preferentialFormula,
-          baseVariables,
+          {
+            ...baseVariables,
+            additionalInputs: calculationInput.additionalInputs || {},
+            declaredVariables: declaredBaseVariables,
+          },
         );
         formulaUsed = tradeAgreementInfo.preferentialFormula;
         rateSource = `trade-agreement-${tradeAgreementInfo.agreement}`;
@@ -144,10 +196,11 @@ export class CalculationService {
           `Using preferential rate from ${tradeAgreementInfo.agreement}`,
         );
       } else {
-        baseDuty = this.formulaEvaluationService.evaluate(
-          rateInfo.formula,
-          baseVariables,
-        );
+        baseDuty = this.formulaEvaluationService.evaluate(rateInfo.formula, {
+          ...baseVariables,
+          additionalInputs: calculationInput.additionalInputs || {},
+          declaredVariables: declaredBaseVariables,
+        });
         formulaUsed = rateInfo.formula;
         rateSource = rateInfo.source;
       }
@@ -191,25 +244,48 @@ export class CalculationService {
           )
         : [];
 
-      const totalTaxes = taxes.reduce((sum, t) => sum + t.amount, 0);
+      // Split MPF / HMF / generic fees out of the taxes bucket so the
+      // top-level totals carry a clean (taxes vs fees) distinction.
+      const fees = taxes.filter((t) => classifyTaxAsFee(t.type));
+      const trueTaxes = taxes.filter((t) => !classifyTaxAsFee(t.type));
+      const totalFees = fees.reduce((sum, t) => sum + t.amount, 0);
+      const totalTaxes = trueTaxes.reduce((sum, t) => sum + t.amount, 0);
       const totalDuty = postTariffDuty;
       const landedCost =
-        calculationInput.declaredValue + totalDuty + totalTaxes;
+        calculationInput.declaredValue + totalDuty + totalTaxes + totalFees;
+      const destinationCountry = (
+        calculationInput.destinationCountry || 'US'
+      ).toUpperCase();
+
+      const round = (n: number) => Math.round(n * 100) / 100;
+      const totals: CalculationTotals = {
+        baseDuty: round(baseDuty),
+        additionalTariffs: round(totalAdditionalTariffs),
+        fees: round(totalFees),
+        taxes: round(totalTaxes),
+        totalDuty: round(totalDuty),
+        landedCost: round(landedCost),
+      };
 
       const result: CalculationResult = {
         calculationId,
-        baseDuty: Math.round(baseDuty * 100) / 100,
-        additionalTariffs: Math.round(totalAdditionalTariffs * 100) / 100,
-        totalTaxes: Math.round(totalTaxes * 100) / 100,
-        totalDuty: Math.round(totalDuty * 100) / 100,
-        landedCost: Math.round(landedCost * 100) / 100,
+        baseDuty: totals.baseDuty,
+        additionalTariffs: totals.additionalTariffs,
+        totalTaxes: totals.taxes,
+        fees: totals.fees,
+        totalDuty: totals.totalDuty,
+        landedCost: totals.landedCost,
+        totals,
+        destinationCountry,
         breakdown: {
-          baseDuty: Math.round(baseDuty * 100) / 100,
+          baseDuty: totals.baseDuty,
           additionalTariffs,
-          taxes,
-          totalDuty: Math.round(totalDuty * 100) / 100,
-          totalTax: Math.round(totalTaxes * 100) / 100,
-          landedCost: Math.round(landedCost * 100) / 100,
+          fees,
+          taxes: trueTaxes,
+          totalDuty: totals.totalDuty,
+          totalTax: totals.taxes,
+          totalFees: totals.fees,
+          landedCost: totals.landedCost,
         },
         formulaUsed,
         rateSource,
@@ -318,7 +394,13 @@ export class CalculationService {
         try {
           const amount = this.formulaEvaluationService.evaluate(
             tariff.rateFormula,
-            variables,
+            {
+              ...variables,
+              additionalInputs: input.additionalInputs || {},
+              declaredVariables: this.extractFormulaIdentifiers(
+                tariff.rateFormula,
+              ),
+            },
           );
           if (amount <= 0) {
             continue;
@@ -391,10 +473,11 @@ export class CalculationService {
       // Evaluate formula
       if (tax.rateFormula) {
         try {
-          let amount = this.formulaEvaluationService.evaluate(
-            tax.rateFormula,
-            variables,
-          );
+          let amount = this.formulaEvaluationService.evaluate(tax.rateFormula, {
+            ...variables,
+            additionalInputs: input.additionalInputs || {},
+            declaredVariables: this.extractFormulaIdentifiers(tax.rateFormula),
+          });
           if (amount <= 0) {
             continue;
           }
@@ -595,11 +678,26 @@ export class CalculationService {
     const taxCountry = (tax.countryCode || 'ALL').toUpperCase();
     const htsNumber = (input.htsNumber || '').trim();
 
-    const htsMatches =
-      !tax.htsNumber ||
-      tax.htsNumber === '*' ||
-      tax.htsNumber === htsNumber ||
-      (tax.htsChapter && tax.htsChapter === chapter);
+    // CRITICAL BUG FIX (2026-05-23): the OR chain below treated
+    // `htsChapter` as a parallel match condition, so a row with both a
+    // specific htsNumber AND a chapter would fire for EVERY hts in that
+    // chapter — turning 1-row Section 301 rules into chapter-wide carpet
+    // bombs (see parity run e0aa3ef4 where 8402.11.00.00/CN evaluated 51
+    // components and produced 880% duty on a $100 import).
+    //
+    // Correct precedence:
+    //   1. If the row pins an exact htsNumber → only that htsNumber matches.
+    //   2. Else if the row pins an htsChapter → only that chapter matches.
+    //   3. Else (wildcard / null) → matches everything (e.g. MPF/HMF).
+    const taxHtsNumber = (tax.htsNumber || '').trim();
+    let htsMatches: boolean;
+    if (taxHtsNumber && taxHtsNumber !== '*') {
+      htsMatches = taxHtsNumber === htsNumber;
+    } else if (tax.htsChapter) {
+      htsMatches = tax.htsChapter === chapter;
+    } else {
+      htsMatches = true;
+    }
     if (!htsMatches) return false;
 
     const countryMatches = this.isCountryMatch(taxCountry, inputCountry);
@@ -950,6 +1048,96 @@ export class CalculationService {
         12,
       ),
     );
+  }
+
+  /**
+   * Reciprocal Chapter-99 heading auto-selector (IEEPA framework — EO of
+   * April 2, 2025; baseline effective April 5, 2025).
+   *
+   * For any import on/after the effective date, ai-service applies the
+   * 10% reciprocal baseline (heading 9903.01.25) automatically. If the
+   * country has a published EO exception (CA → 9903.01.26, MX → 9903.01.27),
+   * that exception fires instead, suppressing the baseline.
+   *
+   * hts-service stores both the baseline (ADD_ON) and the country
+   * exceptions (CONDITIONAL with `excludesReciprocalBaseline: true`) in
+   * `hts_extra_taxes` — but every row's `conditions.htsHeading` /
+   * `exceptionHeading` requires the caller to PRE-SELECT the heading via
+   * `additionalInputs.chapter99Headings`. This helper does the auto-select
+   * so callers (calculator-v2 UI, parity sweep, widget) don't have to.
+   *
+   * Callers that genuinely don't want the baseline (e.g., historical
+   * recalculation) can opt out via
+   * `additionalInputs.skipReciprocalBaseline = true`.
+   */
+  private static readonly RECIPROCAL_BASELINE_EFFECTIVE = new Date(
+    Date.UTC(2025, 3, 5), // April 5, 2025
+  );
+
+  private static readonly RECIPROCAL_COUNTRY_EXCEPTIONS: Record<string, string> = {
+    CA: '9903.01.26',
+    MX: '9903.01.27',
+  };
+
+  private static readonly RECIPROCAL_BASELINE_HEADING = '9903.01.25';
+
+  private applyReciprocalAutoHeadings(
+    additionalInputs: Record<string, any> | undefined,
+    countryOfOrigin: string,
+    calculationDate: Date,
+  ): Record<string, any> | undefined {
+    const inputs = additionalInputs ? { ...additionalInputs } : {};
+    if (this.isTruthyFlag(inputs.skipReciprocalBaseline)) return inputs;
+    if (
+      calculationDate.getTime() <
+      CalculationService.RECIPROCAL_BASELINE_EFFECTIVE.getTime()
+    ) {
+      return inputs;
+    }
+
+    const existing = Array.isArray(inputs.chapter99Headings)
+      ? inputs.chapter99Headings.slice()
+      : [];
+    const country = (countryOfOrigin || '').toUpperCase();
+    const auto =
+      CalculationService.RECIPROCAL_COUNTRY_EXCEPTIONS[country] ??
+      CalculationService.RECIPROCAL_BASELINE_HEADING;
+
+    if (!existing.includes(auto)) {
+      existing.push(auto);
+    }
+    inputs.chapter99Headings = existing;
+    return inputs;
+  }
+
+  private extractFormulaIdentifiers(formula: string): string[] {
+    if (!formula) return [];
+    const out = new Set<string>();
+    const re = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+    let m: RegExpExecArray | null;
+    const mathKeywords = new Set([
+      'min',
+      'max',
+      'abs',
+      'round',
+      'ceil',
+      'floor',
+      'log',
+      'sqrt',
+      'pow',
+      'exp',
+      'PI',
+      'e',
+      'true',
+      'false',
+      'mod',
+    ]);
+    while ((m = re.exec(formula)) !== null) {
+      const name = m[1];
+      if (mathKeywords.has(name)) continue;
+      out.add(name);
+    }
+    return Array.from(out);
   }
 
   private isCountryMatch(

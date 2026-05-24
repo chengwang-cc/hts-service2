@@ -168,11 +168,30 @@ export class BulkApproveDto {
   @Max(1)
   minConfidence: number;
 
+  /**
+   * P1.10 — bulk approval is destructive; reviewers MUST leave an
+   * auditable comment explaining why this batch was approved.
+   */
+  @ApiProperty({
+    description: 'REQUIRED audit comment for the bulk approval (P1.10)',
+    example: 'Reviewed 200 chapter-99 candidates after IEEPA revision 8 import',
+    minLength: 8,
+  })
+  @IsString()
+  comment: string;
+
+  /**
+   * P1.10 — caller-facing cap; controller also enforces a service-side
+   * hard ceiling.
+   */
   @ApiPropertyOptional({
-    description: 'Optional comment for bulk approval',
-    example: 'Bulk approval for high-confidence candidates',
+    description: 'Maximum number of candidates to approve in this call',
+    example: 500,
+    default: 500,
   })
   @IsOptional()
-  @IsString()
-  comment?: string;
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  maxBatchSize?: number;
 }

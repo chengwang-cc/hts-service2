@@ -12,6 +12,10 @@ import { CoreWrapperModule } from './modules/core/core.module';
 import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.module';
 import { LookupModule } from './modules/lookup/lookup.module';
 import { CalculatorModule } from './modules/calculator/calculator.module';
+import { JurisdictionModule } from './modules/jurisdiction/jurisdiction.module';
+import { CatalogModule } from './modules/catalog/catalog.module';
+import { ClassificationModule } from './modules/classification/classification.module';
+import { LandedCostModule } from './modules/landed-cost/landed-cost.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
@@ -114,6 +118,18 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Calculator module (must be before PublicApiModule to ensure @Public() routes take priority)
     CalculatorModule,
+
+    // Jurisdiction module (P1 — adapter interface + per-country tariff rules)
+    JurisdictionModule,
+
+    // Catalog module (P2 — products, variants, classifications)
+    CatalogModule,
+
+    // Classification module (P2 — first-class POST /classify + bulk job)
+    ClassificationModule,
+
+    // Landed-cost module (P3 — POST /landed-cost/quotes + quote lifecycle)
+    LandedCostModule,
 
     // Public API module (versioned external APIs)
     PublicApiModule,

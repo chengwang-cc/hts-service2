@@ -109,6 +109,35 @@ import { RerankerRetrainService } from './services/reranker-retrain.service';
 import { RerankerRetrainJobHandler } from './jobs/reranker-retrain.job-handler';
 import { RerankerTrainingRunEntity } from './entities/reranker-training-run.entity';
 
+// P1.7 — Formula Stale Scan
+import { FormulaStaleScanJobHandler } from './jobs/formula-stale-scan.job-handler';
+
+// P2.4 — Classify Bulk
+import { ClassifyBulkJobHandler } from './jobs/classify-bulk.job-handler';
+import { ClassificationModule } from '../classification/classification.module';
+
+// P3.4 — Landed-Cost Quote Expirer
+import { LandedCostQuoteExpirerJobHandler } from './jobs/landed-cost-quote-expirer.job-handler';
+import { LandedCostModule } from '../landed-cost/landed-cost.module';
+
+// P4.3 — Jurisdiction Rules Admin
+import { JurisdictionRulesAdminController } from './controllers/jurisdiction-rules.admin.controller';
+import {
+  FeeRuleEntity,
+  LowValueRuleEntity,
+  TaxRuleEntity,
+} from '../jurisdiction/entities';
+
+// Parity Comparison Platform (sibling plan 1725)
+import { ParityComparisonRunEntity } from './entities/parity-comparison-run.entity';
+import { ParityComparisonRowEntity } from './entities/parity-comparison-row.entity';
+import { ParityCorpusService } from './services/parity-corpus.service';
+import { ParityAdminService } from './services/parity.admin.service';
+import { ParityAdminController } from './controllers/parity.admin.controller';
+import { TariffParityComparisonJobHandler } from './jobs/tariff-parity-comparison.job-handler';
+import { ParityAiValidateJobHandler } from './jobs/parity-ai-validate.job-handler';
+import { PublicApiModule } from '../public-api/public-api.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -137,12 +166,25 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
       LookupConversationFeedbackEntity,
       // Phase 6 entities
       RerankerTrainingRunEntity,
+      // P4.3 — Jurisdiction rule entities for the admin CRUD controller
+      TaxRuleEntity,
+      FeeRuleEntity,
+      LowValueRuleEntity,
+      // Parity comparison platform
+      ParityComparisonRunEntity,
+      ParityComparisonRowEntity,
     ]),
     // Import wrapper modules to access services with repositories
     CoreWrapperModule,
     CalculatorModule,
     KnowledgebaseModule,
     LookupModule,
+    // P2 — classification module exposes ClassifyService for the bulk job
+    ClassificationModule,
+    // P3 — landed-cost module exposes LandedCostService for the expirer job
+    LandedCostModule,
+    // Parity needs AiServiceProxyService (lives in PublicApiModule)
+    PublicApiModule,
     // Import QueueModule to access QueueService with ConfigService
     QueueModule,
   ],
@@ -163,6 +205,10 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     HtsEmbeddingAdminController,
     // Phase 6 controllers
     RerankerRetrainAdminController,
+    // P4.3 controllers
+    JurisdictionRulesAdminController,
+    // Parity comparison platform
+    ParityAdminController,
   ],
   providers: [
     // Phase 1 services
@@ -193,6 +239,17 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     // Services + Job handlers - Phase 6
     RerankerRetrainService,
     RerankerRetrainJobHandler,
+    // Job handlers - P1.7
+    FormulaStaleScanJobHandler,
+    // Job handlers - P2.4
+    ClassifyBulkJobHandler,
+    // Job handlers - P3.4
+    LandedCostQuoteExpirerJobHandler,
+    // Parity comparison platform
+    ParityCorpusService,
+    ParityAdminService,
+    TariffParityComparisonJobHandler,
+    ParityAiValidateJobHandler,
     AdminPermissionsGuard,
     // Core services (imported from wrapper modules, not provided here)
     // HtsProcessorService, FormulaGenerationService, HtsEmbeddingGenerationService, FormulaEvaluationService, OpenAiService - from CoreWrapperModule
@@ -223,6 +280,11 @@ export class AdminModule implements OnModuleInit {
     private lookupAccuracyReportHandler: LookupAccuracyReportJobHandler,
     private lookupRuleAnalysisHandler: LookupRuleAnalysisJobHandler,
     private rerankerRetrainHandler: RerankerRetrainJobHandler,
+    private formulaStaleScanHandler: FormulaStaleScanJobHandler,
+    private classifyBulkHandler: ClassifyBulkJobHandler,
+    private landedCostQuoteExpirerHandler: LandedCostQuoteExpirerJobHandler,
+    private tariffParityComparisonHandler: TariffParityComparisonJobHandler,
+    private parityAiValidateHandler: ParityAiValidateJobHandler,
   ) {}
 
   async onModuleInit() {
@@ -261,11 +323,72 @@ export class AdminModule implements OnModuleInit {
       this.rerankerRetrainHandler.execute(job),
     );
 
-    this.logger.log('Job handlers registered successfully (8 handlers)');
+    await this.queueService.registerHandler('formula-stale-scan', (job) =>
+      this.formulaStaleScanHandler.execute(job),
+    );
+
+    await this.queueService.registerHandler('classify-bulk', (job) =>
+      this.classifyBulkHandler.execute(job),
+    );
+
+    await this.queueService.registerHandler('landed-cost-quote-expirer', (job) =>
+      this.landedCostQuoteExpirerHandler.execute(job),
+    );
+
+    await this.queueService.registerHandler('tariff-parity-comparison', (job) =>
+      this.tariffParityComparisonHandler.execute(job),
+    );
+
+    await this.queueService.registerHandler('parity-ai-validate', (job) =>
+      this.parityAiValidateHandler.execute(job),
+    );
+
+    this.logger.log('Job handlers registered successfully (13 handlers)');
 
     await this.configureNightlyLookupAccuracySchedule();
     await this.configureWeeklyRuleAnalysisSchedule();
     await this.configureMonthlyRerankerRetrainSchedule();
+    await this.configureFormulaStaleScanSchedule();
+    await this.configureLandedCostQuoteExpirerSchedule();
+  }
+
+  private async configureLandedCostQuoteExpirerSchedule(): Promise<void> {
+    const enabled = process.env.LANDED_COST_QUOTE_EXPIRER_ENABLED === 'true';
+    if (!enabled) {
+      this.logger.log(
+        'Landed-cost quote expirer disabled (LANDED_COST_QUOTE_EXPIRER_ENABLED != true).',
+      );
+      return;
+    }
+    const cron =
+      process.env.LANDED_COST_QUOTE_EXPIRER_CRON || '*/5 * * * *';
+    await this.queueService.scheduleJob(
+      'landed-cost-quote-expirer',
+      cron,
+      { triggeredBy: '5min-schedule' },
+    );
+    this.logger.log(
+      `Landed-cost quote expirer schedule active: cron="${cron}"`,
+    );
+  }
+
+  private async configureFormulaStaleScanSchedule(): Promise<void> {
+    const enabled = process.env.FORMULA_STALE_SCAN_ENABLED === 'true';
+    if (!enabled) {
+      this.logger.log(
+        'Formula stale scan schedule disabled (FORMULA_STALE_SCAN_ENABLED != true).',
+      );
+      return;
+    }
+    const cron = process.env.FORMULA_STALE_SCAN_CRON || '0 2 * * *';
+    await this.queueService.scheduleJob(
+      'formula-stale-scan',
+      cron,
+      { triggeredBy: 'nightly-schedule' },
+    );
+    this.logger.log(
+      `Formula stale scan schedule active: cron="${cron}"`,
+    );
   }
 
   private async configureNightlyLookupAccuracySchedule(): Promise<void> {

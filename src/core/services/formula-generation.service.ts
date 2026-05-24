@@ -391,7 +391,11 @@ Examples:
                   confidence: { type: 'number' },
                   explanation: { type: 'string' },
                 },
-                required: ['formula', 'variables', 'confidence'],
+                // OpenAI strict json_schema mode requires that `required`
+                // contains EVERY key in `properties`. The live run failure
+                // (Missing 'explanation') happened because we listed
+                // explanation as a property but left it out of required.
+                required: ['formula', 'variables', 'confidence', 'explanation'],
                 additionalProperties: false,
               },
               strict: true,

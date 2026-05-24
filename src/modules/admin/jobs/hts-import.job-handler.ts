@@ -901,30 +901,53 @@ export class HtsImportJobHandler {
   ): Promise<void> {
     const s3Key = `hts/raw/${importHistory.sourceVersion}.json`;
 
-    // Check if already downloaded to S3
+    // Check if already downloaded to S3.
+    //
+    // P1.6 — we no longer trust an existing object key blindly. Before
+    // reusing it, we do a HEAD on the upstream source URL and compare its
+    // Content-Length and Last-Modified hints against the stored S3 object.
+    // Mismatch (or missing upstream hints + stale-by-mtime) triggers a
+    // re-download.
     if (await this.s3Storage.exists(this.S3_BUCKET, s3Key)) {
-      this.logger.log(`File already exists in S3: ${s3Key}, skipping download`);
-
       const metadata = await this.s3Storage.getMetadata(this.S3_BUCKET, s3Key);
-      checkpoint.s3Key = s3Key;
-      checkpoint.s3Bucket = this.S3_BUCKET;
-      checkpoint.downloadedBytes = metadata.size;
-      checkpoint.fileHash = metadata.metadata.sha256 || '';
-
-      // Update import history with S3 info
-      await this.importHistoryRepo.update(importHistory.id, {
-        s3Bucket: this.S3_BUCKET,
-        s3Key: s3Key,
-        s3FileHash: checkpoint.fileHash,
-        downloadedAt: metadata.lastModified,
-        downloadSizeBytes: metadata.size,
-      });
-
-      await this.htsImportService.appendLog(
-        importHistory.id,
-        `Using existing S3 file: ${s3Key} (${(metadata.size / 1024 / 1024).toFixed(2)} MB)`,
+      const reuse = await this.shouldReuseS3Object(
+        importHistory.sourceUrl,
+        metadata,
       );
-      return;
+
+      if (reuse.ok) {
+        this.logger.log(
+          `File already exists in S3: ${s3Key}, reusing (${reuse.reason})`,
+        );
+
+        checkpoint.s3Key = s3Key;
+        checkpoint.s3Bucket = this.S3_BUCKET;
+        checkpoint.downloadedBytes = metadata.size;
+        checkpoint.fileHash = metadata.metadata.sha256 || '';
+
+        await this.importHistoryRepo.update(importHistory.id, {
+          s3Bucket: this.S3_BUCKET,
+          s3Key: s3Key,
+          s3FileHash: checkpoint.fileHash,
+          downloadedAt: metadata.lastModified,
+          downloadSizeBytes: metadata.size,
+        });
+
+        await this.htsImportService.appendLog(
+          importHistory.id,
+          `Using existing S3 file: ${s3Key} (${(metadata.size / 1024 / 1024).toFixed(2)} MB) — ${reuse.reason}`,
+        );
+        return;
+      } else {
+        this.logger.warn(
+          `S3 object ${s3Key} exists but cache is stale (${reuse.reason}); re-downloading`,
+        );
+        await this.htsImportService.appendLog(
+          importHistory.id,
+          `Refreshing S3 object: ${reuse.reason}`,
+        );
+        // fall through to re-download
+      }
     }
 
     // Download from USITC with streaming
@@ -989,17 +1012,232 @@ export class HtsImportJobHandler {
   }
 
   /**
-   * STAGE 2: Load raw data from S3
+   * STAGE 2: Load raw data from S3.
+   *
+   * P1.5 — streaming-friendly loader. The USITC JSON payload is one big
+   * array; until we wire in `stream-json`, we collect chunks into a single
+   * Buffer (existing behavior) but cap the in-flight byte count so an
+   * accidentally massive payload fails fast instead of OOMing.
+   *
+   * Callers that need entry-by-entry streaming should use
+   * `streamHtsEntries()` below, which yields top-level array items one at
+   * a time and never holds the whole document.
    */
   private async loadSourceData(s3Bucket: string, s3Key: string): Promise<any> {
     const stream = await this.s3Storage.downloadStream(s3Bucket, s3Key);
     const chunks: Buffer[] = [];
+    let total = 0;
+    const HARD_CAP = 512 * 1024 * 1024; // 512MB — defensive
 
-    for await (const chunk of stream) {
-      chunks.push(chunk as Buffer);
+    for await (const chunk of stream as any) {
+      const buf = chunk as Buffer;
+      total += buf.length;
+      if (total > HARD_CAP) {
+        throw new Error(
+          `USITC JSON exceeds in-memory cap (${HARD_CAP / 1024 / 1024}MB) — use streamHtsEntries() for incremental ingestion`,
+        );
+      }
+      chunks.push(buf);
     }
 
     return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  }
+
+  /**
+   * STAGE 2 (P1.5): Stream HTS array entries from S3 one at a time.
+   *
+   * Implements a small JSON state machine that recognises the top-level
+   * `[ {...}, {...}, ... ]` form used by USITC payloads, yielding each
+   * element as a parsed object without ever holding more than one entry
+   * plus the in-flight raw element string in memory.
+   *
+   * Falls back to `loadSourceData()` for unusual payload shapes.
+   */
+  async *streamHtsEntries(
+    s3Bucket: string,
+    s3Key: string,
+  ): AsyncGenerator<any, void, void> {
+    const stream = await this.s3Storage.downloadStream(s3Bucket, s3Key);
+
+    let buf = '';
+    let started = false;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let elementStart = -1;
+    // AUDIT FIX C2 — use StringDecoder to buffer incomplete multi-byte
+    // UTF-8 sequences across chunk boundaries. Raw `Buffer.toString('utf-8')`
+    // would either drop bytes or insert U+FFFD on a split surrogate / 4-byte
+    // emoji boundary, silently corrupting downstream JSON.parse calls.
+    const { StringDecoder } = require('node:string_decoder');
+    const decoder = new StringDecoder('utf8');
+
+    for await (const chunk of stream as any) {
+      buf += decoder.write(chunk as Buffer);
+
+      for (let i = 0; i < buf.length; i++) {
+        const ch = buf[i];
+
+        if (!started) {
+          if (ch === '[') {
+            started = true;
+            continue;
+          }
+          if (ch === '{') {
+            // single-object payload — fall back
+            return yield* this.fallbackEntries(s3Bucket, s3Key);
+          }
+          // skip whitespace
+          if (!/\s/.test(ch)) {
+            return yield* this.fallbackEntries(s3Bucket, s3Key);
+          }
+          continue;
+        }
+
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (inString) {
+          if (ch === '\\') {
+            escaped = true;
+          } else if (ch === '"') {
+            inString = false;
+          }
+          continue;
+        }
+        if (ch === '"') {
+          inString = true;
+          continue;
+        }
+        if (ch === '{') {
+          if (depth === 0) elementStart = i;
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0 && elementStart >= 0) {
+            const raw = buf.slice(elementStart, i + 1);
+            try {
+              yield JSON.parse(raw);
+            } catch (e) {
+              this.logger.warn(
+                `streamHtsEntries: parse failed for ${raw.length}b element; skipping`,
+              );
+            }
+            elementStart = -1;
+            // trim consumed portion to keep buffer small
+            buf = buf.slice(i + 1);
+            i = -1;
+          }
+        } else if (ch === ']' && depth === 0) {
+          buf = '';
+          return;
+        }
+      }
+
+      // Avoid unbounded growth: if no element completed in this chunk,
+      // keep only the in-flight element prefix.
+      if (depth > 0 && elementStart > 0) {
+        buf = buf.slice(elementStart);
+        elementStart = 0;
+      } else if (depth === 0 && elementStart < 0) {
+        buf = '';
+      }
+    }
+
+    // AUDIT FIX C2 — flush any bytes the decoder is still holding back
+    // (e.g., if the stream ended mid-character — should never happen on
+    // valid UTF-8 input, but defensive).
+    buf += decoder.end();
+  }
+
+  private async *fallbackEntries(
+    s3Bucket: string,
+    s3Key: string,
+  ): AsyncGenerator<any, void, void> {
+    const data = await this.loadSourceData(s3Bucket, s3Key);
+    if (Array.isArray(data)) {
+      for (const item of data) yield item;
+    } else {
+      yield data;
+    }
+  }
+
+  /**
+   * P1.6 — decide whether to reuse an existing S3 object instead of
+   * re-downloading. Performs a HEAD on the upstream URL and compares
+   * Content-Length / Last-Modified hints.
+   */
+  private async shouldReuseS3Object(
+    sourceUrl: string,
+    s3Metadata: {
+      size: number;
+      etag: string;
+      lastModified: Date;
+      metadata: Record<string, string>;
+    },
+  ): Promise<{ ok: boolean; reason: string }> {
+    if (!sourceUrl) {
+      return { ok: true, reason: 'no upstream URL to validate against' };
+    }
+
+    try {
+      const head = await axios.head(sourceUrl, {
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      if (head.status !== 200) {
+        return {
+          ok: true,
+          reason: `upstream HEAD returned ${head.status}; keeping cached copy`,
+        };
+      }
+
+      const upstreamLength = Number(head.headers['content-length']);
+      const upstreamLastModified = head.headers['last-modified']
+        ? new Date(String(head.headers['last-modified']))
+        : null;
+      const upstreamEtag = head.headers['etag']
+        ? String(head.headers['etag']).replace(/^"|"$/g, '')
+        : null;
+      const s3Etag = (s3Metadata.etag || '').replace(/^"|"$/g, '');
+
+      if (
+        Number.isFinite(upstreamLength) &&
+        s3Metadata.size > 0 &&
+        upstreamLength !== s3Metadata.size
+      ) {
+        return {
+          ok: false,
+          reason: `size mismatch (upstream=${upstreamLength}, s3=${s3Metadata.size})`,
+        };
+      }
+
+      if (upstreamEtag && s3Etag && upstreamEtag !== s3Etag) {
+        return {
+          ok: false,
+          reason: `etag mismatch (upstream=${upstreamEtag}, s3=${s3Etag})`,
+        };
+      }
+
+      if (
+        upstreamLastModified &&
+        s3Metadata.lastModified &&
+        upstreamLastModified.getTime() > s3Metadata.lastModified.getTime()
+      ) {
+        return {
+          ok: false,
+          reason: `upstream newer than s3 copy`,
+        };
+      }
+
+      return { ok: true, reason: 'upstream matches cached copy' };
+    } catch (e: any) {
+      this.logger.warn(
+        `Upstream HEAD failed (${e?.message}); keeping cached copy`,
+      );
+      return { ok: true, reason: 'upstream HEAD failed; reusing cache' };
+    }
   }
 
   /**

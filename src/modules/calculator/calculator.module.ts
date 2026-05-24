@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   CalculationScenarioEntity,
@@ -9,6 +8,9 @@ import {
   FormulaEvaluationService,
   CalculationService,
   CalculatorController,
+  TariffFormulaResolverService,
+  TariffRateBatchService,
+  ShadowComparatorService,
 } from '@hts/calculator';
 import {
   CalculationHistoryEntity,
@@ -18,12 +20,13 @@ import {
 } from '@hts/core';
 import { CoreWrapperModule } from '../core/core.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 @Module({
   imports: [
-    HttpModule,
     CoreWrapperModule,
     KnowledgebaseModule,
+    ApiKeysModule,
     TypeOrmModule.forFeature([
       CalculationScenarioEntity,
       CalculationHistoryEntity,
@@ -39,7 +42,17 @@ import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
     RateRetrievalService,
     FormulaEvaluationService,
     CalculationService,
+    TariffFormulaResolverService,
+    TariffRateBatchService,
+    ShadowComparatorService,
   ],
-  exports: [RateRetrievalService, FormulaEvaluationService, CalculationService],
+  exports: [
+    RateRetrievalService,
+    FormulaEvaluationService,
+    CalculationService,
+    TariffFormulaResolverService,
+    TariffRateBatchService,
+    ShadowComparatorService,
+  ],
 })
 export class CalculatorModule {}

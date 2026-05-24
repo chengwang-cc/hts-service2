@@ -623,6 +623,63 @@ export class HtsChapter99FormulaService {
     return null;
   }
 
+  /**
+   * P1.9 — return ALL applicable Chapter 99 entries (not just first match),
+   * ranked by `(referencesApplicableSubheading DESC, effectiveDate DESC,
+   * adjustmentRate DESC)`. Used by the new TariffFormulaResolver to emit
+   * a separate `chapter_99` component for each one, so competing duties
+   * (e.g. simultaneous IEEPA + Section 301 chapter 99 rows) are no longer
+   * lost.
+   */
+  selectAllChapter99Entries(
+    links: string[],
+    chapter99ByCode: Map<string, HtsEntity>,
+  ): Array<{
+    entry: HtsEntity;
+    adjustmentRate: number;
+    referencesApplicableSubheading: boolean;
+  }> {
+    const out: Array<{
+      entry: HtsEntity;
+      adjustmentRate: number;
+      referencesApplicableSubheading: boolean;
+    }> = [];
+
+    for (const link of links) {
+      if (this.isReciprocalChapter99Heading(link)) {
+        continue;
+      }
+      const entry = chapter99ByCode.get(link);
+      if (!entry) {
+        continue;
+      }
+      const parsed = this.parseChapter99Adjustment(entry);
+      if (parsed.adjustmentRate > 0 || parsed.referencesApplicableSubheading) {
+        out.push({
+          entry,
+          adjustmentRate: parsed.adjustmentRate,
+          referencesApplicableSubheading: parsed.referencesApplicableSubheading,
+        });
+      }
+    }
+
+    // Stable sort: prefer rows that explicitly reference the subheading,
+    // then most-recent effective date, then largest adjustment rate.
+    return out.sort((a, b) => {
+      if (a.referencesApplicableSubheading !== b.referencesApplicableSubheading) {
+        return a.referencesApplicableSubheading ? -1 : 1;
+      }
+      const ad = a.entry.effectiveDate
+        ? new Date(a.entry.effectiveDate).getTime()
+        : 0;
+      const bd = b.entry.effectiveDate
+        ? new Date(b.entry.effectiveDate).getTime()
+        : 0;
+      if (ad !== bd) return bd - ad;
+      return b.adjustmentRate - a.adjustmentRate;
+    });
+  }
+
   private parseChapter99Adjustment(entry: HtsEntity): {
     adjustmentRate: number;
     referencesApplicableSubheading: boolean;

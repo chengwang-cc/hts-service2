@@ -21,6 +21,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
+import { AdminPermissionsGuard } from '../guards/admin-permissions.guard';
+import { AdminPermissions } from '../decorators/admin-permissions.decorator';
 import { FormulaAdminService } from '../services/formula.admin.service';
 import {
   ListFormulasDto,
@@ -29,6 +31,7 @@ import {
   ReviewDto,
   BulkApproveDto,
 } from '../dto/formula.dto';
+import { BadRequestException } from '@nestjs/common';
 
 @ApiTags('Admin - Formulas')
 @ApiBearerAuth()
@@ -150,14 +153,38 @@ export class FormulaAdminController {
    * Bulk approve candidates above confidence threshold
    */
   @Post('candidates/bulk-approve')
-  @ApiOperation({ summary: 'Bulk approve candidates' })
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('hts:formula:bulk_approve')
+  @ApiOperation({ summary: 'Bulk approve candidates (requires hts:formula:bulk_approve)' })
   @ApiResponse({ status: 200, description: 'Bulk approval completed' })
+  @ApiResponse({ status: 403, description: 'Insufficient permission' })
+  @ApiResponse({ status: 400, description: 'Comment required or batch too large' })
   async bulkApprove(@Body() dto: BulkApproveDto, @Request() req) {
+    // P1.10 — additional defensive checks beyond DTO validation.
+    const HARD_CAP = 500;
+    const comment = (dto.comment || '').trim();
+    if (comment.length < 8) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'BULK_APPROVE_COMMENT_REQUIRED',
+        message:
+          'A non-empty audit comment (>= 8 characters) is required for bulk approvals',
+      });
+    }
+    const requestedCap = dto.maxBatchSize ?? HARD_CAP;
+    if (requestedCap > HARD_CAP) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'BULK_LIMIT_EXCEEDED',
+        message: `maxBatchSize cannot exceed ${HARD_CAP}`,
+      });
+    }
+
     const userId = req.user?.email || 'UNKNOWN';
     const result = await this.formulaService.bulkApprove(
       dto.minConfidence,
       userId,
-      dto.comment,
+      comment,
     );
 
     return {

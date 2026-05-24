@@ -81,47 +81,130 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
   }
 
   /**
-   * Find latest available HTS revision
-   * Checks current year first (rev 10 -> 1), then previous year
+   * Find latest available HTS revision.
+   *
+   * P1.4 — the old implementation looped `for (revision = 10; revision >= 1; --)`
+   * which silently drops anything past revision 10. Newer USITC years already
+   * publish double-digit revisions (e.g. 2026 has 8 listed as of 2026-05; 2027
+   * is expected to go past 10). We now:
+   *   1. Fetch the USITC archive listing page and parse `(year, revision, date)`
+   *      tuples for the latest entry. Cached for 1 hour to be a polite client.
+   *   2. Fall back to URL probing scanning revisions 1..20 (was 1..10).
    */
+  private archiveCache: {
+    fetchedAt: number;
+    latest: { year: number; revision: number; releaseDate?: string } | null;
+  } | null = null;
+  private readonly archiveCacheTtlMs = 60 * 60 * 1000;
+  private readonly archiveListUrl =
+    'https://www.usitc.gov/harmonized_tariff_information/hts/archive/list';
+
   async findLatestRevision(): Promise<{
     year: number;
     revision: number;
     jsonUrl: string;
     pdfUrl: string;
   } | null> {
-    const currentYear = new Date().getFullYear();
-
-    // Try current year (check from high to low)
-    for (let revision = 10; revision >= 1; revision--) {
-      const url = this.getDownloadUrl(currentYear, revision);
-      if (await this.checkUrlExists(url)) {
-        this.logger.log(`Found latest: ${currentYear} revision ${revision}`);
-        return {
-          year: currentYear,
-          revision,
-          jsonUrl: this.getDownloadUrl(currentYear, revision),
-          pdfUrl: this.getPdfDownloadUrl(currentYear, revision),
-        };
-      }
+    // Step 1: try the archive listing page.
+    const fromArchive = await this.findLatestFromArchive();
+    if (fromArchive) {
+      this.logger.log(
+        `Found latest from USITC archive: ${fromArchive.year} revision ${fromArchive.revision}`,
+      );
+      return {
+        year: fromArchive.year,
+        revision: fromArchive.revision,
+        jsonUrl: this.getDownloadUrl(fromArchive.year, fromArchive.revision),
+        pdfUrl: this.getPdfDownloadUrl(fromArchive.year, fromArchive.revision),
+      };
     }
 
-    // Try previous year
-    const previousYear = currentYear - 1;
-    for (let revision = 10; revision >= 1; revision--) {
-      const url = this.getDownloadUrl(previousYear, revision);
-      if (await this.checkUrlExists(url)) {
-        this.logger.log(`Found latest: ${previousYear} revision ${revision}`);
-        return {
-          year: previousYear,
-          revision,
-          jsonUrl: this.getDownloadUrl(previousYear, revision),
-          pdfUrl: this.getPdfDownloadUrl(previousYear, revision),
-        };
+    // Step 2: probe revisions 1..20 in current then previous year as a
+    // safety net. This is the old code path widened from 10 to 20.
+    const currentYear = new Date().getFullYear();
+    for (const year of [currentYear, currentYear - 1]) {
+      for (let revision = 20; revision >= 1; revision--) {
+        const url = this.getDownloadUrl(year, revision);
+        if (await this.checkUrlExists(url)) {
+          this.logger.log(
+            `Found latest via URL probe: ${year} revision ${revision}`,
+          );
+          return {
+            year,
+            revision,
+            jsonUrl: this.getDownloadUrl(year, revision),
+            pdfUrl: this.getPdfDownloadUrl(year, revision),
+          };
+        }
       }
     }
 
     return null;
+  }
+
+  private async findLatestFromArchive(): Promise<{
+    year: number;
+    revision: number;
+    releaseDate?: string;
+  } | null> {
+    if (
+      this.archiveCache &&
+      Date.now() - this.archiveCache.fetchedAt < this.archiveCacheTtlMs
+    ) {
+      return this.archiveCache.latest;
+    }
+
+    try {
+      const response = await this.axios.get<string>(this.archiveListUrl, {
+        responseType: 'text',
+        // The archive page is HTML; ensure axios doesn't try to JSON-parse it.
+        transformResponse: [(data: any) => data],
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      });
+      if (response.status !== 200 || typeof response.data !== 'string') {
+        this.archiveCache = { fetchedAt: Date.now(), latest: null };
+        return null;
+      }
+      const latest = this.parseArchiveListing(response.data);
+      this.archiveCache = { fetchedAt: Date.now(), latest };
+      return latest;
+    } catch (e: any) {
+      this.logger.warn(
+        `USITC archive listing fetch failed (${e?.message}); falling back to URL probe`,
+      );
+      this.archiveCache = { fetchedAt: Date.now(), latest: null };
+      return null;
+    }
+  }
+
+  /**
+   * Parses entries of the form `2026 HTS Revision 8 (May 22, 2026)` out of
+   * the USITC archive listing HTML. Picks the largest (year, revision) tuple.
+   */
+  parseArchiveListing(html: string): {
+    year: number;
+    revision: number;
+    releaseDate?: string;
+  } | null {
+    const re =
+      /(\d{4})\s+HTS\s+Revision\s+(\d{1,3})\s*(?:\(([^)]+)\))?/gi;
+    let m: RegExpExecArray | null;
+    let best: { year: number; revision: number; releaseDate?: string } | null =
+      null;
+    while ((m = re.exec(html)) !== null) {
+      const year = Number(m[1]);
+      const revision = Number(m[2]);
+      if (!Number.isFinite(year) || !Number.isFinite(revision)) continue;
+      const candidate = { year, revision, releaseDate: m[3]?.trim() };
+      if (
+        !best ||
+        year > best.year ||
+        (year === best.year && revision > best.revision)
+      ) {
+        best = candidate;
+      }
+    }
+    return best;
   }
 
   /**

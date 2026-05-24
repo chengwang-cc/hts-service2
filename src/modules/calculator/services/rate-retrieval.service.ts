@@ -370,15 +370,51 @@ export class RateRetrievalService {
       .toString()
       .trim();
 
+    const rateFormula = (entry.rateFormula || '').trim();
+    const generalRate = (entry.generalRate || '').trim();
+    const general = (entry.general || '').trim();
+    const otherRateFormula = (entry.otherRateFormula || '').trim();
+    const otherRate = (entry.otherRate || '').trim();
+    const adjustedFormula = (entry.adjustedFormula || '').trim();
+    const chapter99 = (entry.chapter99 || '').trim();
+
+    // A bare `rateFormula='0'` (often paired with `adjustedFormula='0'` and
+    // a chapter99 note like "The duty provided in the applicable
+    // subheading") is HTS catalog shorthand for "this stat-suffix row
+    // inherits from its parent", not "the rate really is 0". Treat as no
+    // data so the hierarchy-walk in loadBestMatchingEntry can fall back to
+    // the 8/6-digit ancestor. (Found via parity: 6302.10.00.20 was
+    // returning 0% when the 6302.10.00 parent carries 6% MFN.)
+    const inheritsFromParent =
+      /duty provided in the applicable subheading/i.test(chapter99) ||
+      (rateFormula === '0' &&
+        (!adjustedFormula || adjustedFormula === '0') &&
+        !generalRate &&
+        !general &&
+        !stagedGeneralRate &&
+        !otherRateFormula &&
+        !otherRate);
+    if (
+      inheritsFromParent &&
+      (rateFormula === '' || rateFormula === '0') &&
+      !generalRate &&
+      !general &&
+      !stagedGeneralRate &&
+      !otherRateFormula &&
+      !otherRate
+    ) {
+      return false;
+    }
+
     return !!(
-      (entry.rateFormula || '').trim() ||
-      (entry.generalRate || '').trim() ||
-      (entry.general || '').trim() ||
+      rateFormula ||
+      generalRate ||
+      general ||
       stagedGeneralRate ||
-      (entry.otherRateFormula || '').trim() ||
-      (entry.otherRate || '').trim() ||
-      (entry.adjustedFormula || '').trim() ||
-      (entry.chapter99 || '').trim()
+      otherRateFormula ||
+      otherRate ||
+      adjustedFormula ||
+      chapter99
     );
   }
 
