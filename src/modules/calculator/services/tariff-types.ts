@@ -6,6 +6,8 @@
  * returned so existing UI clients can be cut over with minimal changes.
  */
 
+import type { TariffConfidenceSummary } from './tariff-confidence.service';
+
 export type TariffComponentType =
   | 'base'
   | 'special'
@@ -18,6 +20,38 @@ export type TariffComponentType =
   | 'mpf'
   | 'hmf'
   | 'post_tax';
+
+/**
+ * Calculator-runtime classification of a component's policy family.
+ *
+ * `componentType` describes the calculation stage (base/special/extra/post).
+ * `programFamily` is the independent legal/policy axis the user sees in the
+ * UI — Section 301 vs Section 232 vs IEEPA reciprocal vs quota vs MTB, etc.
+ *
+ * Unknown extras land in `other_chapter_99` rather than silently being
+ * collapsed into `section_301`.
+ */
+export type ProgramFamily =
+  | 'base'
+  | 'special'
+  | 'non_ntr'
+  | 'chapter_98'
+  | 'section_301'
+  | 'section_232'
+  | 'section_201'
+  | 'section_421'
+  | 'section_122'
+  | 'ieepa'
+  | 'reciprocal'
+  | 'quota'
+  | 'mtb'
+  | 'temporary_duty_suspension'
+  | 'replacement_duty'
+  | 'exclusion'
+  | 'mpf'
+  | 'hmf'
+  | 'tax'
+  | 'other_chapter_99';
 
 export interface FormulaVariable {
   name: string;
@@ -73,6 +107,23 @@ export interface TariffFormulaComponent {
   };
   /** Human-readable identifier (e.g. tax code, htsNumber) */
   identifier?: string;
+  /**
+   * Chapter 99 HTS code (e.g. "9903.88.15") this component reports under,
+   * when applicable. Populated for Section 301/232/IEEPA/etc. components as
+   * well as direct chapter_99 components — not only `componentType === 'chapter_99'`.
+   */
+  chapter99HtsCode?: string | null;
+  /**
+   * Policy/legal family on which this component is based. Independent of
+   * `componentType` (which is the calc stage). Defaults to mirror componentType
+   * when no richer classification is available; unknown chapter-99 derivatives
+   * land in `other_chapter_99` instead of being collapsed to `section_301`.
+   */
+  programFamily?: ProgramFamily;
+  /** Free-text legal authority for the program family (Section 301, IEEPA EO 14257, etc.) */
+  programAuthority?: string;
+  /** Free-text legal reference / Federal Register citation */
+  legalReference?: string;
   /** Human-readable description for UIs */
   description?: string;
   /** When this component is allowed to apply at calc time */
@@ -160,6 +211,28 @@ export interface BatchFormulaLineResult {
     formula: string;
     formulaVariables: FormulaVariable[];
     chapter99HtsCode?: string | null;
+    /** Policy family (Section 301, IEEPA, MPF, etc.). */
+    programFamily?: ProgramFamily;
+    /** Free-text legal authority for the program family. */
+    programAuthority?: string;
+    /** Free-text legal reference / Federal Register citation. */
+    legalReference?: string;
+    /** Source phrasing for the rate (e.g. "16.5%"). */
+    rateText?: string;
+    /** Canonical formula used for semantic comparison. */
+    formulaCanonical?: string;
+    /** Stable hash derived from canonical formula + variable set. */
+    formulaSemanticHash?: string;
+    /** Stage gate (calculation order). */
+    appliesWhen?: TariffApplyCondition;
+    /** Raw condition AST/JSON for audit. */
+    conditions?: Record<string, any> | null;
+    /** Amount-level constraints (MPF min/max, rounding). */
+    constraints?: TariffFormulaComponent['constraints'];
+    /** Underlying source citation for the rate row. */
+    sourceCitation?: SourceCitationRef;
+    /** Human identifier (taxCode / row id). */
+    identifier?: string;
     confidence: number;
   }>;
 }
@@ -172,8 +245,25 @@ export interface BatchRateLineResult {
   blockReason: string | null;
   message: string;
   systemSelectedChapter99Headings?: string[];
-  /** Top-level total duty = sum of all evaluated component amounts */
+  /** Top-level customs duty total, excluding separately reported fees/taxes. */
   totalDuty: number;
+  /** MPF/HMF/declaration-style fees evaluated after duty. */
+  fees?: number;
+  /** True taxes evaluated after duty/fees. */
+  taxes?: number;
+  /** Structured totals; preferred shape for new clients. */
+  totals?: {
+    duty: number;
+    fees: number;
+    taxes: number;
+    payable: number;
+  };
+  /** Backward-compatible flat confidence score derived from cards/evidence. */
+  confidence?: number;
+  /** Preferred numeric confidence score for clients adopting object confidence. */
+  confidenceScore?: number;
+  /** Explainable confidence detail for reviewers and dashboards. */
+  confidenceDetails?: TariffConfidenceSummary;
   /** Per-component breakdown with evaluated amounts */
   breakdown: Array<{
     componentType: TariffComponentType;
@@ -183,6 +273,32 @@ export interface BatchRateLineResult {
     formula: string;
     formulaVariables: FormulaVariable[];
     chapter99HtsCode?: string | null;
+    /** Policy family (Section 301, IEEPA, MPF, etc.). */
+    programFamily?: ProgramFamily;
+    /** Free-text legal authority for the program family. */
+    programAuthority?: string;
+    /** Free-text legal reference / Federal Register citation. */
+    legalReference?: string;
+    /** Source phrasing for the rate (e.g. "16.5%"). */
+    rateText?: string;
+    /** Canonical formula used for semantic comparison. */
+    formulaCanonical?: string;
+    /** Stable hash derived from canonical formula + variable set. */
+    formulaSemanticHash?: string;
+    /** Stage gate (when this component applies). */
+    appliesWhen?: TariffApplyCondition;
+    /** Raw condition AST/JSON for audit. */
+    conditions?: Record<string, any> | null;
+    /** Amount-level constraints (MPF min/max, rounding). */
+    constraints?: TariffFormulaComponent['constraints'];
+    /** Underlying source citation for the rate row. */
+    sourceCitation?: SourceCitationRef;
+    /** Human identifier (taxCode / row id). */
+    identifier?: string;
+    /** Component confidence 0..1. */
+    confidence?: number;
     error: string | null;
   }>;
+  /** De-duplicated list of source citations across all components. */
+  sources?: SourceCitationRef[];
 }

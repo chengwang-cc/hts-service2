@@ -44,6 +44,20 @@ export class ApiKeyGuard implements CanActivate {
       // Validate API key
       const validatedKey = await this.apiKeyService.validateApiKey(apiKey);
 
+      // Check browser origin allowlist. Server-to-server requests usually do
+      // not send an Origin header, so those remain governed by API key + IP.
+      if (
+        validatedKey.allowedOrigins &&
+        validatedKey.allowedOrigins.length > 0
+      ) {
+        const origin = this.getRequestOrigin(request);
+        if (origin && !this.checkOriginAllowlist(origin, validatedKey.allowedOrigins)) {
+          throw new ForbiddenException(
+            `Origin ${origin} is not allowed for this API key`,
+          );
+        }
+      }
+
       // Check required permissions (if specified in route metadata)
       const requiredPermissions = this.reflector.get<string[]>(
         'api-permissions',
@@ -192,6 +206,47 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     return false;
+  }
+
+  private getRequestOrigin(request: any): string | null {
+    const origin = request.headers.origin;
+    if (Array.isArray(origin)) {
+      return origin[0] ?? null;
+    }
+
+    return typeof origin === 'string' && origin.length > 0 ? origin : null;
+  }
+
+  private checkOriginAllowlist(origin: string, allowlist: string[]): boolean {
+    return allowlist.some((allowed) => this.originMatches(origin, allowed));
+  }
+
+  private originMatches(origin: string, allowed: string): boolean {
+    if (origin === allowed) {
+      return true;
+    }
+
+    try {
+      const originUrl = new URL(origin);
+      const allowedUrl = new URL(allowed);
+
+      if (originUrl.protocol !== allowedUrl.protocol) {
+        return false;
+      }
+
+      if (!allowedUrl.hostname.startsWith('*.')) {
+        return originUrl.host === allowedUrl.host;
+      }
+
+      const suffix = allowedUrl.hostname.slice(1);
+      return (
+        originUrl.port === allowedUrl.port &&
+        originUrl.hostname.endsWith(suffix) &&
+        originUrl.hostname !== allowedUrl.hostname.slice(2)
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**

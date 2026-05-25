@@ -13,10 +13,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  CalculationService,
-  FormulaEvaluationService,
-} from '../services';
+import { CalculationService, FormulaEvaluationService } from '../services';
 import { TariffFormulaResolverService } from '../services/tariff-formula-resolver.service';
 import { TariffRateBatchService } from '../services/tariff-rate-batch.service';
 import { CalculateDto } from '../dto';
@@ -42,41 +39,22 @@ export class CalculatorController {
     private readonly scenarioRepository: Repository<CalculationScenarioEntity>,
   ) {}
 
-  // ── Single calculate ───────────────────────────────────────────────────
-  // Both JWT users and API-key clients can call this. Organization is
-  // derived from the auth context, never from a query parameter.
-
-  @Post('calculate')
-  async calculate(
-    @Body() calculateDto: CalculateDto,
-    @Req() req: any,
-  ) {
-    const ctx = this.requireCallerContext(req);
-
-    const tradeAgreementCode =
-      calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
-    const tradeAgreementCertificate =
-      typeof calculateDto.tradeAgreementCertificate === 'boolean'
-        ? calculateDto.tradeAgreementCertificate
-        : calculateDto.claimPreferential;
-
-    return this.calculationService.calculate({
-      ...calculateDto,
-      tradeAgreementCode,
-      tradeAgreementCertificate,
-      organizationId: ctx.organizationId,
-      userId: ctx.userId,
-    });
-  }
+  // Note: `POST /api/v1/calculator/calculate`, `GET /api/v1/calculator/formula`,
+  // and `POST /api/v1/calculator/tariff-rates` are intentionally NOT defined
+  // on this controller. They are served exclusively by the ai-service-proxy
+  // CalculatorV1Controller (modules/public-api/v1) so the v1 surface stays a
+  // transparent relay for hts-web2. The native engine for hts-ui sits on the
+  // v2 routes below (`v2/formula`, `v2/tariff-rates`, `v2/calculate`).
+  //
+  // Keeping duplicate routes here would cause registration-order ambiguity
+  // and silently override the public-api proxy — that's how we ended up
+  // surfacing the "Auto-imported from ai-service…" leak in seed data.
 
   @SkipJwtAuth()
   @UseGuards(ApiKeyGuard)
   @ApiPermissions('calculator:write')
   @Post('calculate.api')
-  async calculateApi(
-    @Body() calculateDto: CalculateDto,
-    @Req() req: any,
-  ) {
+  async calculateApi(@Body() calculateDto: CalculateDto, @Req() req: any) {
     const organizationId = req.organizationId as string;
     if (!organizationId) {
       throw new ForbiddenException('Missing organization on API key');
@@ -138,18 +116,28 @@ export class CalculatorController {
     return { status: 'ok', service: 'calculator' };
   }
 
-  // ── Local formula metadata (replaces ai-service /v2/tariff/formulas) ───
+  // ── JWT-friendly Calculator v2 endpoints (browser path) ────────────────
+  //
+  // The calculator-v2 UI is a JWT-authenticated browser client. It must not
+  // need an API key to hit native v2 calculation logic, so we mount the
+  // richer v2 contract under the standard app namespace at
+  // `/api/v1/calculator/v2/*`. These delegate to the same native services
+  // as the public `/api/v2/calculator/*` controller — only the auth shape
+  // differs.
+  //
+  // The response shape is identical to the public v2 controller and now
+  // carries program family, legal authority, Chapter 99 reporting code,
+  // source citation, and constraints for every component.
 
-  @Get('formula')
-  async getFormula(
+  @Get('v2/formula')
+  async getFormulaV2(
     @Query('htsCode') htsCode: string,
     @Query('country') country: string,
     @Query('entryDate') entryDate?: string,
     @Query('htsVersion') htsVersion?: string,
+    @Query('selectedChapter99Headings') selectedChapter99Headings?: string,
     @Req() req?: any,
   ): Promise<unknown> {
-    // Auth is already enforced by the global JWT guard; just sanity-check
-    // the call site exists.
     this.requireCallerContext(req);
 
     if (!htsCode || !country) {
@@ -159,15 +147,19 @@ export class CalculatorController {
       );
     }
 
+    const headings = parseHeadingList(selectedChapter99Headings);
     const [item] = await this.tariffRateBatch.batchFormulas([
-      { htsCode, country, entryDate, htsVersion },
+      {
+        htsCode,
+        country,
+        entryDate,
+        htsVersion,
+        selectedChapter99Headings: headings,
+      },
     ]);
 
     if (!item) {
-      throw new HttpException(
-        'No formula returned',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new HttpException('No formula returned', HttpStatus.NOT_FOUND);
     }
 
     return {
@@ -177,21 +169,15 @@ export class CalculatorController {
       blocked: item.blocked,
       blockReason: item.blockReason,
       message: item.message,
+      systemSelectedChapter99Headings:
+        item.systemSelectedChapter99Headings ?? [],
       exclusiveSection301: false,
-      formulas: item.formulas.map((f) => ({
-        tariffType: f.tariffType,
-        tariffTypeDescription: f.tariffTypeDescription,
-        formula: f.formula,
-        formulaVariables: f.formulaVariables,
-        chapter99HtsCode: f.chapter99HtsCode ?? null,
-      })),
+      formulas: item.formulas,
     };
   }
 
-  // ── Local batch rates (replaces ai-service /v2/tariff/rates) ───────────
-
-  @Post('tariff-rates')
-  async getTariffRates(
+  @Post('v2/tariff-rates')
+  async getTariffRatesV2(
     @Body()
     body: Array<{
       htsCode: string;
@@ -215,9 +201,47 @@ export class CalculatorController {
       blocked: r.blocked,
       blockReason: r.blockReason,
       message: r.message,
+      systemSelectedChapter99Headings: r.systemSelectedChapter99Headings ?? [],
       totalDuty: r.totalDuty,
+      fees: r.fees ?? 0,
+      taxes: r.taxes ?? 0,
+      totals: r.totals,
+      confidenceScore: r.confidence,
+      confidence: r.confidence,
+      confidenceDetails: r.confidenceDetails,
       breakdown: r.breakdown,
+      sources: r.sources ?? [],
     }));
+  }
+
+  @Post('v2/calculate')
+  async calculateV2(@Body() calculateDto: CalculateDto, @Req() req: any) {
+    const ctx = this.requireCallerContext(req);
+
+    const tradeAgreementCode =
+      calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
+    const tradeAgreementCertificate =
+      typeof calculateDto.tradeAgreementCertificate === 'boolean'
+        ? calculateDto.tradeAgreementCertificate
+        : calculateDto.claimPreferential;
+
+    const result = await this.calculationService.calculate({
+      ...calculateDto,
+      tradeAgreementCode,
+      tradeAgreementCertificate,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+    });
+
+    return {
+      success: true,
+      data: result,
+      meta: {
+        apiVersion: 'v2',
+        engine: 'hts-native-v2',
+        organizationId: ctx.organizationId,
+      },
+    };
   }
 
   // ── Scenarios (tenant-scoped) ──────────────────────────────────────────
@@ -337,6 +361,19 @@ export class CalculatorController {
   // ── helpers ────────────────────────────────────────────────────────────
 
   private requireCallerContext(req: any): CallerContext {
+    const ctx = this.tryGetCallerContext(req);
+    if (ctx) return ctx;
+    throw new ForbiddenException('Authenticated organization is required');
+  }
+
+  /**
+   * Best-effort caller context extraction. Returns null when no auth is
+   * present so @Public() routes can serve both anonymous (hts-web2) and
+   * authenticated (hts-ui, partner API key) callers without rejecting the
+   * anonymous case. Routes that genuinely require auth keep using
+   * requireCallerContext().
+   */
+  private tryGetCallerContext(req: any): CallerContext | null {
     const fromUser = req?.user;
     if (fromUser?.organizationId) {
       return {
@@ -350,6 +387,14 @@ export class CalculatorController {
       return { organizationId: fromApiKey };
     }
 
-    throw new ForbiddenException('Authenticated organization is required');
+    return null;
   }
+}
+
+function parseHeadingList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }

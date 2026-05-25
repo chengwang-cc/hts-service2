@@ -39,16 +39,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
-import {
-  ApiPermissions,
-  CurrentApiKey,
-} from '../../../api-keys/decorators';
+import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { SkipJwtAuth } from '../../../api-keys/decorators/skip-jwt-auth.decorator';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
-import {
-  CalculationService,
-  TariffRateBatchService,
-} from '@hts/calculator';
+import { CalculationService, TariffRateBatchService } from '@hts/calculator';
 import { LandedCostService } from '../../../landed-cost/services/landed-cost.service';
 import { JurisdictionService } from '../../../jurisdiction/services/jurisdiction.service';
 import { LandedCostQuoteRequestDto } from '../../../landed-cost/dto/quote-request.dto';
@@ -96,8 +90,7 @@ export class CalculatorV2Controller {
     @Body() input: CalculatePublicV2Dto,
     @CurrentApiKey() apiKey: ApiKeyEntity,
   ) {
-    const tradeAgreementCode =
-      input.tradeAgreementCode || input.tradeAgreement;
+    const tradeAgreementCode = input.tradeAgreementCode || input.tradeAgreement;
     const tradeAgreementCertificate =
       typeof input.tradeAgreementCertificate === 'boolean'
         ? input.tradeAgreementCertificate
@@ -132,7 +125,9 @@ export class CalculatorV2Controller {
 
       return {
         success: true,
-        data: result,
+        data: this.withConfidenceObject(
+          result as unknown as Record<string, unknown>,
+        ),
         meta: {
           apiVersion: 'v2',
           organizationId: apiKey.organizationId,
@@ -195,16 +190,10 @@ export class CalculatorV2Controller {
       blocked: row.blocked,
       blockReason: row.blockReason,
       message: row.message,
+      systemSelectedChapter99Headings:
+        row.systemSelectedChapter99Headings ?? [],
       exclusiveSection301: false,
-      formulas: row.formulas.map((f) => ({
-        componentType: f.componentType,
-        tariffType: f.tariffType,
-        tariffTypeDescription: f.tariffTypeDescription,
-        formula: f.formula,
-        formulaVariables: f.formulaVariables,
-        chapter99HtsCode: f.chapter99HtsCode ?? null,
-        confidence: f.confidence,
-      })),
+      formulas: row.formulas,
     };
   }
 
@@ -214,7 +203,7 @@ export class CalculatorV2Controller {
   @ApiOperation({
     summary: 'Batch evaluate tariff amounts (native)',
     description:
-      'Per-row totalDuty is the sum of every component (base + special + chapter-99 + section-* + MPF + HMF + post_tax).',
+      'Per-row totalDuty is customs duty only. MPF/HMF and tax components are returned separately as fees, taxes, and structured totals.',
   })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 400 })
@@ -241,8 +230,16 @@ export class CalculatorV2Controller {
       blocked: r.blocked,
       blockReason: r.blockReason,
       message: r.message,
+      systemSelectedChapter99Headings: r.systemSelectedChapter99Headings ?? [],
       totalDuty: r.totalDuty,
+      fees: r.fees ?? 0,
+      taxes: r.taxes ?? 0,
+      totals: r.totals,
+      confidenceScore: r.confidence,
+      confidence: this.confidenceObject(r.confidenceDetails, r.confidence),
+      confidenceDetails: r.confidenceDetails,
       breakdown: r.breakdown,
+      sources: r.sources ?? [],
     }));
   }
 
@@ -343,7 +340,11 @@ export class CalculatorV2Controller {
 
   @Get('calculations')
   @ApiOperation({ summary: 'List recent stored calculations' })
-  @ApiQuery({ name: 'limit', required: false, description: '1..200, default 10' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: '1..200, default 10',
+  })
   @ApiPermissions('hts:calculate')
   async listCalculations(
     @CurrentApiKey() apiKey: ApiKeyEntity,
@@ -355,5 +356,60 @@ export class CalculatorV2Controller {
       data: rows,
       meta: { apiVersion: 'v2', organizationId: apiKey.organizationId },
     };
+  }
+
+  private withConfidenceObject(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const score =
+      typeof value.confidence === 'number'
+        ? value.confidence
+        : typeof (value.confidenceDetails as any)?.score === 'number'
+          ? (value.confidenceDetails as any).score
+          : null;
+    return {
+      ...value,
+      confidenceScore: score,
+      confidence: this.confidenceObject(value.confidenceDetails, score),
+    };
+  }
+
+  private confidenceObject(
+    details: unknown,
+    fallbackScore: number | null | undefined,
+  ): Record<string, unknown> {
+    const confidenceDetails =
+      details && typeof details === 'object'
+        ? (details as Record<string, unknown>)
+        : null;
+    const score =
+      typeof confidenceDetails?.score === 'number'
+        ? confidenceDetails.score
+        : typeof fallbackScore === 'number'
+          ? fallbackScore
+          : null;
+    return {
+      score,
+      label:
+        typeof confidenceDetails?.label === 'string'
+          ? confidenceDetails.label
+          : this.confidenceLabel(score),
+      source:
+        typeof confidenceDetails?.source === 'string'
+          ? confidenceDetails.source
+          : 'fallback',
+      basedOn: confidenceDetails?.basedOn || null,
+      caveats: Array.isArray(confidenceDetails?.caveats)
+        ? confidenceDetails.caveats
+        : [],
+    };
+  }
+
+  private confidenceLabel(score: number | null): string {
+    if (score === null) return 'review';
+    if (score >= 0.9) return 'high';
+    if (score >= 0.75) return 'medium';
+    if (score >= 0.5) return 'low';
+    return 'review';
   }
 }

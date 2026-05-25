@@ -4,21 +4,27 @@ import { FormulaEvaluationService } from './formula-evaluation.service';
 import { FormulaScopeService } from './formula-scope.service';
 import { PolicyApplicabilityService } from './policy-applicability.service';
 import { TariffConditionEngineService } from './tariff-condition-engine.service';
+import { TariffConfidenceService } from './tariff-confidence.service';
 import {
   BatchFormulaLineResult,
   BatchRateLineResult,
   BatchRateRequest,
+  SourceCitationRef,
   TariffComponentType,
   TariffFormulaComponent,
 } from './tariff-types';
+import {
+  classifyProgramFamily,
+  extractChapter99FromConditions,
+} from './program-family.helper';
 
 /**
  * TariffRateBatchService
  *
  * Replaces the ai-service `/v2/tariff/rates` proxy. Returns per-row
- * componentized breakdowns AND a top-level `totalDuty` that includes base +
- * special + chapter-99 + section duties + post-tax components — fixing the
- * ai-service bug where the top-level `rate` was base-only.
+ * componentized breakdowns plus structured totals. `totalDuty` is customs
+ * duty only; MPF/HMF and tax components are reported separately in `fees`,
+ * `taxes`, and `totals.payable`.
  *
  * Each request is resolved independently, so duplicate (htsCode, country)
  * rows with different `inputs` do not collapse — fixes the ai-service
@@ -34,6 +40,7 @@ export class TariffRateBatchService {
     private readonly formulaScope: FormulaScopeService,
     private readonly policyApplicability: PolicyApplicabilityService,
     private readonly conditionEngine: TariffConditionEngineService,
+    private readonly tariffConfidence: TariffConfidenceService,
   ) {}
 
   async batchCalculate(
@@ -84,16 +91,39 @@ export class TariffRateBatchService {
         message: resolved.message,
         systemSelectedChapter99Headings:
           policySelection.systemSelectedChapter99Headings,
-        formulas: resolved.components.map((c) => ({
-          componentType: c.componentType,
-          tariffType: this.tariffTypeFromComponent(c.componentType),
-          tariffTypeDescription: c.description || c.componentType,
-          formula: c.formula,
-          formulaVariables: c.requiredVariables,
-          chapter99HtsCode:
-            c.componentType === 'chapter_99' ? (c.identifier ?? null) : null,
-          confidence: c.confidence,
-        })),
+        formulas: resolved.components.map((c) => {
+          const chapter99 = this.resolveChapter99Code(c);
+          const classification = classifyProgramFamily({
+            componentType: c.componentType,
+            identifier: c.identifier,
+            legalReference: c.legalReference,
+            chapter99Code: chapter99,
+          });
+          return {
+            componentType: c.componentType,
+            tariffType: this.tariffTypeFromComponent(c.componentType),
+            tariffTypeDescription: this.cleanTariffTypeDescription(
+              c.description,
+              c.componentType,
+            ),
+            formula: c.formula,
+            formulaVariables: c.requiredVariables,
+            chapter99HtsCode: chapter99,
+            programFamily: c.programFamily ?? classification.programFamily,
+            programAuthority:
+              c.programAuthority ?? classification.programAuthority,
+            legalReference: c.legalReference,
+            rateText: c.rateText,
+            formulaCanonical: c.formulaCanonical,
+            formulaSemanticHash: c.formulaSemanticHash,
+            appliesWhen: c.appliesWhen,
+            conditions: c.conditions ?? null,
+            constraints: c.constraints,
+            sourceCitation: c.sourceCitation,
+            identifier: c.identifier,
+            confidence: c.confidence,
+          };
+        }),
       });
     }
     return out;
@@ -123,6 +153,12 @@ export class TariffRateBatchService {
     });
 
     if (resolved.blocked) {
+      const confidenceDetails = await this.tariffConfidence.scoreFor({
+        htsNumber: req.htsCode,
+        countryCode: req.country,
+        destinationCode: 'US',
+        fallbackConfidence: 0,
+      });
       return {
         htsCode: req.htsCode,
         country: req.country,
@@ -133,6 +169,16 @@ export class TariffRateBatchService {
         systemSelectedChapter99Headings:
           policySelection.systemSelectedChapter99Headings,
         totalDuty: 0,
+        fees: 0,
+        taxes: 0,
+        totals: {
+          duty: 0,
+          fees: 0,
+          taxes: 0,
+          payable: 0,
+        },
+        confidence: confidenceDetails.score,
+        confidenceDetails,
         breakdown: [],
       };
     }
@@ -205,6 +251,7 @@ export class TariffRateBatchService {
 
     const postTariffTotal = baseVars.value + runningDuty;
     let runningFees = 0;
+    let runningTaxes = 0;
     for (const c of post) {
       if (!this.shouldEvaluate(c, effectiveReq)) {
         continue;
@@ -225,7 +272,11 @@ export class TariffRateBatchService {
         evaluated.push({ component: c, amount: 0, error: evaledResult.error });
         continue;
       }
-      runningFees += evaledResult.amount;
+      if (c.componentType === 'post_tax') {
+        runningTaxes += evaledResult.amount;
+      } else {
+        runningFees += evaledResult.amount;
+      }
       evaluated.push({
         component: c,
         amount: evaledResult.amount,
@@ -233,7 +284,53 @@ export class TariffRateBatchService {
       });
     }
 
-    const totalDuty = runningDuty + runningFees;
+    const totalDuty = runningDuty;
+    const totalFees = runningFees;
+    const totalTaxes = runningTaxes;
+    const payable = totalDuty + totalFees + totalTaxes;
+    const confidenceDetails = await this.tariffConfidence.scoreFor({
+      htsNumber: req.htsCode,
+      countryCode: req.country,
+      destinationCode: 'US',
+      fallbackConfidence: this.componentConfidence(resolved.components),
+    });
+
+    const breakdown = evaluated.map((e) => {
+      const chapter99 = this.resolveChapter99Code(e.component);
+      const classification = classifyProgramFamily({
+        componentType: e.component.componentType,
+        identifier: e.component.identifier,
+        legalReference: e.component.legalReference,
+        chapter99Code: chapter99,
+      });
+      return {
+        componentType: e.component.componentType,
+        tariffType: this.tariffTypeFromComponent(e.component.componentType),
+        tariffTypeDescription: this.cleanTariffTypeDescription(
+          e.component.description,
+          e.component.componentType,
+        ),
+        amount: this.round2(e.amount),
+        formula: e.component.formula,
+        formulaVariables: e.component.requiredVariables,
+        chapter99HtsCode: chapter99,
+        programFamily:
+          e.component.programFamily ?? classification.programFamily,
+        programAuthority:
+          e.component.programAuthority ?? classification.programAuthority,
+        legalReference: e.component.legalReference,
+        rateText: e.component.rateText,
+        formulaCanonical: e.component.formulaCanonical,
+        formulaSemanticHash: e.component.formulaSemanticHash,
+        appliesWhen: e.component.appliesWhen,
+        conditions: e.component.conditions ?? null,
+        constraints: e.component.constraints,
+        sourceCitation: e.component.sourceCitation,
+        identifier: e.component.identifier,
+        confidence: e.component.confidence,
+        error: e.error,
+      };
+    });
 
     return {
       htsCode: req.htsCode,
@@ -245,21 +342,50 @@ export class TariffRateBatchService {
       systemSelectedChapter99Headings:
         policySelection.systemSelectedChapter99Headings,
       totalDuty: this.round2(totalDuty),
-      breakdown: evaluated.map((e) => ({
-        componentType: e.component.componentType,
-        tariffType: this.tariffTypeFromComponent(e.component.componentType),
-        tariffTypeDescription:
-          e.component.description || e.component.componentType,
-        amount: this.round2(e.amount),
-        formula: e.component.formula,
-        formulaVariables: e.component.requiredVariables,
-        chapter99HtsCode:
-          e.component.componentType === 'chapter_99'
-            ? (e.component.identifier ?? null)
-            : null,
-        error: e.error,
-      })),
+      fees: this.round2(totalFees),
+      taxes: this.round2(totalTaxes),
+      totals: {
+        duty: this.round2(totalDuty),
+        fees: this.round2(totalFees),
+        taxes: this.round2(totalTaxes),
+        payable: this.round2(payable),
+      },
+      confidenceScore: confidenceDetails.score,
+      confidence: confidenceDetails.score,
+      confidenceDetails,
+      breakdown,
+      sources: this.dedupeSources(evaluated.map((e) => e.component)),
     };
+  }
+
+  /**
+   * Resolve the Chapter 99 HTS code carried by a component. Prefer the
+   * explicit `chapter99HtsCode` field, then fall back to:
+   *   1. `identifier` when that looks like a 9903.xx.yy code
+   *   2. conditions.htsHeading / conditions.chapter99Heading
+   *
+   * This covers all components driven by a Chapter 99 rule, not only those
+   * with `componentType === 'chapter_99'` (Section 301/232/IEEPA/etc.).
+   */
+  private resolveChapter99Code(c: TariffFormulaComponent): string | null {
+    if (c.chapter99HtsCode) return c.chapter99HtsCode;
+    if (c.identifier && /^99\d{2}\.\d{2}\.\d{2}(\.\d{2})?$/.test(c.identifier)) {
+      return c.identifier;
+    }
+    return extractChapter99FromConditions(c.conditions);
+  }
+
+  private dedupeSources(
+    components: TariffFormulaComponent[],
+  ): SourceCitationRef[] {
+    const seen = new Map<string, SourceCitationRef>();
+    for (const c of components) {
+      const cit = c.sourceCitation;
+      if (!cit) continue;
+      const key = `${cit.source}|${cit.rowIdentifier ?? ''}|${cit.url ?? ''}`;
+      if (!seen.has(key)) seen.set(key, cit);
+    }
+    return Array.from(seen.values());
   }
 
   private shouldEvaluate(
@@ -356,6 +482,60 @@ export class TariffRateBatchService {
     }
   }
 
+  /**
+   * Returns a user-safe `tariffTypeDescription`. Some rows were seeded from
+   * an ai-service import that stamped the description with an
+   * implementation-leaking marker like
+   *   "Auto-imported from ai-service /v2/tariff/formulas. tariffType=section_301"
+   * The public API must never expose that — replace any such description
+   * (or trailing fragment) with a clean human label derived from the
+   * componentType (`section_301` → `Section 301`, `metal_tariff` →
+   * `Metal Tariff`, etc.).
+   */
+  private cleanTariffTypeDescription(
+    rawDescription: string | null | undefined,
+    componentType: TariffComponentType | string,
+  ): string {
+    const cleaned = (rawDescription ?? '').trim();
+    if (!cleaned || /\bauto-imported\b/i.test(cleaned) || /\bai-service\b/i.test(cleaned)) {
+      return this.humanizeComponentType(componentType);
+    }
+    return cleaned;
+  }
+
+  /**
+   * Human label for a tariff component type identifier — used as the
+   * fallback whenever a description is missing or leaks implementation
+   * details. `section_301` → `Section 301`, `metal_tariff` → `Metal Tariff`,
+   * `mpf` → `Merchandise Processing Fee`, etc.
+   */
+  private humanizeComponentType(type: TariffComponentType | string): string {
+    const specials: Record<string, string> = {
+      base: 'Base (general / MFN) rate',
+      special: 'Special / preferential rate',
+      non_ntr: 'Other (non-NTR) rate',
+      chapter_98: 'Chapter 98',
+      chapter_99: 'Chapter 99',
+      section_122: 'Section 122 Tariffs',
+      section_201: 'Section 201',
+      section_232: 'Section 232',
+      section_301: 'Section 301',
+      ieepa: 'IEEPA',
+      reciprocal: 'Reciprocal tariff',
+      metal_tariff: 'Section 232 (Metal)',
+      mpf: 'Merchandise Processing Fee',
+      hmf: 'Harbor Maintenance Fee',
+      post_tax: 'Post-calculation tax',
+    };
+    const key = String(type ?? '').toLowerCase();
+    if (specials[key]) return specials[key];
+    return key
+      .split(/[_-]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
   private tariffTypeFromComponent(type: TariffComponentType): string {
     switch (type) {
       case 'base':
@@ -385,6 +565,17 @@ export class TariffRateBatchService {
 
   private round2(v: number): number {
     return Math.round(v * 100) / 100;
+  }
+
+  private componentConfidence(components: TariffFormulaComponent[]): number {
+    if (components.length === 0) {
+      return 0;
+    }
+    const sum = components.reduce((acc, component) => {
+      const confidence = Number(component.confidence);
+      return acc + (Number.isFinite(confidence) ? confidence : 0);
+    }, 0);
+    return sum / components.length;
   }
 
   private mergeHeadings(

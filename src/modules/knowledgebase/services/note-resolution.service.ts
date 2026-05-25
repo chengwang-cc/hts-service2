@@ -15,6 +15,12 @@ interface ParsedNoteReference {
   chapter: string | null;
 }
 
+interface NoteResolutionOptions {
+  exactOnly?: boolean;
+  persistResolution?: boolean;
+  sourceVersion?: string;
+}
+
 @Injectable()
 export class NoteResolutionService {
   private readonly logger = new Logger(NoteResolutionService.name);
@@ -36,7 +42,7 @@ export class NoteResolutionService {
     referenceText?: string,
     sourceColumn: 'general' | 'other' | 'special' = 'general',
     year?: number,
-    options?: { exactOnly?: boolean; persistResolution?: boolean },
+    options?: NoteResolutionOptions,
   ): Promise<any> {
     const parsedReference = this.parseNoteReference(
       referenceText || '',
@@ -47,7 +53,11 @@ export class NoteResolutionService {
     }
 
     // Try exact match first
-    const exactMatch = await this.exactMatch(parsedReference, year);
+    const exactMatch = await this.exactMatch(
+      parsedReference,
+      year,
+      options?.sourceVersion,
+    );
     if (exactMatch) {
       const result = await this.buildResult(
         exactMatch,
@@ -67,6 +77,7 @@ export class NoteResolutionService {
           sourceColumn,
           year ?? exactMatch.year,
           result.formula,
+          options?.sourceVersion,
         );
       }
 
@@ -79,6 +90,7 @@ export class NoteResolutionService {
         referenceText,
         parsedReference.chapter ?? null,
         year,
+        options?.sourceVersion,
       );
       if (semanticMatch && semanticMatch.confidence >= 0.8) {
         const result = await this.buildResult(
@@ -99,6 +111,7 @@ export class NoteResolutionService {
             sourceColumn,
             year ?? semanticMatch.note.year,
             result.formula,
+            options?.sourceVersion,
           );
         }
 
@@ -171,6 +184,7 @@ export class NoteResolutionService {
   private async exactMatch(
     parsed: ParsedNoteReference,
     year?: number,
+    sourceVersion?: string,
   ): Promise<HtsNoteEntity | null> {
     const typedMatch = parsed.noteType
       ? await this.queryBestNote(
@@ -178,6 +192,7 @@ export class NoteResolutionService {
           parsed.chapter,
           year,
           parsed.noteType,
+          sourceVersion,
         )
       : null;
 
@@ -185,7 +200,13 @@ export class NoteResolutionService {
       return typedMatch;
     }
 
-    return this.queryBestNote(parsed.noteNumber, parsed.chapter, year);
+    return this.queryBestNote(
+      parsed.noteNumber,
+      parsed.chapter,
+      year,
+      undefined,
+      sourceVersion,
+    );
   }
 
   private async queryBestNote(
@@ -193,6 +214,7 @@ export class NoteResolutionService {
     chapter: string | null,
     year?: number,
     noteType?: string | null,
+    sourceVersion?: string,
   ): Promise<HtsNoteEntity | null> {
     const chapterCandidates = this.getChapterCandidates(chapter);
     const query = this.noteRepository
@@ -216,6 +238,12 @@ export class NoteResolutionService {
 
     if (noteType) {
       query.andWhere('note.type = :noteType', { noteType });
+    }
+
+    if (sourceVersion) {
+      query.andWhere('document.sourceVersion = :sourceVersion', {
+        sourceVersion,
+      });
     }
 
     if (chapter && chapter !== '00') {
@@ -245,13 +273,16 @@ export class NoteResolutionService {
     referenceText: string,
     chapter: string | null,
     year?: number,
+    sourceVersion?: string,
   ): Promise<{ note: HtsNoteEntity; confidence: number } | null> {
     const chapterCandidates = this.getChapterCandidates(chapter);
-    const embedding = await this.embeddingService.generateEmbedding(referenceText);
+    const embedding =
+      await this.embeddingService.generateEmbedding(referenceText);
 
     const query = this.embeddingRepository
       .createQueryBuilder('embedding')
       .innerJoin(HtsNoteEntity, 'note', 'note.id = embedding.noteId')
+      .innerJoin('note.document', 'document')
       .select('embedding.noteId', 'noteId')
       .addSelect('1 - (embedding.embedding <=> :embedding)', 'similarity')
       .where('embedding.isCurrent = true')
@@ -264,6 +295,12 @@ export class NoteResolutionService {
     if (chapterCandidates.length) {
       query.andWhere('note.chapter IN (:...chapters)', {
         chapters: chapterCandidates,
+      });
+    }
+
+    if (sourceVersion) {
+      query.andWhere('document.sourceVersion = :sourceVersion', {
+        sourceVersion,
       });
     }
 
@@ -342,6 +379,7 @@ export class NoteResolutionService {
     sourceColumn: string,
     year?: number,
     resolvedFormula?: string | null,
+    sourceVersion?: string,
   ): Promise<void> {
     try {
       const resolvedYear = year ?? new Date().getFullYear();
@@ -361,6 +399,7 @@ export class NoteResolutionService {
         resolutionMetadata: {
           sourceColumn,
           year: resolvedYear,
+          sourceVersion: sourceVersion ?? null,
         },
       });
 

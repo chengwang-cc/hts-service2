@@ -16,8 +16,10 @@ import { AppModule } from '../src/app.module';
 import {
   JurisdictionEntity,
   LowValueRuleEntity,
+  TariffSourceEntity,
   TaxRuleEntity,
 } from '../src/modules/jurisdiction/entities';
+import { AUTHORITATIVE_TARIFF_SOURCES } from '../src/modules/jurisdiction/constants/authoritative-tariff-sources';
 
 interface SeedJurisdiction {
   code: string;
@@ -63,10 +65,14 @@ async function main() {
     const taxRepo = app.get<Repository<TaxRuleEntity>>(
       getRepositoryToken(TaxRuleEntity),
     );
+    const sourceRepo = app.get<Repository<TariffSourceEntity>>(
+      getRepositoryToken(TariffSourceEntity),
+    );
 
     let upsertedJurisdictions = 0;
     let upsertedLowValue = 0;
     let upsertedTax = 0;
+    let upsertedSources = 0;
 
     for (const j of JURISDICTIONS) {
       const existing = await jurRepo.findOne({ where: { code: j.code } });
@@ -84,6 +90,55 @@ async function main() {
           await jurRepo.save({ ...existing, ...j });
           upsertedJurisdictions++;
         }
+      }
+    }
+
+    for (const source of AUTHORITATIVE_TARIFF_SOURCES) {
+      const existing = await sourceRepo.findOne({
+        where: {
+          jurisdictionCode: source.jurisdictionCode,
+          sourceName: source.sourceName,
+        },
+      });
+      if (!existing) {
+        if (!dry) {
+          await sourceRepo.save(
+            sourceRepo.create({
+              ...source,
+              latestVersion: null,
+              latestImportAt: null,
+              isActive: true,
+              metadata: source.metadata || null,
+            }),
+          );
+        }
+        upsertedSources++;
+        continue;
+      }
+
+      const dirty =
+        existing.sourceUrl !== source.sourceUrl ||
+        existing.license !== source.license ||
+        existing.retrievalMethod !== source.retrievalMethod ||
+        existing.updateCadence !== source.updateCadence ||
+        existing.parserType !== source.parserType ||
+        JSON.stringify(existing.metadata || null) !==
+          JSON.stringify(source.metadata || null);
+
+      if (dirty) {
+        if (!dry) {
+          await sourceRepo.save({
+            ...existing,
+            sourceUrl: source.sourceUrl,
+            license: source.license,
+            retrievalMethod: source.retrievalMethod,
+            updateCadence: source.updateCadence,
+            parserType: source.parserType,
+            metadata: source.metadata || null,
+            isActive: true,
+          });
+        }
+        upsertedSources++;
       }
     }
 
@@ -280,7 +335,7 @@ async function main() {
 
     process.stdout.write(
       `\nseed-jurisdictions ${dry ? '(DRY) ' : ''}done: ` +
-        `jurisdictions=${upsertedJurisdictions} lowValue=${upsertedLowValue} tax=${upsertedTax}\n`,
+        `jurisdictions=${upsertedJurisdictions} sources=${upsertedSources} lowValue=${upsertedLowValue} tax=${upsertedTax}\n`,
     );
   } finally {
     await app.close();

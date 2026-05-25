@@ -102,11 +102,38 @@ export interface ShipmentContext {
 export interface LineLandedCostResult {
   classification: { hs6: string; destinationCode: string };
   baseDuty: number;
+  /** Additional duties from Chapter 99 / Section 301 / 232 / IEEPA / etc. */
   additionalTariffs: number;
+  /**
+   * Canonical alias for `additionalTariffs`. Calculator-v2 contract uses
+   * `additionalDuties` so the same vocabulary lines up with the new totals
+   * vocabulary. Adapters that don't compute this can populate it from
+   * `additionalTariffs`.
+   */
+  additionalDuties?: number;
   fees: number;
   taxes: number;
+  /**
+   * Customs duty total: `baseDuty + additionalDuties`. MUST NOT include fees
+   * or taxes. Older shape used `totalDuty` to mean "duty + fees" — that
+   * conflation is fixed in calculator-v2. Adapters now compute customs duty
+   * only; fees and taxes are reported separately and rolled up into
+   * `borderPayable`.
+   */
   totalDuty: number;
+  /** Explicit canonical name for `totalDuty`; same value, no MPF/HMF mixed in. */
+  totalCustomsDuty?: number;
+  /**
+   * Border-payable amount: `totalCustomsDuty + fees + taxes`. This is what a
+   * broker remits at clearance. Excludes goods value, shipping, and insurance.
+   */
+  borderPayable?: number;
+  /** Total landed cost: goods + shipping + insurance + borderPayable. */
   landedCost: number;
+  /** Allocated shipping for this line (when known). */
+  shippingAllocated?: number;
+  /** Allocated insurance for this line (when known). */
+  insuranceAllocated?: number;
   components: Array<{
     componentType: TariffFormulaComponent['componentType'];
     amount: number;

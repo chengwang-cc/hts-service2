@@ -1,13 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { create, all, MathJsInstance } from 'mathjs';
 import { FormulaVariable } from './tariff-types';
-
-export type FormulaAstNode =
-  | { kind: 'constant'; value: number }
-  | { kind: 'variable'; name: string }
-  | { kind: 'operator'; op: string; args: FormulaAstNode[] }
-  | { kind: 'function'; name: string; args: FormulaAstNode[] }
-  | { kind: 'raw'; expression: string };
+import { FormulaAstNode } from './formula-construction.types';
+export type { FormulaAstNode } from './formula-construction.types';
 
 export interface FormulaSemantics {
   formula: string;
@@ -24,6 +19,7 @@ const DIMENSION_BY_VARIABLE: Record<string, string> = {
   total: 'money',
   weight: 'weight',
   weight_kg: 'weight',
+  weight_ton: 'weight',
   quantity: 'quantity',
   quantity_each: 'quantity',
   quantity_pair: 'quantity',
@@ -32,6 +28,8 @@ const DIMENSION_BY_VARIABLE: Record<string, string> = {
   quantity_gross: 'quantity',
   volume_liter: 'volume',
   proof_liter: 'volume',
+  volume_barrel: 'volume',
+  volume_m3: 'volume',
   area_m2: 'area',
   length_m: 'length',
 };
@@ -65,7 +63,9 @@ export class FormulaSemanticsService {
       canonicalFormula = this.canonicalize(formula);
     } catch (error: any) {
       canonicalFormula = this.normalizeRawFormula(formula);
-      validationErrors.push(error?.message || 'Formula canonicalization failed');
+      validationErrors.push(
+        error?.message || 'Formula canonicalization failed',
+      );
     }
     const referencedVariables = this.extractVariablesFromAst(formulaAst);
     for (const referenced of referencedVariables) {
@@ -118,8 +118,11 @@ export class FormulaSemanticsService {
       case 'SymbolNode':
         return { kind: 'variable', name: node.name };
       case 'OperatorNode': {
-        const args = (node.args || []).map((arg: any) => this.toAst(arg));
+        let args = (node.args || []).map((arg: any) => this.toAst(arg));
         if ((node.op === '+' || node.op === '*') && args.length >= 2) {
+          args = args.flatMap((arg) =>
+            arg.kind === 'operator' && arg.op === node.op ? arg.args : [arg],
+          );
           args.sort((a, b) => this.astKey(a).localeCompare(this.astKey(b)));
         }
         return { kind: 'operator', op: node.op, args };

@@ -34,3 +34,43 @@ describe('UsitcDownloaderService.parseArchiveListing', () => {
     expect(svc.parseArchiveListing('<html></html>')).toBeNull();
   });
 });
+
+describe('UsitcDownloaderService.checkForUpdates', () => {
+  let svc: UsitcDownloaderService;
+
+  beforeEach(() => {
+    svc = new UsitcDownloaderService();
+  });
+
+  it('returns the actual latest revision instead of only current + 1', async () => {
+    jest.spyOn(svc, 'findLatestRevision').mockResolvedValue({
+      year: 2026,
+      revision: 8,
+      jsonUrl:
+        'https://www.usitc.gov/sites/default/files/tata/hts/hts_2026_revision_8_json.json',
+      pdfUrl:
+        'https://hts.usitc.gov/reststop/file?release=2026HTSRev8&filename=finalCopy',
+    });
+
+    await expect(svc.checkForUpdates('2026_revision_3')).resolves.toEqual({
+      hasUpdate: true,
+      latestVersion: '2026_revision_8',
+      url: 'https://www.usitc.gov/sites/default/files/tata/hts/hts_2026_revision_8_json.json',
+    });
+  });
+
+  it('returns no update when the current version is already latest', async () => {
+    jest.spyOn(svc, 'findLatestRevision').mockResolvedValue({
+      year: 2026,
+      revision: 8,
+      jsonUrl:
+        'https://www.usitc.gov/sites/default/files/tata/hts/hts_2026_revision_8_json.json',
+      pdfUrl:
+        'https://hts.usitc.gov/reststop/file?release=2026HTSRev8&filename=finalCopy',
+    });
+
+    await expect(svc.checkForUpdates('2026_revision_8')).resolves.toEqual({
+      hasUpdate: false,
+    });
+  });
+});

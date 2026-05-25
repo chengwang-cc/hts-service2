@@ -2,10 +2,18 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  // Body parser limit — broker packet uploads send base64-encoded PDFs that
+  // need headroom above the express default (100kb). 25mb matches the
+  // DOCUMENT_SCAN_MAX_BYTES default; oversize uploads fail loudly with 413.
+  const bodyLimit = process.env.HTTP_BODY_LIMIT || '25mb';
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
   // Enable CORS for frontend
   const devOrigins = [
@@ -15,7 +23,10 @@ async function bootstrap() {
     'http://localhost:4202',
     'http://localhost:4299',
     'http://localhost:4300',
+    // hts-web2's `npm start` script: ng serve --port 8001
+    'http://localhost:8001',
     'http://127.0.0.1:4200',
+    'http://127.0.0.1:8001',
   ];
   const envOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
@@ -44,9 +55,7 @@ async function bootstrap() {
       ) {
         return callback(null, true);
       }
-      // Checkout extensions can run on unpredictable origins. Allow but the
-      // affected endpoints (auth/admin) are protected by their own guards.
-      return callback(null, true);
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -64,8 +73,11 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1', {
     // Keep backward compatibility for legacy controllers that already include "api/v1"
     // in their route decorators, while still prefixing newer module routes.
+    // `api/v2/(.*)` is excluded so public-api v2 controllers register at
+    // their documented `/api/v2/...` paths instead of `/api/v1/api/v2/...`.
     exclude: [
       { path: 'api/v1/(.*)', method: RequestMethod.ALL },
+      { path: 'api/v2/(.*)', method: RequestMethod.ALL },
       { path: 'widget/(.*)', method: RequestMethod.ALL },
       { path: 'shopify/(.*)', method: RequestMethod.ALL },
     ],

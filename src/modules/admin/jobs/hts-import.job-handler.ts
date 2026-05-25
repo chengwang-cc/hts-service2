@@ -505,7 +505,8 @@ export class HtsImportJobHandler {
     const em = this.htsRepo.manager;
 
     // 1. parent_hts_number
-    await em.query(`
+    await em.query(
+      `
       UPDATE hts child
       SET parent_hts_number = COALESCE(
         CASE WHEN length(child.hts_number) = 13 THEN (
@@ -527,10 +528,13 @@ export class HtsImportJobHandler {
       WHERE child.source_version = $1
         AND child.is_active = true
         AND length(child.hts_number) > 4
-    `, [sourceVersion]);
+    `,
+      [sourceVersion],
+    );
 
     // 2. parent_htses
-    await em.query(`
+    await em.query(
+      `
       UPDATE hts child
       SET parent_htses = (
         SELECT jsonb_agg(anc ORDER BY ord)
@@ -554,10 +558,13 @@ export class HtsImportJobHandler {
       WHERE child.source_version = $1
         AND child.is_active = true
         AND length(child.hts_number) > 4
-    `, [sourceVersion]);
+    `,
+      [sourceVersion],
+    );
 
     // 3. full_description (ancestor descs + own desc)
-    await em.query(`
+    await em.query(
+      `
       UPDATE hts child
       SET full_description = (
         SELECT jsonb_agg(d ORDER BY ord)
@@ -581,18 +588,24 @@ export class HtsImportJobHandler {
         ) desc_chain
       )
       WHERE child.source_version = $1 AND child.is_active = true
-    `, [sourceVersion]);
+    `,
+      [sourceVersion],
+    );
 
     // For top-level headings (4-char), full_description = own description only
-    await em.query(`
+    await em.query(
+      `
       UPDATE hts
       SET full_description = jsonb_build_array(description)
       WHERE source_version = $1 AND is_active = true AND length(hts_number) = 4
         AND (full_description IS NULL OR jsonb_array_length(COALESCE(full_description, '[]'::jsonb)) = 0)
-    `, [sourceVersion]);
+    `,
+      [sourceVersion],
+    );
 
     // 4. Rebuild search_vector to include ancestor descriptions
-    await em.query(`
+    await em.query(
+      `
       UPDATE hts
       SET search_vector = to_tsvector('english',
         COALESCE(hts_number, '') || ' ' ||
@@ -603,7 +616,9 @@ export class HtsImportJobHandler {
         ), '')
       )
       WHERE source_version = $1 AND is_active = true
-    `, [sourceVersion]);
+    `,
+      [sourceVersion],
+    );
   }
 
   private async applyCarryoverFormulaOverrides(
@@ -821,6 +836,7 @@ export class HtsImportJobHandler {
               entry.generalRate,
               'general',
               year,
+              { sourceVersion },
             );
 
           if (resolvedGeneral?.formula) {
@@ -847,6 +863,7 @@ export class HtsImportJobHandler {
               entry.otherRate,
               'other',
               year,
+              { sourceVersion },
             );
 
           if (resolvedOther?.formula) {
@@ -1979,6 +1996,7 @@ export class HtsImportJobHandler {
             entry.unit,
             'general',
             importYear,
+            importHistory.sourceVersion,
           );
         if (generalFormulaValidation.issues.length > 0) {
           issues.push(...generalFormulaValidation.issues);
@@ -2074,6 +2092,7 @@ export class HtsImportJobHandler {
           entry.unit,
           'other',
           importYear,
+          importHistory.sourceVersion,
         );
         if (otherFormulaValidation.issues.length > 0) {
           issues.push(...otherFormulaValidation.issues);
@@ -2131,6 +2150,7 @@ export class HtsImportJobHandler {
             entry.unit,
             'general',
             importYear,
+            importHistory.sourceVersion,
           );
         if (chapter99FormulaValidation.issues.length > 0) {
           issues.push(...chapter99FormulaValidation.issues);
@@ -2245,6 +2265,7 @@ export class HtsImportJobHandler {
     unit: string | null,
     noteSourceColumn: 'general' | 'other' | 'special',
     year?: number,
+    sourceVersion?: string,
   ): Promise<{
     issues: Array<Partial<HtsStageValidationIssueEntity>>;
     errorCount: number;
@@ -2281,6 +2302,14 @@ export class HtsImportJobHandler {
     stats.totalRateFields++;
     const issueCodePrefix = issuePrefix.toUpperCase();
 
+    if (
+      this.isStructuredReferenceRateResolvable(entry, issuePrefix, rateText)
+    ) {
+      stats.formulaResolvableCount++;
+      stats.nonNoteResolvableCount++;
+      return { issues, errorCount: 0, warningCount: 0, infoCount: 0, stats };
+    }
+
     if (/note/i.test(rateText)) {
       stats.noteReferenceCount++;
 
@@ -2302,7 +2331,7 @@ export class HtsImportJobHandler {
         rateText,
         noteSourceColumn,
         year,
-        { exactOnly: true },
+        { exactOnly: true, sourceVersion },
       );
 
       if (resolved?.formula) {
@@ -2382,6 +2411,67 @@ export class HtsImportJobHandler {
     stats.formulaResolvableCount++;
     stats.nonNoteResolvableCount++;
     return { issues, errorCount: 0, warningCount: 0, infoCount: 0, stats };
+  }
+
+  private isStructuredReferenceRateResolvable(
+    entry: HtsStageEntryEntity,
+    issuePrefix: 'generalRate' | 'other' | 'chapter99',
+    rateText: string,
+  ): boolean {
+    if (!this.isStructuredReferenceRateContext(entry, issuePrefix)) {
+      return false;
+    }
+
+    const text = rateText
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\.$/, '')
+      .toLowerCase();
+    const percent = '(?:\\d+(?:\\.\\d+)?(?:\\s+\\d+\\/\\d+)?|\\d+\\/\\d+)';
+
+    if (text === 'no change') {
+      return true;
+    }
+
+    if (text === 'the rate applicable in the absence of this heading') {
+      return true;
+    }
+
+    if (
+      new RegExp(
+        `^the duty provided in the applicable subheading(?:\\s*(?:\\+|plus|minus|-)\\s*${percent}\\s*%)?$`,
+      ).test(text)
+    ) {
+      return true;
+    }
+
+    if (
+      new RegExp(
+        `^the duty rate provided in such subheading\\s+(?:minus|-)\\s*${percent}\\s*%$`,
+      ).test(text)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private isStructuredReferenceRateContext(
+    entry: HtsStageEntryEntity,
+    issuePrefix: 'generalRate' | 'other' | 'chapter99',
+  ): boolean {
+    if (issuePrefix === 'chapter99') {
+      return true;
+    }
+
+    const chapter = (entry.chapter || '').trim();
+    const htsDigits = (entry.htsNumber || '').replace(/\D/g, '');
+    return (
+      chapter === '98' ||
+      chapter === '99' ||
+      htsDigits.startsWith('98') ||
+      htsDigits.startsWith('99')
+    );
   }
 
   private validateRateByType(

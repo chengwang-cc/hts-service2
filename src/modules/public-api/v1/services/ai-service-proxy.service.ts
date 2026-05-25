@@ -21,6 +21,10 @@ export interface AiRateRow {
   block_reason?: string | null;
   message?: string;
   rate?: number;
+  /** ai-service rate label, e.g. "16.5%" or "41.7¢/kg + 0.9%" */
+  tariffRate?: string;
+  /** Special Programs Indicators in the HTS Special column (e.g. "S", "P", "MX") */
+  special?: string[];
   formulas?: Array<{
     tariffType?: string;
     tariffTypeDescription?: string;
@@ -30,6 +34,13 @@ export interface AiRateRow {
     amount?: number;
   }>;
   exclusiveSection301?: boolean;
+  /**
+   * True when the HTS code is eligible for CUSMA / USMCA free-trade
+   * treatment. ai-service ships this on the `/v2/tariff/{formulas,rates}`
+   * response (feat/special-api-for-hts-calculator). When absent, treat as
+   * "unknown" (undefined) rather than `false`.
+   */
+  isCusmaFreeTrade?: boolean;
 }
 
 export interface AiFormulaRequest {
@@ -52,6 +63,8 @@ export interface AiFormulaRow {
     chapter99HtsCode?: string | null;
   }>;
   exclusiveSection301?: boolean;
+  /** See AiRateRow.isCusmaFreeTrade — same field, parallel endpoint. */
+  isCusmaFreeTrade?: boolean;
 }
 
 /**
@@ -114,7 +127,12 @@ export class AiServiceProxyService {
 
   async getFormulas(rows: AiFormulaRequest[]): Promise<AiFormulaRow[]> {
     if (!Array.isArray(rows) || rows.length === 0) return [];
-    return this.callOrThrow<AiFormulaRow[]>('/formulas', rows);
+    // ai-service emits `isCusmaFreeTrade` (and any other CUSMA-related
+    // enrichment) ONLY on the X-API-Key-gated `/hts-formulas` endpoint —
+    // the unauthenticated `/formulas` path returns the bare formulas
+    // without it. Both endpoints accept the same body shape; the key is
+    // injected by the axios client when AI_SERVICE_API_KEY is set.
+    return this.callOrThrow<AiFormulaRow[]>('/hts-formulas', rows);
   }
 
   /** Public helper for ops/health checks. */

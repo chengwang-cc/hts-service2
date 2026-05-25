@@ -186,8 +186,7 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
     revision: number;
     releaseDate?: string;
   } | null {
-    const re =
-      /(\d{4})\s+HTS\s+Revision\s+(\d{1,3})\s*(?:\(([^)]+)\))?/gi;
+    const re = /(\d{4})\s+HTS\s+Revision\s+(\d{1,3})\s*(?:\(([^)]+)\))?/gi;
     let m: RegExpExecArray | null;
     let best: { year: number; revision: number; releaseDate?: string } | null =
       null;
@@ -249,37 +248,24 @@ export class UsitcDownloaderService implements IUsitcDownloaderService {
       const currentYear = parseInt(match[1], 10);
       const currentRevision = parseInt(match[2], 10);
 
-      // Check for newer revision in same year
-      const nextRevisionUrl = this.getDownloadUrl(
-        currentYear,
-        currentRevision + 1,
-      );
-      const nextRevisionExists = await this.checkUrlExists(nextRevisionUrl);
+      const latest = await this.findLatestRevision();
+      if (!latest) {
+        return { hasUpdate: false };
+      }
 
-      if (nextRevisionExists) {
-        const latestVersion = `${currentYear}_revision_${currentRevision + 1}`;
+      const isNewer =
+        latest.year > currentYear ||
+        (latest.year === currentYear && latest.revision > currentRevision);
+
+      if (isNewer) {
+        const latestVersion = `${latest.year}_revision_${latest.revision}`;
         return {
           hasUpdate: true,
           latestVersion,
-          url: nextRevisionUrl,
+          url: latest.jsonUrl,
         };
       }
 
-      // Check for new year
-      const nextYear = currentYear + 1;
-      const nextYearUrl = this.getDownloadUrl(nextYear, 1);
-      const nextYearExists = await this.checkUrlExists(nextYearUrl);
-
-      if (nextYearExists) {
-        const latestVersion = `${nextYear}_revision_1`;
-        return {
-          hasUpdate: true,
-          latestVersion,
-          url: nextYearUrl,
-        };
-      }
-
-      // No updates found
       return {
         hasUpdate: false,
       };

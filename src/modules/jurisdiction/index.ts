@@ -6,3 +6,5 @@ export * from './adapters/us-hts.adapter';
 export * from './adapters/hk/hk-free-port.adapter';
 export * from './adapters/gb/gb-trade-tariff.adapter';
 export * from './interfaces/tariff-jurisdiction-adapter.interface';
+export * from './constants/authoritative-tariff-sources';
+export * from './constants/country-tariff-parser-registry';

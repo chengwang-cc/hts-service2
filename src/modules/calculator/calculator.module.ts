@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   CalculationScenarioEntity,
+  TariffCardShadowComparisonEntity,
+  TariffEvidenceEntity,
+  TariffKnowledgeCardEntity,
   TradeAgreementEntity,
   TradeAgreementEligibilityEntity,
   RateRetrievalService,
@@ -13,6 +16,8 @@ import {
   ShadowComparatorService,
   FormulaSemanticsService,
   FormulaScopeService,
+  TariffKnowledgeCardService,
+  TariffConfidenceService,
   PolicyApplicabilityService,
   TariffConditionEngineService,
 } from '@hts/calculator';
@@ -25,6 +30,10 @@ import {
 import { CoreWrapperModule } from '../core/core.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
+import { TariffSourceFreshnessService } from './accuracy/tariff-source-freshness.service';
+import { EvidenceCoverageService } from './accuracy/evidence-coverage.service';
+import { AccuracySchedulerService } from './accuracy/accuracy-scheduler.service';
+import { AccuracyController } from './accuracy/accuracy.controller';
 
 @Module({
   imports: [
@@ -33,6 +42,9 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     ApiKeysModule,
     TypeOrmModule.forFeature([
       CalculationScenarioEntity,
+      TariffCardShadowComparisonEntity,
+      TariffEvidenceEntity,
+      TariffKnowledgeCardEntity,
       CalculationHistoryEntity,
       TradeAgreementEntity,
       TradeAgreementEligibilityEntity,
@@ -41,7 +53,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
       HtsTariffHistory2025Entity,
     ]),
   ],
-  controllers: [CalculatorController],
+  controllers: [CalculatorController, AccuracyController],
   providers: [
     RateRetrievalService,
     FormulaEvaluationService,
@@ -51,8 +63,13 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     ShadowComparatorService,
     FormulaSemanticsService,
     FormulaScopeService,
+    TariffKnowledgeCardService,
+    TariffConfidenceService,
     PolicyApplicabilityService,
     TariffConditionEngineService,
+    TariffSourceFreshnessService,
+    EvidenceCoverageService,
+    AccuracySchedulerService,
   ],
   exports: [
     RateRetrievalService,
@@ -63,8 +80,13 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     ShadowComparatorService,
     FormulaSemanticsService,
     FormulaScopeService,
+    TariffKnowledgeCardService,
+    TariffConfidenceService,
     PolicyApplicabilityService,
     TariffConditionEngineService,
+    TariffSourceFreshnessService,
+    EvidenceCoverageService,
+    AccuracySchedulerService,
   ],
 })
 export class CalculatorModule {}

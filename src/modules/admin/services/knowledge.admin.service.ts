@@ -80,6 +80,7 @@ export class KnowledgeAdminService {
   ): Promise<HtsDocumentEntity> {
     let year: number;
     let chapter: string;
+    let revision: number | null = null;
     let sourceUrl: string;
     let documentType: string = 'PDF';
     let pdfData: Buffer | null = null;
@@ -97,12 +98,14 @@ export class KnowledgeAdminService {
       }
 
       year = latest.year;
+      revision = latest.revision;
       chapter = dto.chapter || '00';
       sourceUrl = latest.pdfUrl;
       this.logger.log(`Found latest: ${year} Rev ${latest.revision}`);
     } else if (dto.year && dto.revision) {
       // Specific year + revision
       year = dto.year;
+      revision = dto.revision;
       chapter = dto.chapter || '00';
       sourceUrl = this.usitcDownloader.getPdfDownloadUrl(
         dto.year,
@@ -153,12 +156,17 @@ export class KnowledgeAdminService {
       );
     }
 
+    const officialSourceVersion = revision
+      ? `${year}_revision_${revision}`
+      : null;
+    const sourceVersion = officialSourceVersion || `${year}_${chapter}`;
+
     // Create document record
     const document = this.documentRepo.create({
       year,
       chapter,
       documentType,
-      sourceVersion: `${year}_${chapter}`,
+      sourceVersion,
       sourceUrl,
       pdfData,
       parsedText: textContent,
@@ -167,8 +175,12 @@ export class KnowledgeAdminService {
       fileSize: pdfData ? pdfData.length : null,
       isParsed: documentType === 'TEXT',
       metadata: {
-        title: dto.title || `HTS ${year} Chapter ${chapter}`,
+        title:
+          dto.title ||
+          `HTS ${year}${revision ? ` Revision ${revision}` : ''} Chapter ${chapter}`,
         category: 'hts-official',
+        sourceRevision: revision,
+        officialSourceVersion,
         uploadedAt: new Date().toISOString(),
       },
     });
@@ -791,7 +803,7 @@ export class KnowledgeAdminService {
           row.general,
           'general',
           year,
-          { exactOnly: true },
+          { exactOnly: true, sourceVersion: row.version },
         );
         if (result?.metadata?.noteId) {
           resolved += 1;
@@ -807,7 +819,7 @@ export class KnowledgeAdminService {
           row.other,
           'other',
           year,
-          { exactOnly: true },
+          { exactOnly: true, sourceVersion: row.version },
         );
         if (result?.metadata?.noteId) {
           resolved += 1;

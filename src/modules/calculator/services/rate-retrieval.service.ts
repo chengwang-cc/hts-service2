@@ -8,6 +8,9 @@ import {
   HtsTariffHistory2025Entity,
 } from '@hts/core';
 import { NoteResolutionService } from '@hts/knowledgebase';
+import { TariffKnowledgeCardEntity } from '../entities/tariff-knowledge-card.entity';
+import { TariffCardShadowComparisonEntity } from '../entities/tariff-card-shadow-comparison.entity';
+import { FormulaSemanticsService } from './formula-semantics.service';
 
 type RateLookupContext = {
   entryDate?: string;
@@ -24,8 +27,13 @@ export class RateRetrievalService {
     private readonly htsRepository: Repository<HtsEntity>,
     @InjectRepository(HtsTariffHistory2025Entity)
     private readonly tariffHistory2025Repository: Repository<HtsTariffHistory2025Entity>,
+    @InjectRepository(TariffKnowledgeCardEntity)
+    private readonly knowledgeCardRepository: Repository<TariffKnowledgeCardEntity>,
+    @InjectRepository(TariffCardShadowComparisonEntity)
+    private readonly cardShadowComparisonRepository: Repository<TariffCardShadowComparisonEntity>,
     private readonly formulaGenerationService: FormulaGenerationService,
     private readonly formulaUpdateService: HtsFormulaUpdateService,
+    private readonly formulaSemantics: FormulaSemanticsService,
     @Optional() private readonly noteResolutionService?: NoteResolutionService,
   ) {
     if (this.noteResolutionService) {
@@ -44,7 +52,13 @@ export class RateRetrievalService {
     context: RateLookupContext = {},
   ): Promise<{
     formula: string;
-    source: 'manual' | 'knowledgebase' | 'general' | 'other' | 'adjusted';
+    source:
+      | 'manual'
+      | 'knowledgebase'
+      | 'knowledge_card'
+      | 'general'
+      | 'other'
+      | 'adjusted';
     confidence: number;
     overrideExtraTax?: boolean;
     formulaType?: string;
@@ -145,65 +159,108 @@ export class RateRetrievalService {
       }
     }
 
+    const cardCandidate = await this.resolveKnowledgeCardFormula({
+      htsNumber,
+      countryCode: normalizedCountry,
+      desiredFormulaType,
+      entryDate: context.entryDate,
+    });
+    if (cardCandidate && this.cardReadMode() === 'primary') {
+      this.logger.debug(
+        `Using tariff knowledge card for ${htsNumber} (${desiredFormulaType})`,
+      );
+      return cardCandidate;
+    }
+
     // Priority 1b: For Chapter 99 requests dated in/through 2025, prefer historical 2025 rates.
     if (htsNumber.startsWith('99')) {
       const historicalChapter99Formula =
         await this.resolveHistorical2025Formula(htsNumber, context.entryDate);
       if (historicalChapter99Formula) {
         this.logger.debug(`Using 2025 chapter99 fallback for ${htsNumber}`);
-        return {
-          formula: historicalChapter99Formula.formula,
-          source: 'general',
-          confidence: historicalChapter99Formula.confidence,
-          formulaType: 'GENERAL',
-          variables: historicalChapter99Formula.variables,
-        };
+        return this.withCardShadow(
+          cardCandidate,
+          htsNumber,
+          normalizedCountry,
+          context.entryDate,
+          {
+            formula: historicalChapter99Formula.formula,
+            source: 'general' as const,
+            confidence: historicalChapter99Formula.confidence,
+            formulaType: 'GENERAL',
+            variables: historicalChapter99Formula.variables,
+          },
+        );
       }
     }
 
     // Priority 2: Standard HTS formulas
     if (otherChapter99Applies && htsEntry.otherChapter99Detail?.formula) {
       this.logger.debug(`Using non-NTR + Chapter99 formula for ${htsNumber}`);
-      return {
-        formula: htsEntry.otherChapter99Detail.formula,
-        source: 'other',
-        confidence: 0.95,
-        formulaType: 'OTHER_CHAPTER99',
-        variables: htsEntry.otherChapter99Detail.variables || null,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: htsEntry.otherChapter99Detail.formula,
+          source: 'other' as const,
+          confidence: 0.95,
+          formulaType: 'OTHER_CHAPTER99',
+          variables: htsEntry.otherChapter99Detail.variables || null,
+        },
+      );
     }
 
     if (isNonNTR && htsEntry.otherRateFormula) {
       this.logger.debug(`Using non-NTR formula for ${htsNumber}`);
-      return {
-        formula: htsEntry.otherRateFormula,
-        source: 'other',
-        confidence: 0.9,
-        formulaType: 'OTHER',
-        variables: htsEntry.otherRateVariables || null,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: htsEntry.otherRateFormula,
+          source: 'other' as const,
+          confidence: 0.9,
+          formulaType: 'OTHER',
+          variables: htsEntry.otherRateVariables || null,
+        },
+      );
     }
 
     if (chapter99Applies && htsEntry.adjustedFormula) {
       this.logger.debug(`Using Chapter99 adjusted formula for ${htsNumber}`);
-      return {
-        formula: htsEntry.adjustedFormula,
-        source: 'adjusted',
-        confidence: 0.95,
-        formulaType: 'ADJUSTED',
-        variables: htsEntry.adjustedFormulaVariables || null,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: htsEntry.adjustedFormula,
+          source: 'adjusted' as const,
+          confidence: 0.95,
+          formulaType: 'ADJUSTED',
+          variables: htsEntry.adjustedFormulaVariables || null,
+        },
+      );
     }
 
     if (htsEntry.rateFormula) {
       this.logger.debug(`Using general formula for ${htsNumber}`);
-      return {
-        formula: htsEntry.rateFormula,
-        source: 'general',
-        confidence: 0.9,
-        formulaType: 'GENERAL',
-        variables: htsEntry.rateVariables || null,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: htsEntry.rateFormula,
+          source: 'general' as const,
+          confidence: 0.9,
+          formulaType: 'GENERAL',
+          variables: htsEntry.rateVariables || null,
+        },
+      );
     }
 
     const deterministicGeneralFormula =
@@ -212,7 +269,13 @@ export class RateRetrievalService {
       this.logger.debug(
         `Using deterministic general-rate fallback for ${htsNumber}`,
       );
-      return deterministicGeneralFormula;
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        deterministicGeneralFormula,
+      );
     }
 
     const inferredBaseFormula = this.inferBaseFormulaFromAdjusted(htsEntry);
@@ -220,13 +283,19 @@ export class RateRetrievalService {
       this.logger.debug(
         `Using inferred base formula from adjusted formula for ${htsNumber}`,
       );
-      return {
-        formula: inferredBaseFormula,
-        source: 'general',
-        confidence: 0.75,
-        formulaType: 'GENERAL',
-        variables: htsEntry.rateVariables || null,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: inferredBaseFormula,
+          source: 'general' as const,
+          confidence: 0.75,
+          formulaType: 'GENERAL',
+          variables: htsEntry.rateVariables || null,
+        },
+      );
     }
 
     // Priority 3: Knowledgebase resolution (if available)
@@ -241,16 +310,23 @@ export class RateRetrievalService {
               rateText,
               isNonNTR ? 'other' : 'general',
               inferredYear,
+              resolvedVersion ? { sourceVersion: resolvedVersion } : undefined,
             );
 
           if (kbResolution?.formula) {
             this.logger.debug(`Using knowledgebase formula for ${htsNumber}`);
-            return {
-              formula: kbResolution.formula,
-              source: 'knowledgebase',
-              confidence: kbResolution.confidence ?? 0.6,
-              formulaType: isNonNTR ? 'OTHER' : 'GENERAL',
-            };
+            return this.withCardShadow(
+              cardCandidate,
+              htsNumber,
+              normalizedCountry,
+              context.entryDate,
+              {
+                formula: kbResolution.formula,
+                source: 'knowledgebase' as const,
+                confidence: kbResolution.confidence ?? 0.6,
+                formulaType: isNonNTR ? 'OTHER' : 'GENERAL',
+              },
+            );
           }
         }
       } catch (error) {
@@ -265,16 +341,235 @@ export class RateRetrievalService {
     );
     if (historicalFormula) {
       this.logger.debug(`Using 2025 history fallback for ${htsNumber}`);
-      return {
-        formula: historicalFormula.formula,
-        source: 'general',
-        confidence: historicalFormula.confidence,
-        formulaType: 'GENERAL',
-        variables: historicalFormula.variables,
-      };
+      return this.withCardShadow(
+        cardCandidate,
+        htsNumber,
+        normalizedCountry,
+        context.entryDate,
+        {
+          formula: historicalFormula.formula,
+          source: 'general' as const,
+          confidence: historicalFormula.confidence,
+          formulaType: 'GENERAL',
+          variables: historicalFormula.variables,
+        },
+      );
     }
 
     throw new Error(`No formula available for HTS ${htsNumber}`);
+  }
+
+  private cardReadMode(): 'off' | 'shadow' | 'primary' {
+    const raw = (process.env.TARIFF_CARD_READ_MODE || 'shadow').toLowerCase();
+    if (raw === 'primary' || raw === 'off') {
+      return raw;
+    }
+    return 'shadow';
+  }
+
+  private async resolveKnowledgeCardFormula(args: {
+    htsNumber: string;
+    countryCode: string;
+    desiredFormulaType: string;
+    entryDate?: string;
+  }): Promise<{
+    formula: string;
+    source: 'knowledge_card';
+    confidence: number;
+    formulaType: string;
+    variables: Array<{
+      name: string;
+      type: string;
+      description?: string;
+      unit?: string;
+      dimension?: string;
+    }> | null;
+  } | null> {
+    if (this.cardReadMode() === 'off') {
+      return null;
+    }
+    const mapped = this.mapFormulaTypeToCardScope(args.desiredFormulaType);
+    const entryDay =
+      this.parseDateOnly(args.entryDate) ||
+      new Date(
+        Date.UTC(
+          new Date().getUTCFullYear(),
+          new Date().getUTCMonth(),
+          new Date().getUTCDate(),
+        ),
+      );
+
+    const cards = await this.knowledgeCardRepository
+      .createQueryBuilder('card')
+      .where('card.htsNumber = :htsNumber', { htsNumber: args.htsNumber })
+      .andWhere('card.destinationCode = :destinationCode', {
+        destinationCode: 'US',
+      })
+      .andWhere('card.rateClass = :rateClass', {
+        rateClass: mapped.rateClass,
+      })
+      .andWhere('card.componentType = :componentType', {
+        componentType: mapped.componentType,
+      })
+      .andWhere('card.effectiveFrom <= :entryDay', {
+        entryDay: entryDay.toISOString().slice(0, 10),
+      })
+      .andWhere('(card.effectiveTo IS NULL OR card.effectiveTo >= :entryDay)', {
+        entryDay: entryDay.toISOString().slice(0, 10),
+      })
+      .andWhere('card.status IN (:...statuses)', {
+        statuses: ['authoritative', 'provisional'],
+      })
+      .andWhere('card.countryCode IN (:...countryCodes)', {
+        countryCodes: [args.countryCode, 'ALL'],
+      })
+      .orderBy(
+        `CASE WHEN card.countryCode = :countryCode THEN 0 ELSE 1 END`,
+        'ASC',
+      )
+      .addOrderBy('card.effectiveFrom', 'DESC')
+      .setParameter('countryCode', args.countryCode)
+      .limit(1)
+      .getMany();
+
+    const card = cards[0];
+    if (!card?.consensusFormula) {
+      return null;
+    }
+
+    const validation = this.formulaGenerationService.validateFormula(
+      card.consensusFormula,
+    );
+
+    return {
+      formula: card.consensusFormula,
+      source: 'knowledge_card',
+      confidence: Number(card.confidenceScore || 0),
+      formulaType: mapped.formulaType,
+      variables: validation.valid
+        ? this.buildVariableObjects(validation.variables)
+        : null,
+    };
+  }
+
+  private mapFormulaTypeToCardScope(formulaType: string): {
+    rateClass: string;
+    componentType: string;
+    formulaType: string;
+  } {
+    if (formulaType === 'OTHER' || formulaType === 'OTHER_CHAPTER99') {
+      return {
+        rateClass: 'non_ntr',
+        componentType: 'non_ntr',
+        formulaType,
+      };
+    }
+    if (formulaType === 'ADJUSTED') {
+      return {
+        rateClass: 'chapter_99',
+        componentType: 'chapter_99',
+        formulaType,
+      };
+    }
+    return {
+      rateClass: 'base',
+      componentType: 'base',
+      formulaType: 'GENERAL',
+    };
+  }
+
+  private async withCardShadow<
+    T extends { formula: string; source: string; formulaType?: string },
+  >(
+    card: { formula: string; confidence?: number; formulaType?: string } | null,
+    htsNumber: string,
+    countryCode: string,
+    entryDate: string | undefined,
+    legacy: T,
+  ): Promise<T> {
+    if (!card || this.cardReadMode() !== 'shadow') {
+      return legacy;
+    }
+    const cardFormula = this.normalizeFormulaForShadow(card.formula);
+    const legacyFormula = this.normalizeFormulaForShadow(legacy.formula);
+    const cardSemantic = this.formulaSemantics.analyze(card.formula);
+    const legacySemantic = this.formulaSemantics.analyze(legacy.formula);
+    if (cardSemantic.semanticHash !== legacySemantic.semanticHash) {
+      this.logger.warn(
+        `Knowledge card shadow mismatch for ${htsNumber}: card="${card.formula}" legacy="${legacy.formula}"`,
+      );
+      await this.recordCardShadowMismatch({
+        htsNumber,
+        countryCode,
+        entryDate,
+        card,
+        legacy,
+        normalizedCardFormula: cardFormula,
+        normalizedLegacyFormula: legacyFormula,
+        cardSemanticHash: cardSemantic.semanticHash,
+        legacySemanticHash: legacySemantic.semanticHash,
+      });
+    }
+    return legacy;
+  }
+
+  private async recordCardShadowMismatch(args: {
+    htsNumber: string;
+    countryCode: string;
+    entryDate?: string;
+    card: { formula: string; confidence?: number; formulaType?: string };
+    legacy: { formula: string; source: string; formulaType?: string };
+    normalizedCardFormula: string;
+    normalizedLegacyFormula: string;
+    cardSemanticHash: string;
+    legacySemanticHash: string;
+  }): Promise<void> {
+    const effectiveEntryDate = this.parseDateOnly(args.entryDate)
+      ?.toISOString()
+      .slice(0, 10);
+    const existing = await this.cardShadowComparisonRepository.findOne({
+      where: {
+        htsNumber: args.htsNumber,
+        countryCode: args.countryCode,
+        formulaType:
+          args.legacy.formulaType || args.card.formulaType || 'UNKNOWN',
+        status: 'pending',
+      },
+      order: { createdAt: 'DESC' },
+    });
+    const values = {
+      htsNumber: args.htsNumber,
+      countryCode: args.countryCode,
+      destinationCode: 'US',
+      formulaType:
+        args.legacy.formulaType || args.card.formulaType || 'UNKNOWN',
+      cardFormula: args.card.formula,
+      legacyFormula: args.legacy.formula,
+      normalizedCardFormula: args.normalizedCardFormula,
+      normalizedLegacyFormula: args.normalizedLegacyFormula,
+      legacySource: args.legacy.source,
+      cardConfidence: args.card.confidence ?? null,
+      entryDate: effectiveEntryDate || null,
+      status: 'pending',
+      metadata: {
+        source: 'rate-retrieval-shadow',
+        recordedAt: new Date().toISOString(),
+        cardSemanticHash: args.cardSemanticHash,
+        legacySemanticHash: args.legacySemanticHash,
+      },
+    };
+    await this.cardShadowComparisonRepository.save(
+      existing
+        ? {
+            ...existing,
+            ...values,
+          }
+        : this.cardShadowComparisonRepository.create(values),
+    );
+  }
+
+  private normalizeFormulaForShadow(formula: string): string {
+    return (formula || '').replace(/\s+/g, '').toLowerCase();
   }
 
   private async loadBestMatchingEntry(
@@ -685,7 +980,9 @@ export class RateRetrievalService {
           ? 'Declared value of goods in USD'
           : name === 'weight'
             ? 'Weight of goods in kilograms'
-            : this.describeVariable(name),
+            : name === 'weight_ton'
+              ? 'Weight of goods in metric tons'
+              : this.describeVariable(name),
       unit: this.describeUnit(name),
       dimension: this.describeDimension(name),
     }));
@@ -699,6 +996,8 @@ export class RateRetrievalService {
     if (name === 'quantity_gross') return 'Number of gross units';
     if (name === 'volume_liter') return 'Volume in liters';
     if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'volume_barrel') return 'Volume in barrels';
+    if (name === 'volume_m3') return 'Volume in cubic meters';
     if (name === 'area_m2') return 'Area in square meters';
     if (name === 'length_m') return 'Length in meters';
     return 'Number of imported items';
@@ -706,6 +1005,7 @@ export class RateRetrievalService {
 
   private describeUnit(name: string): string | undefined {
     if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'weight_ton') return 't';
     if (name === 'quantity_each') return 'each';
     if (name === 'quantity_pair') return 'pair';
     if (name === 'quantity_dozen') return 'dozen';
@@ -713,6 +1013,8 @@ export class RateRetrievalService {
     if (name === 'quantity_gross') return 'gross';
     if (name === 'volume_liter') return 'L';
     if (name === 'proof_liter') return 'proof L';
+    if (name === 'volume_barrel') return 'bbl';
+    if (name === 'volume_m3') return 'm3';
     if (name === 'area_m2') return 'm2';
     if (name === 'length_m') return 'm';
     return undefined;
@@ -720,9 +1022,10 @@ export class RateRetrievalService {
 
   private describeDimension(name: string): string | undefined {
     if (name === 'value') return 'money';
-    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name === 'weight' || name === 'weight_kg' || name === 'weight_ton')
+      return 'weight';
     if (name.startsWith('quantity')) return 'quantity';
-    if (name.includes('liter')) return 'volume';
+    if (name.includes('liter') || name.startsWith('volume_')) return 'volume';
     if (name.includes('area')) return 'area';
     if (name.includes('length')) return 'length';
     return undefined;

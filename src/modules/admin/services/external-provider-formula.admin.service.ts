@@ -959,6 +959,7 @@ export class ExternalProviderFormulaAdminService {
   private describeFormulaVariable(name: string): string {
     if (name === 'value') return 'Declared value of goods in USD';
     if (name === 'weight' || name === 'weight_kg') return 'Weight in kilograms';
+    if (name === 'weight_ton') return 'Weight in metric tons';
     if (name === 'quantity') return 'Legacy quantity input';
     if (name === 'quantity_each') return 'Number of individual items';
     if (name === 'quantity_pair') return 'Number of pairs';
@@ -967,6 +968,8 @@ export class ExternalProviderFormulaAdminService {
     if (name === 'quantity_gross') return 'Number of gross units';
     if (name === 'volume_liter') return 'Volume in liters';
     if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'volume_barrel') return 'Volume in barrels';
+    if (name === 'volume_m3') return 'Volume in cubic meters';
     if (name === 'area_m2') return 'Area in square meters';
     if (name === 'length_m') return 'Length in meters';
     if (name === 'duty') return 'Computed duty so far';
@@ -976,6 +979,7 @@ export class ExternalProviderFormulaAdminService {
 
   private describeFormulaUnit(name: string): string | undefined {
     if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'weight_ton') return 't';
     if (name === 'quantity_each') return 'each';
     if (name === 'quantity_pair') return 'pair';
     if (name === 'quantity_dozen') return 'dozen';
@@ -983,6 +987,8 @@ export class ExternalProviderFormulaAdminService {
     if (name === 'quantity_gross') return 'gross';
     if (name === 'volume_liter') return 'L';
     if (name === 'proof_liter') return 'proof L';
+    if (name === 'volume_barrel') return 'bbl';
+    if (name === 'volume_m3') return 'm3';
     if (name === 'area_m2') return 'm2';
     if (name === 'length_m') return 'm';
     return undefined;
@@ -992,9 +998,10 @@ export class ExternalProviderFormulaAdminService {
     if (name === 'value' || name === 'duty' || name === 'total') {
       return 'money';
     }
-    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name === 'weight' || name === 'weight_kg' || name === 'weight_ton')
+      return 'weight';
     if (name.startsWith('quantity')) return 'quantity';
-    if (name.includes('liter')) return 'volume';
+    if (name.includes('liter') || name.startsWith('volume_')) return 'volume';
     if (name.includes('area')) return 'area';
     if (name.includes('length')) return 'length';
     return undefined;

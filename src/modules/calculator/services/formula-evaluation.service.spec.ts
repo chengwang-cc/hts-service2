@@ -105,5 +105,26 @@ describe('FormulaEvaluationService', () => {
 
       expect(result).toEqual({ amount: 27.75, unroundedAmount: 27.75 });
     });
+
+    it.each([
+      [100, 27.75],
+      [1000000, 579.23],
+      [50000, 50],
+    ])(
+      'keeps constrained rounding stable for value=%s',
+      (value, expectedAmount) => {
+        const result = svc.evaluateWithConstraints(
+          'value * 0.001',
+          { value },
+          {
+            minAmount: 27.75,
+            maxAmount: 579.23,
+            rounding: 'component_2dp',
+          },
+        );
+
+        expect(result.amount).toBe(expectedAmount);
+      },
+    );
   });
 });

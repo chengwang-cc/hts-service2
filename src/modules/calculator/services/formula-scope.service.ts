@@ -25,6 +25,7 @@ export class FormulaScopeService {
     const weight = this.toFiniteNumber(input.weightKg);
     if (weight !== null) {
       additionalInputs.weight_kg ??= weight;
+      additionalInputs.weight_ton ??= weight / 1000;
     }
 
     return {
@@ -74,6 +75,9 @@ export class FormulaScopeService {
       unit === 'liter' || unit === 'proof_liter' ? quantity : undefined;
     additionalInputs.proof_liter ??=
       unit === 'proof_liter' ? quantity : undefined;
+    additionalInputs.volume_barrel ??= unit === 'barrel' ? quantity : undefined;
+    additionalInputs.volume_m3 ??= unit === 'm3' ? quantity : undefined;
+    additionalInputs.weight_ton ??= unit === 'ton' ? quantity : undefined;
     additionalInputs.area_m2 ??= unit === 'area_m2' ? quantity : undefined;
     additionalInputs.length_m ??= unit === 'length_m' ? quantity : undefined;
   }
@@ -85,6 +89,8 @@ export class FormulaScopeService {
       [
         'ea',
         'each',
+        'head',
+        'heads',
         'unit',
         'units',
         'piece',
@@ -98,6 +104,21 @@ export class FormulaScopeService {
     if (['pr', 'pair', 'pairs'].includes(compact)) return 'pair';
     if (['doz', 'dozen'].includes(compact)) return 'dozen';
     if (['gross'].includes(compact)) return 'gross';
+    if (['t', 'ton', 'tons', 'tonne', 'tonnes', 'metricton'].includes(compact))
+      return 'ton';
+    if (['bbl', 'barrel', 'barrels'].includes(compact)) return 'barrel';
+    if (
+      [
+        'm3',
+        'cbm',
+        'cubicmeter',
+        'cubicmeters',
+        'cubicmetre',
+        'cubicmetres',
+      ].includes(compact)
+    ) {
+      return 'm3';
+    }
     if (['l', 'liter', 'liters', 'litre', 'litres'].includes(compact)) {
       return 'liter';
     }

@@ -41,6 +41,7 @@ import {
 } from '../../../api-keys/decorators';
 import { SkipJwtAuth } from '../../../api-keys/decorators/skip-jwt-auth.decorator';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
+import { Public } from '../../../auth/decorators/public.decorator';
 import { CalculatePublicDto } from '../dto/calculate-public.dto';
 import {
   AiRateRequest,
@@ -48,11 +49,32 @@ import {
 } from '../services/ai-service-proxy.service';
 import { CalculationHistoryService } from '../../shared/calculation-history.service';
 
+/**
+ * Auth shape on this controller:
+ *
+ *   ┌────────────────────────────┬──────────────┬─────────────────────────────┐
+ *   │ Route                      │ Auth         │ Notes                       │
+ *   ├────────────────────────────┼──────────────┼─────────────────────────────┤
+ *   │ POST  /calculate           │ @Public()    │ hts-web2 calls anonymously  │
+ *   │ GET   /formula             │ @Public()    │ hts-web2 calls anonymously  │
+ *   │ POST  /tariff-rates        │ @Public()    │ hts-web2 calls anonymously  │
+ *   │ GET   /calculations/:id    │ ApiKeyGuard  │ partner audit history       │
+ *   │ GET   /calculations        │ ApiKeyGuard  │ partner audit history       │
+ *   └────────────────────────────┴──────────────┴─────────────────────────────┘
+ *
+ * `@SkipJwtAuth()` is still applied at the class level so the global
+ * JwtAuthGuard never rejects these requests. The three tariff routes are
+ * marked @Public() (no auth at all) for the hts-web2 use case; protection
+ * relies on CORS origin allowlist + per-IP rate limiting at the edge.
+ *
+ * For the tariff routes, `apiKey` is optional — `@CurrentApiKey()` returns
+ * undefined for anonymous callers, and the history-write call skips the row
+ * rather than attributing it to a synthetic org.
+ */
 @ApiTags('Calculator V1 (legacy ai-service proxy)')
 @ApiSecurity('api-key')
 @SkipJwtAuth()
 @Controller('api/v1/calculator')
-@UseGuards(ApiKeyGuard)
 export class CalculatorV1Controller {
   constructor(
     private readonly aiService: AiServiceProxyService,
@@ -61,20 +83,18 @@ export class CalculatorV1Controller {
 
   // ── /calculate ───────────────────────────────────────────────────────
 
+  @Public()
   @Post('calculate')
   @ApiOperation({
     summary: 'Calculate import duties (legacy ai-service proxy)',
     description:
-      'Proxies the request to ai-service /v2/tariff/rates and stores a local audit row in CalculationHistory. Wire-stable for hts-web2. Use /api/v2/calculator/calculate for the native hts-service implementation.',
+      'Proxies the request to ai-service /v2/tariff/rates and stores a local audit row in CalculationHistory. Wire-stable for hts-web2 (anonymous). Partner traffic with a valid API key also writes history. Use /api/v2/calculator/calculate for the native hts-service implementation.',
   })
   @ApiBody({ type: CalculatePublicDto })
   @ApiResponse({ status: 200, description: 'Calculation successful' })
   @ApiResponse({ status: 400, description: 'Invalid input parameters' })
-  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @ApiResponse({ status: 502, description: 'Upstream ai-service unavailable' })
-  @ApiPermissions('hts:calculate')
   @UsePipes(
     new ValidationPipe({
       transform: true,
@@ -85,11 +105,15 @@ export class CalculatorV1Controller {
   )
   async calculate(
     @Body() input: CalculatePublicDto,
-    @CurrentApiKey() apiKey: ApiKeyEntity,
+    @CurrentApiKey() apiKey?: ApiKeyEntity,
   ) {
+    // Pure passthrough: convert the hts-web2-style single-item input into
+    // ai-service's batched /rates request, call upstream, return the
+    // first item verbatim. No reshaping, no envelope, no per-row
+    // evaluation — the frontend constructs the breakdown from this raw
+    // response.
     const aiRequest: AiRateRequest = this.toAiRateRequest(input);
     const [aiRow] = await this.aiService.getRates([aiRequest]);
-
     if (!aiRow) {
       throw new HttpException(
         {
@@ -100,43 +124,34 @@ export class CalculatorV1Controller {
         HttpStatus.BAD_GATEWAY,
       );
     }
-
-    const result = this.shapeForV1Clients(input, aiRow);
-
-    // Best-effort audit write. Never block on history failure.
-    void this.history.write({
-      apiKey,
-      input: input as any,
-      result,
-      source: 'ai_service_proxy_v1',
-    });
-
-    return {
-      success: true,
-      data: result,
-      meta: {
-        apiVersion: 'v1',
-        organizationId: apiKey.organizationId,
-        source: 'ai_service_proxy',
-      },
-    };
+    // History attribution is best-effort and only when an API key is
+    // present (anonymous hts-web2 traffic doesn't attribute to an org).
+    if (apiKey) {
+      void this.history.write({
+        apiKey,
+        input: input as any,
+        result: aiRow,
+        source: 'ai_service_proxy_v1',
+      });
+    }
+    return aiRow;
   }
 
   // ── /formula ─────────────────────────────────────────────────────────
 
+  @Public()
   @Get('formula')
   @ApiOperation({
     summary: 'Resolve componentized tariff formula(s) (ai-service)',
     description:
-      'Proxies ai-service /v2/tariff/formulas. Returns the formulas with their variables so callers can render an input form matching exactly what each formula needs.',
+      'Proxies ai-service /v2/tariff/formulas. Returns the formulas with their variables so callers can render an input form matching exactly what each formula needs. Anonymous — used by hts-web2 to build the dynamic input UI.',
   })
   @ApiQuery({ name: 'htsCode', required: true })
   @ApiQuery({ name: 'country', required: true })
   @ApiResponse({ status: 200, description: 'Formulas returned' })
   @ApiResponse({ status: 400, description: 'Missing htsCode or country' })
-  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiResponse({ status: 404, description: 'No formula returned by upstream' })
   @ApiResponse({ status: 502, description: 'Upstream ai-service unavailable' })
-  @ApiPermissions('hts:calculate')
   async getFormula(
     @Query('htsCode') htsCode: string,
     @Query('country') country: string,
@@ -144,6 +159,10 @@ export class CalculatorV1Controller {
     if (!htsCode || !country) {
       throw new BadRequestException('htsCode and country are required');
     }
+    // Pure passthrough: returns ai-service /v2/tariff/hts-formulas response
+    // (first item) verbatim — `block_reason`, `isCusmaFreeTrade`, the formulas
+    // array — exactly as ai-service emits it. The frontend constructs the
+    // breakdown.
     const rows = await this.aiService.getFormulas([{ htsCode, country }]);
     const item = rows[0];
     if (!item) {
@@ -156,76 +175,39 @@ export class CalculatorV1Controller {
         HttpStatus.NOT_FOUND,
       );
     }
-    return {
-      htsCode,
-      country,
-      effectiveHtsCode: item.effectiveHtsCode ?? null,
-      blocked: !!item.blocked,
-      blockReason: item.block_reason ?? null,
-      message: item.message ?? '',
-      exclusiveSection301: !!item.exclusiveSection301,
-      formulas: (item.formulas ?? []).map((f) => ({
-        tariffType: f.tariffType,
-        tariffTypeDescription: f.tariffTypeDescription,
-        formula: f.formula,
-        formulaVariables: f.formulaVariables ?? [],
-        chapter99HtsCode: f.chapter99HtsCode ?? null,
-      })),
-    };
+    return item;
   }
 
   // ── /tariff-rates ────────────────────────────────────────────────────
 
+  @Public()
   @Post('tariff-rates')
   @ApiOperation({
     summary: 'Batch evaluate tariff amounts (ai-service)',
     description:
-      'Proxies ai-service /v2/tariff/rates with the batched payload as-is.',
+      'Proxies ai-service /v2/tariff/rates with the batched payload as-is. Anonymous — protection via CORS origin allowlist + IP rate-limit.',
   })
   @ApiResponse({ status: 200, description: 'Batch evaluation completed' })
   @ApiResponse({ status: 400, description: 'Invalid request body' })
-  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiResponse({ status: 502, description: 'Upstream ai-service unavailable' })
-  @ApiPermissions('hts:calculate')
   async getTariffRates(@Body() body: AiRateRequest[]) {
     if (!Array.isArray(body)) {
       throw new BadRequestException('Request body must be an array');
     }
+    // Pure passthrough: hand the batch to ai-service /v2/tariff/rates and
+    // return the raw array verbatim. No per-row evaluation, no field
+    // renaming. The frontend builds the breakdown from this raw response.
     const items = body.map((r) => ({
       htsCode: r.htsCode,
       country: r.country,
       inputs: r.inputs ?? {},
     }));
-    const rows = await this.aiService.getRates(items);
-    return rows.map((r) => {
-      const formulas = Array.isArray(r.formulas) ? r.formulas : [];
-      const totalDuty = formulas.reduce(
-        (sum, f) => sum + (typeof f.amount === 'number' ? f.amount : 0),
-        0,
-      );
-      return {
-        htsCode: r.htsCode,
-        country: r.country,
-        effectiveHtsCode: r.effectiveHtsCode ?? null,
-        blocked: !!r.blocked,
-        blockReason: r.block_reason ?? null,
-        message: r.message ?? '',
-        totalDuty: Math.round(totalDuty * 100) / 100,
-        breakdown: formulas.map((f) => ({
-          tariffType: f.tariffType,
-          tariffTypeDescription: f.tariffTypeDescription,
-          amount: typeof f.amount === 'number' ? Math.round(f.amount * 100) / 100 : 0,
-          formula: f.formula,
-          formulaVariables: f.formulaVariables ?? [],
-          chapter99HtsCode: f.chapter99HtsCode ?? null,
-          error: null,
-        })),
-      };
-    });
+    return this.aiService.getRates(items);
   }
 
   // ── /calculations/:id ────────────────────────────────────────────────
 
+  @UseGuards(ApiKeyGuard)
   @Get('calculations/:id')
   @ApiOperation({
     summary: 'Get a stored calculation by ID',
@@ -234,6 +216,7 @@ export class CalculatorV1Controller {
   })
   @ApiParam({ name: 'id', description: 'calculationId' })
   @ApiResponse({ status: 200, description: 'Calculation found' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiResponse({ status: 404, description: 'Calculation not found' })
   @ApiPermissions('hts:calculate')
   async getCalculation(
@@ -250,11 +233,13 @@ export class CalculatorV1Controller {
 
   // ── /calculations (list) ─────────────────────────────────────────────
 
+  @UseGuards(ApiKeyGuard)
   @Get('calculations')
   @ApiOperation({
     summary: 'List recent stored calculations',
   })
   @ApiQuery({ name: 'limit', required: false, description: '1..200, default 10' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
   @ApiPermissions('hts:calculate')
   async listCalculations(
     @CurrentApiKey() apiKey: ApiKeyEntity,
@@ -298,60 +283,4 @@ export class CalculatorV1Controller {
     };
   }
 
-  /**
-   * Translate ai-service's per-row response into the v1 `data` envelope
-   * hts-web2 already consumes. Preserves field names the legacy site keys
-   * on (totalDuty, baseDuty, breakdown, calculationId, ...).
-   */
-  private shapeForV1Clients(
-    input: CalculatePublicDto,
-    aiRow: import('../services/ai-service-proxy.service').AiRateRow,
-  ) {
-    const formulas = Array.isArray(aiRow.formulas) ? aiRow.formulas : [];
-    const breakdown = formulas.map((f) => ({
-      tariffType: f.tariffType,
-      tariffTypeDescription: f.tariffTypeDescription,
-      formula: f.formula,
-      formulaVariables: f.formulaVariables ?? [],
-      chapter99HtsCode: f.chapter99HtsCode ?? null,
-      amount:
-        typeof f.amount === 'number' ? Math.round(f.amount * 100) / 100 : 0,
-      error: null,
-    }));
-
-    const totalDuty = breakdown.reduce((s, b) => s + (b.amount ?? 0), 0);
-    const baseDuty =
-      typeof aiRow.rate === 'number'
-        ? Math.round(aiRow.rate * 100) / 100
-        : breakdown.find((b) => (b.tariffType || '').toUpperCase() === 'GENERAL')?.amount ?? 0;
-    const additionalTariffs = Math.max(0, totalDuty - baseDuty);
-
-    const declaredValue = input.declaredValue;
-    const landedCost = declaredValue + totalDuty;
-
-    return {
-      calculationId: `CALC-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-      htsNumber: input.htsNumber,
-      countryOfOrigin: input.countryOfOrigin.toUpperCase(),
-      declaredValue,
-      effectiveHtsCode: aiRow.effectiveHtsCode ?? null,
-      blocked: !!aiRow.blocked,
-      blockReason: aiRow.block_reason ?? null,
-      message: aiRow.message ?? '',
-      exclusiveSection301: !!aiRow.exclusiveSection301,
-      baseDuty,
-      additionalTariffs: Math.round(additionalTariffs * 100) / 100,
-      totalTaxes: 0,
-      fees: 0,
-      totalDuty: Math.round(totalDuty * 100) / 100,
-      landedCost: Math.round(landedCost * 100) / 100,
-      breakdown,
-      formulaUsed:
-        breakdown.find((b) => (b.tariffType || '').toUpperCase() === 'GENERAL')?.formula ??
-        breakdown[0]?.formula ??
-        null,
-      rateSource: 'ai_service_v2',
-      createdAt: new Date().toISOString(),
-    };
-  }
 }

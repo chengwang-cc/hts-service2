@@ -8,6 +8,9 @@
 # Generated training data (large JSONL files — not committed)
 /data/
 
+# Runtime artifacts (formula-ai council runs, rollouts, exercise output)
+/var/
+
 # Logs
 logs
 *.log

@@ -258,6 +258,8 @@ export class HtsFormulaGenerationService {
         return 'Declared value of goods in USD';
       case 'weight':
         return 'Weight of goods in kilograms';
+      case 'weight_ton':
+        return 'Weight of goods in metric tons';
       case 'quantity':
         return 'Number of items';
       case 'quantity_each':
@@ -274,6 +276,10 @@ export class HtsFormulaGenerationService {
         return 'Volume in liters';
       case 'proof_liter':
         return 'Alcohol proof liters';
+      case 'volume_barrel':
+        return 'Volume in barrels';
+      case 'volume_m3':
+        return 'Volume in cubic meters';
       case 'area_m2':
         return 'Area in square meters';
       case 'length_m':
@@ -288,6 +294,8 @@ export class HtsFormulaGenerationService {
       case 'weight':
       case 'weight_kg':
         return 'kg';
+      case 'weight_ton':
+        return 't';
       case 'quantity_each':
         return 'each';
       case 'quantity_pair':
@@ -302,6 +310,10 @@ export class HtsFormulaGenerationService {
         return 'L';
       case 'proof_liter':
         return 'proof L';
+      case 'volume_barrel':
+        return 'bbl';
+      case 'volume_m3':
+        return 'm3';
       case 'area_m2':
         return 'm2';
       case 'length_m':
@@ -313,9 +325,10 @@ export class HtsFormulaGenerationService {
 
   private describeDimension(name: string): string | undefined {
     if (name === 'value') return 'money';
-    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name === 'weight' || name === 'weight_kg' || name === 'weight_ton')
+      return 'weight';
     if (name.startsWith('quantity')) return 'quantity';
-    if (name.includes('liter')) return 'volume';
+    if (name.includes('liter') || name.startsWith('volume_')) return 'volume';
     if (name.includes('area')) return 'area';
     if (name.includes('length')) return 'length';
     return undefined;

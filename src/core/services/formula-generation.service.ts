@@ -68,6 +68,10 @@ export class FormulaGenerationService {
       return { ...patternResult, method: 'pattern' };
     }
 
+    if (this.requiresManualReview(normalized)) {
+      throw new Error('Ambiguous rate text requires manual review');
+    }
+
     // Fall back to AI for complex rates
     this.logger.log(`Using AI to parse rate: ${rateText}`);
     const aiResult = await this.parseRateWithAI(rateText, unitOfQuantity);
@@ -99,17 +103,28 @@ export class FormulaGenerationService {
     rateText: string,
     unitOfQuantity?: string,
   ): { formula: string; variables: string[]; confidence: number } | null {
+    if (this.requiresManualReview(rateText)) {
+      return null;
+    }
+
     // Free/No duty
     if (/^(free|none|0%?)$/.test(rateText) || /^free\b/.test(rateText)) {
       return { formula: '0', variables: [], confidence: 1.0 };
     }
 
     // Explicit ad valorem: "5% ad valorem", "5 percent ad valorem"
+    const percentageValuePattern =
+      '((?:\\d+(?:\\.\\d+)?(?:\\s+\\d+\\/\\d+)?)|(?:\\d+\\/\\d+))';
     const adValoremMatch = rateText.match(
-      /^(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)\s*(?:ad valorem)?$/,
+      new RegExp(
+        `^${percentageValuePattern}\\s*(?:%|percent|per cent)\\s*(?:ad valorem)?$`,
+      ),
     );
     if (adValoremMatch) {
-      const rate = parseFloat(adValoremMatch[1]) / 100;
+      const rate = this.parsePercentText(adValoremMatch[1]);
+      if (rate === null) {
+        return null;
+      }
       return {
         formula: `value * ${rate}`,
         variables: ['value'],
@@ -118,9 +133,14 @@ export class FormulaGenerationService {
     }
 
     // Simple percentage: "5%", "5.5%", "0.5%"
-    const percentMatch = rateText.match(/^(\d+(?:\.\d+)?)\s*%$/);
+    const percentMatch = rateText.match(
+      new RegExp(`^${percentageValuePattern}\\s*%$`),
+    );
     if (percentMatch) {
-      const rate = parseFloat(percentMatch[1]) / 100;
+      const rate = this.parsePercentText(percentMatch[1]);
+      if (rate === null) {
+        return null;
+      }
       return {
         formula: `value * ${rate}`,
         variables: ['value'],
@@ -149,20 +169,16 @@ export class FormulaGenerationService {
       };
     }
 
-    // Range: "5%-10%", "5% to 10%"
-    const rangeMatch = rateText.match(
-      /^(\d+(?:\.\d+)?)\s*%\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*%$/,
-    );
-    if (rangeMatch) {
-      const minRate = parseFloat(rangeMatch[1]) / 100;
-      return {
-        formula: `value * ${minRate}`,
-        variables: ['value'],
-        confidence: 0.7,
-      };
-    }
-
     return null;
+  }
+
+  private requiresManualReview(rateText: string): boolean {
+    const text = rateText.toLowerCase();
+    return (
+      /\b(see|note|quota|whichever|not less|not over|but not over|in lieu|except as provided)\b/.test(
+        text,
+      ) || /^\d+(?:\.\d+)?\s*%\s*(?:-|to)\s*\d+(?:\.\d+)?\s*%$/.test(text)
+    );
   }
 
   private tryParseCompoundRate(
@@ -189,19 +205,22 @@ export class FormulaGenerationService {
       index: number;
       rate: number;
     }>;
-    if (percentComponents.length !== 1) {
+    if (percentComponents.length > 1) {
       return null;
     }
-    const adValoremRate = percentComponents[0].rate;
+    const hasAdValorem = percentComponents.length === 1;
+    const adValoremRate = percentComponents[0]?.rate ?? null;
     const specificComponents = parts
       .map((part, index) => ({ part, index }))
-      .filter((entry) => entry.index !== percentComponents[0].index)
+      .filter(
+        (entry) => !hasAdValorem || entry.index !== percentComponents[0].index,
+      )
       .map((entry) => this.parseSpecificComponent(entry.part, unitOfQuantity))
       .filter(
         (entry): entry is { variable: string; amount: number } => !!entry,
       );
 
-    if (specificComponents.length !== parts.length - 1) {
+    if (specificComponents.length !== parts.length - (hasAdValorem ? 1 : 0)) {
       return null;
     }
 
@@ -210,13 +229,16 @@ export class FormulaGenerationService {
     );
     const variables = Array.from(
       new Set([
-        'value',
+        ...(hasAdValorem ? ['value'] : []),
         ...specificComponents.map((component) => component.variable),
       ]),
     );
 
     return {
-      formula: `value * ${adValoremRate} + ${additiveTerms.join(' + ')}`,
+      formula: [
+        ...(hasAdValorem ? [`value * ${adValoremRate}`] : []),
+        ...additiveTerms,
+      ].join(' + '),
       variables,
       confidence: 0.9,
     };
@@ -224,12 +246,40 @@ export class FormulaGenerationService {
 
   private parsePercentComponent(rateText: string): number | null {
     const match = rateText.match(
-      /^(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)\s*(?:ad valorem)?(?:\s+on\s+the\s+entire\s+(?:set|article|item))?$/,
+      /^((?:\d+(?:\.\d+)?(?:\s+\d+\/\d+)?)|(?:\d+\/\d+))\s*(?:%|percent|per cent)\s*(?:ad valorem)?(?:\s+on\s+the\s+entire\s+(?:set|article|item))?$/,
     );
     if (!match) {
       return null;
     }
-    return parseFloat(match[1]) / 100;
+    return this.parsePercentText(match[1]);
+  }
+
+  private parsePercentText(percentText: string): number | null {
+    const text = percentText.trim();
+    const mixed = text.match(/^(\d+(?:\.\d+)?)\s+(\d+)\/(\d+)$/);
+    if (mixed) {
+      const whole = parseFloat(mixed[1]);
+      const numerator = parseFloat(mixed[2]);
+      const denominator = parseFloat(mixed[3]);
+      if (denominator <= 0) return null;
+      return this.normalizeFormulaNumber(
+        (whole + numerator / denominator) / 100,
+      );
+    }
+
+    const fraction = text.match(/^(\d+)\/(\d+)$/);
+    if (fraction) {
+      const numerator = parseFloat(fraction[1]);
+      const denominator = parseFloat(fraction[2]);
+      if (denominator <= 0) return null;
+      return this.normalizeFormulaNumber(numerator / denominator / 100);
+    }
+
+    if (/^\d+(?:\.\d+)?$/.test(text)) {
+      return this.normalizeFormulaNumber(parseFloat(text) / 100);
+    }
+
+    return null;
   }
 
   private parseSpecificComponent(
@@ -257,7 +307,7 @@ export class FormulaGenerationService {
     }
 
     const perUnitMatch = rateText.match(
-      /^([$¢])?\s*(\d+(?:\.\d+)?)\s*(¢|cents?)?\s*(?:\/|per)\s*([a-z0-9.]+(?:\s+[a-z0-9.]+){0,2})(?:\s*(?:\/|per)\s*(\d+(?:\.\d+)?))?(?:\b|$)(?:\s+(?:on|of|for)\b.*)?$/,
+      /^([$¢])?\s*(\d+(?:\.\d+)?)\s*(¢|cents?)?\s*(?:\/|per)\s*([a-z0-9.]+(?:\s+[a-z0-9.]+){0,2})(?:\s*(?:\/|per)\s*(\d+(?:\.\d+)?))?(?:\b|$)(?:\s*(?:,|(?:on|of|for)\b).*)?$/,
     );
     if (!perUnitMatch) {
       return null;
@@ -367,6 +417,9 @@ Available variables:
 - quantity_gross: Number of gross units
 - volume_liter: Volume in liters
 - proof_liter: Alcohol proof liters
+- volume_barrel: Volume in barrels
+- volume_m3: Volume in cubic meters
+- weight_ton: Weight in metric tons
 - area_m2: Area in square meters
 - length_m: Length in meters
 
@@ -376,7 +429,7 @@ Rules:
 3. For specific duties, use the appropriate variable
 4. For compound rates, combine with +
 5. Return 0 for "Free" or no duty
-6. Use conservative estimate for ranges (lower value)
+6. Do not estimate ranges, quota language, note references, or minimum/maximum language. Those require manual review.
 
 Return JSON only:
 {
@@ -483,20 +536,33 @@ Examples:
 
     // Weight-based units
     if (
-      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces)$/.test(
         normalized,
       ) ||
-      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces)$/.test(
         compact,
       ) ||
-      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces)$/.test(
         normalizedWithoutQualifiers,
       ) ||
-      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces|ton|tons|tonne|tonnes)$/.test(
+      /^(kg|kgs|kilogram|kilograms|gram|grams|lb|lbs|pound|pounds|oz|ounce|ounces)$/.test(
         compactWithoutQualifiers,
       )
     ) {
       return 'weight';
+    }
+
+    if (
+      /^(t|ton|tons|tonne|tonnes|metric ton|metric tons)$/.test(normalized) ||
+      /^(t|ton|tons|tonne|tonnes|metricton|metrictons)$/.test(compact) ||
+      /^(t|ton|tons|tonne|tonnes|metric ton|metric tons)$/.test(
+        normalizedWithoutQualifiers,
+      ) ||
+      /^(t|ton|tons|tonne|tonnes|metricton|metrictons)$/.test(
+        compactWithoutQualifiers,
+      )
+    ) {
+      return 'weight_ton';
     }
 
     const quantityVariable =
@@ -530,6 +596,22 @@ Examples:
         return 'proof_liter';
       }
       return 'volume_liter';
+    }
+
+    if (
+      /^(bbl|barrel|barrels)$/.test(normalized) ||
+      /^(bbl|barrel|barrels)$/.test(compact)
+    ) {
+      return 'volume_barrel';
+    }
+
+    if (
+      /^(m3|cbm|cubic meter|cubic meters|cubic metre|cubic metres)$/.test(
+        normalized,
+      ) ||
+      /^(m3|cbm|cubicmeter|cubicmeters|cubicmetre|cubicmetres)$/.test(compact)
+    ) {
+      return 'volume_m3';
     }
 
     // Area-based units
@@ -572,7 +654,7 @@ Examples:
 
   private mapQuantityUnit(unit: string): string | null {
     if (
-      /^(ea|each|unit|units|piece|pieces|item|items|article|articles|number|no)$/.test(
+      /^(ea|each|head|heads|unit|units|piece|pieces|item|items|article|articles|number|no)$/.test(
         unit,
       )
     ) {
@@ -709,6 +791,9 @@ Available variables:
 - quantity_gross: Number of gross units
 - volume_liter: Volume in liters
 - proof_liter: Alcohol proof liters
+- volume_barrel: Volume in barrels
+- volume_m3: Volume in cubic meters
+- weight_ton: Weight in metric tons
 - area_m2: Area in square meters
 - length_m: Length in meters
 
@@ -718,7 +803,7 @@ Rules:
 3. For specific duties, use the appropriate variable
 4. For compound rates, combine with +
 5. Return 0 for "Free" or no duty
-6. Use conservative estimate for ranges (lower value)
+6. Do not estimate ranges, quota language, note references, or minimum/maximum language. Those require manual review.
 
 Return JSON array only.
 

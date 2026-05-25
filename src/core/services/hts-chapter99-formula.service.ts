@@ -941,6 +941,9 @@ export class HtsChapter99FormulaService {
     if (name === 'quantity_gross') return 'Number of gross units';
     if (name === 'volume_liter') return 'Volume in liters';
     if (name === 'proof_liter') return 'Alcohol proof liters';
+    if (name === 'volume_barrel') return 'Volume in barrels';
+    if (name === 'volume_m3') return 'Volume in cubic meters';
+    if (name === 'weight_ton') return 'Weight in metric tons';
     if (name === 'area_m2') return 'Area in square meters';
     if (name === 'length_m') return 'Length in meters';
     return 'Input variable';
@@ -955,6 +958,9 @@ export class HtsChapter99FormulaService {
     if (name === 'quantity_gross') return 'gross';
     if (name === 'volume_liter') return 'L';
     if (name === 'proof_liter') return 'proof L';
+    if (name === 'volume_barrel') return 'bbl';
+    if (name === 'volume_m3') return 'm3';
+    if (name === 'weight_ton') return 't';
     if (name === 'area_m2') return 'm2';
     if (name === 'length_m') return 'm';
     return undefined;
@@ -964,7 +970,8 @@ export class HtsChapter99FormulaService {
     if (name === 'value') return 'money';
     if (name === 'weight') return 'weight';
     if (name.startsWith('quantity')) return 'quantity';
-    if (name.includes('liter')) return 'volume';
+    if (name.includes('liter') || name.startsWith('volume_')) return 'volume';
+    if (name === 'weight_ton') return 'weight';
     if (name.includes('area')) return 'area';
     if (name.includes('length')) return 'length';
     return undefined;

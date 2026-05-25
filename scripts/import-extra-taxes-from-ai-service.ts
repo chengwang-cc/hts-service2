@@ -86,6 +86,34 @@ function deterministicTaxCode(tariffType: string, formula: string): string {
   return `AISVC_${tariffType.toUpperCase()}_${hash}`;
 }
 
+/**
+ * User-facing label for a tariff-type key when the upstream didn't supply
+ * tariffTypeDescription. `section_301` → `Section 301`,
+ * `metal_tariff` → `Metal Tariff`, etc. Mirrors the resolver-side
+ * humanizer in tariff-rate-batch.service.ts to keep the two paths in sync.
+ */
+function humanizeTariffTypeKey(tariffType: string): string {
+  const specials: Record<string, string> = {
+    base: 'Base (general / MFN) rate',
+    section_122: 'Section 122 Tariffs',
+    section_201: 'Section 201',
+    section_232: 'Section 232',
+    section_301: 'Section 301',
+    ieepa: 'IEEPA',
+    reciprocal: 'Reciprocal tariff',
+    metal_tariff: 'Section 232 (Metal)',
+    mpf: 'Merchandise Processing Fee',
+    hmf: 'Harbor Maintenance Fee',
+  };
+  const key = (tariffType || '').toLowerCase();
+  if (specials[key]) return specials[key];
+  return key
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function classifyAsExtra(tariffType: string): {
   rateType: 'ADD_ON' | 'POST_CALCULATION';
   priority: number;
@@ -200,11 +228,17 @@ async function main() {
             }
 
             try {
+              // taxName + description must be user-safe — the public
+              // calculator API surfaces them as tariffTypeDescription. Never
+              // leak the import provenance here; track that via metadata or
+              // a separate audit table.
+              const cleanDescription =
+                f.tariffTypeDescription || humanizeTariffTypeKey(f.tariffType);
               await extraRepo.save(
                 extraRepo.create({
                   taxCode,
-                  taxName: `${f.tariffTypeDescription || f.tariffType} (ai-service import)`,
-                  description: `Auto-imported from ai-service /v2/tariff/formulas. tariffType=${f.tariffType}`,
+                  taxName: cleanDescription,
+                  description: cleanDescription,
                   htsNumber,
                   htsChapter: chapter,
                   countryCode: country,

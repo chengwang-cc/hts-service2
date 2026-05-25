@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HtsExtraTaxEntity } from '@hts/core';
+import { TariffKnowledgeCardEntity } from '../entities/tariff-knowledge-card.entity';
 import { RateRetrievalService } from './rate-retrieval.service';
 import {
   FormulaVariable,
@@ -14,6 +15,11 @@ import {
 } from './tariff-types';
 import { FormulaSemanticsService } from './formula-semantics.service';
 import { TariffConditionEngineService } from './tariff-condition-engine.service';
+import { validateFormulaArtifacts } from './formula-artifact-validator.service';
+import {
+  classifyProgramFamily,
+  extractChapter99FromConditions,
+} from './program-family.helper';
 
 /**
  * TariffFormulaResolver
@@ -36,6 +42,8 @@ export class TariffFormulaResolverService {
     private readonly conditionEngine: TariffConditionEngineService,
     @InjectRepository(HtsExtraTaxEntity)
     private readonly extraTaxRepository: Repository<HtsExtraTaxEntity>,
+    @InjectRepository(TariffKnowledgeCardEntity)
+    private readonly knowledgeCardRepository: Repository<TariffKnowledgeCardEntity>,
   ) {}
 
   async resolve(input: ResolveFormulaInput): Promise<ResolveFormulaResult> {
@@ -100,6 +108,10 @@ export class TariffFormulaResolverService {
       primary.formulaType,
       primary.source,
     );
+    const primaryClassification = classifyProgramFamily({
+      componentType: primaryComponentType,
+      identifier: htsNumber,
+    });
     components.push(
       this.withFormulaSemantics({
         componentType: primaryComponentType,
@@ -112,6 +124,10 @@ export class TariffFormulaResolverService {
           dimension: v.dimension as FormulaVariable['dimension'],
         })),
         identifier: htsNumber,
+        chapter99HtsCode:
+          primaryComponentType === 'chapter_99' ? htsNumber : null,
+        programFamily: primaryClassification.programFamily,
+        programAuthority: primaryClassification.programAuthority,
         description: this.describePrimary(primaryComponentType, primary.source),
         appliesWhen: { kind: 'always' },
         confidence: primary.confidence,
@@ -144,14 +160,24 @@ export class TariffFormulaResolverService {
     // ── Extra-tax components (Section 301/232/122, IEEPA, MPF, HMF, etc.) ─
     const calculationDate = this.parseCalculationDate(input.entryDate);
     const chapter = htsNumber.substring(0, 2);
-    const extraComponents = await this.collectExtraTaxComponents({
-      htsNumber,
-      chapter,
-      countryOfOrigin,
-      calculationDate,
-      selectedChapter99Headings: input.selectedChapter99Headings || [],
-      certificate: input.certificate,
-    });
+    const extraComponents =
+      this.cardReadMode() === 'primary'
+        ? await this.collectCardExtraTaxComponents({
+            htsNumber,
+            chapter,
+            countryOfOrigin,
+            calculationDate,
+            selectedChapter99Headings: input.selectedChapter99Headings || [],
+            certificate: input.certificate,
+          })
+        : await this.collectExtraTaxComponents({
+            htsNumber,
+            chapter,
+            countryOfOrigin,
+            calculationDate,
+            selectedChapter99Headings: input.selectedChapter99Headings || [],
+            certificate: input.certificate,
+          });
     components.push(...extraComponents.components);
     warnings.push(...extraComponents.warnings);
 
@@ -212,6 +238,8 @@ export class TariffFormulaResolverService {
         return 'manual_override';
       case 'knowledgebase':
         return 'knowledgebase';
+      case 'knowledge_card':
+        return 'tariff_knowledge_card';
       case 'general':
         return 'hts_general';
       case 'other':
@@ -299,15 +327,27 @@ export class TariffFormulaResolverService {
       }
 
       const componentType = this.classifyExtraTax(row);
-      const variables = this.deriveExtraTaxVariables(row.rateFormula);
+      const formula = this.normalizeFormulaAliases(row.rateFormula);
+      const variables = this.deriveExtraTaxVariables(formula);
       const appliesWhen = this.buildAppliesWhen(row, args.certificate);
+      const chapter99Code = extractChapter99FromConditions(row.conditions);
+      const classification = classifyProgramFamily({
+        componentType,
+        identifier: row.taxCode,
+        legalReference: row.legalReference,
+        chapter99Code,
+      });
 
       components.push(
         this.withFormulaSemantics({
           componentType,
-          formula: row.rateFormula,
+          formula,
           rateText: row.rateText || undefined,
           identifier: row.taxCode,
+          chapter99HtsCode: chapter99Code,
+          programFamily: classification.programFamily,
+          programAuthority: classification.programAuthority,
+          legalReference: row.legalReference || undefined,
           description: row.description || row.taxName,
           requiredVariables: variables,
           appliesWhen,
@@ -332,6 +372,128 @@ export class TariffFormulaResolverService {
     }
 
     return { components, warnings };
+  }
+
+  private async collectCardExtraTaxComponents(args: {
+    htsNumber: string;
+    chapter: string;
+    countryOfOrigin: string;
+    calculationDate: Date;
+    selectedChapter99Headings: string[];
+    certificate?: { agreement: string; claimed: boolean };
+  }): Promise<{ components: TariffFormulaComponent[]; warnings: string[] }> {
+    const warnings: string[] = [];
+    const entryDay = this.formatDate(args.calculationDate);
+    const htsScopes = [args.htsNumber, `${args.chapter}.*`, '*'];
+    const countryCodes = [args.countryOfOrigin, 'ALL'];
+    const cards = await this.knowledgeCardRepository
+      .createQueryBuilder('card')
+      .where('card.htsNumber IN (:...htsScopes)', { htsScopes })
+      .andWhere('card.countryCode IN (:...countryCodes)', { countryCodes })
+      .andWhere('card.destinationCode = :destinationCode', {
+        destinationCode: 'US',
+      })
+      .andWhere('card.status IN (:...statuses)', {
+        statuses: ['authoritative', 'provisional'],
+      })
+      .andWhere('card.consensusFormula IS NOT NULL')
+      .andWhere('card.effectiveFrom <= :entryDay', { entryDay })
+      .andWhere('(card.effectiveTo IS NULL OR card.effectiveTo >= :entryDay)', {
+        entryDay,
+      })
+      .andWhere(
+        '(card.componentType IN (:...componentTypes) OR card.rateClass IN (:...rateClasses))',
+        {
+          componentTypes: [
+            'section_301',
+            'section_232',
+            'section_122',
+            'mpf',
+            'hmf',
+            'post_tax',
+          ],
+          rateClasses: [
+            'additional_duty',
+            'section_301',
+            'section_232',
+            'section_122',
+            'mpf',
+            'hmf',
+            'post_tax',
+          ],
+        },
+      )
+      .orderBy(
+        `CASE WHEN card.htsNumber = :exactHts THEN 0 WHEN card.htsNumber = :chapterHts THEN 1 ELSE 2 END`,
+        'ASC',
+      )
+      .addOrderBy(
+        `CASE WHEN card.countryCode = :countryCode THEN 0 ELSE 1 END`,
+        'ASC',
+      )
+      .addOrderBy('card.effectiveFrom', 'DESC')
+      .setParameters({
+        exactHts: args.htsNumber,
+        chapterHts: `${args.chapter}.*`,
+        countryCode: args.countryOfOrigin,
+      })
+      .getMany();
+
+    if (cards.length === 0) {
+      warnings.push(
+        'Card primary mode did not find extra-tax component cards; using legacy extra-tax fallback.',
+      );
+      return this.collectExtraTaxComponents({
+        htsNumber: args.htsNumber,
+        chapter: args.chapter,
+        countryOfOrigin: args.countryOfOrigin,
+        calculationDate: args.calculationDate,
+        selectedChapter99Headings: args.selectedChapter99Headings,
+        certificate: args.certificate,
+      });
+    }
+
+    const validCards = cards.filter((card) => {
+      const validation = validateFormulaArtifacts(
+        {
+          formulaText: card.consensusFormula,
+          formulaAst: card.consensusFormulaAst,
+          conditionAst: card.consensusConditionAst || { kind: 'always' },
+          unitDimensions: {},
+          constraints: card.consensusConstraints || {},
+          roundingPolicy: card.consensusRoundingPolicy || {
+            mode: 'component_2dp',
+          },
+        },
+        { requireRuntimeArtifacts: true },
+      );
+      if (!validation.valid) {
+        warnings.push(
+          `Knowledge card ${card.id} skipped: ${validation.errors.join('; ')}`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    if (validCards.length === 0) {
+      warnings.push(
+        'Card primary mode found only invalid extra-tax component cards; using legacy extra-tax fallback.',
+      );
+      return this.collectExtraTaxComponents({
+        htsNumber: args.htsNumber,
+        chapter: args.chapter,
+        countryOfOrigin: args.countryOfOrigin,
+        calculationDate: args.calculationDate,
+        selectedChapter99Headings: args.selectedChapter99Headings,
+        certificate: args.certificate,
+      });
+    }
+
+    return {
+      components: validCards.map((card) => this.cardToComponent(card)),
+      warnings,
+    };
   }
 
   private matchesExtraTaxScope(
@@ -387,6 +549,134 @@ export class TariffFormulaResolverService {
     return true;
   }
 
+  private cardToComponent(
+    card: TariffKnowledgeCardEntity,
+  ): TariffFormulaComponent {
+    const formula = this.normalizeFormulaAliases(card.consensusFormula || '0');
+    const variables = this.deriveExtraTaxVariables(formula);
+    const cardComponentType = this.normalizeCardComponentType(
+      card.componentType,
+    );
+    const cardIdentifier =
+      typeof card.metadata?.taxCode === 'string'
+        ? card.metadata.taxCode
+        : card.id;
+    const cardLegalReference =
+      typeof card.metadata?.legalReference === 'string'
+        ? card.metadata.legalReference
+        : undefined;
+    const cardChapter99 =
+      extractChapter99FromConditions(card.consensusConditionAst) ||
+      (typeof card.metadata?.chapter99HtsCode === 'string'
+        ? card.metadata.chapter99HtsCode
+        : null);
+    const classification = classifyProgramFamily({
+      componentType: cardComponentType,
+      identifier: cardIdentifier,
+      legalReference: cardLegalReference,
+      chapter99Code: cardChapter99,
+    });
+    return this.withFormulaSemantics({
+      componentType: cardComponentType,
+      formula,
+      identifier: cardIdentifier,
+      chapter99HtsCode: cardChapter99,
+      programFamily: classification.programFamily,
+      programAuthority: classification.programAuthority,
+      legalReference: cardLegalReference,
+      description: `Knowledge card ${card.rateClass}/${card.componentType}`,
+      requiredVariables: variables,
+      appliesWhen: this.cardConditionToAppliesWhen(card.consensusConditionAst),
+      conditions: card.consensusConditionAst || null,
+      constraints: {
+        minAmount:
+          typeof card.consensusConstraints?.minAmount === 'number'
+            ? card.consensusConstraints.minAmount
+            : null,
+        maxAmount:
+          typeof card.consensusConstraints?.maxAmount === 'number'
+            ? card.consensusConstraints.maxAmount
+            : null,
+        rounding: 'component_2dp',
+      },
+      confidence: Number(card.confidenceScore || 0),
+      sourceCitation: {
+        source: 'tariff_knowledge_card',
+        rowIdentifier: card.id,
+        effectiveDate: card.effectiveFrom,
+        confidence: Number(card.confidenceScore || 0),
+        parserMethod: 'knowledge_card',
+      },
+    });
+  }
+
+  private normalizeCardComponentType(
+    componentType: string,
+  ): TariffComponentType {
+    const value = (componentType || '').toLowerCase();
+    if (
+      [
+        'base',
+        'special',
+        'non_ntr',
+        'chapter_98',
+        'chapter_99',
+        'section_301',
+        'section_232',
+        'section_122',
+        'mpf',
+        'hmf',
+        'post_tax',
+      ].includes(value)
+    ) {
+      return value as TariffComponentType;
+    }
+    return 'chapter_99';
+  }
+
+  private cardConditionToAppliesWhen(
+    condition: Record<string, unknown> | null,
+  ): TariffApplyCondition {
+    if (!condition || typeof condition !== 'object') {
+      return { kind: 'always' };
+    }
+    if (
+      condition.kind === 'requires_chapter99_selection' &&
+      typeof condition.heading === 'string'
+    ) {
+      return {
+        kind: 'requires_chapter99_selection',
+        heading: condition.heading,
+      };
+    }
+    if (
+      condition.kind === 'requires_certificate' &&
+      typeof condition.agreement === 'string'
+    ) {
+      return { kind: 'requires_certificate', agreement: condition.agreement };
+    }
+    if (condition.kind === 'country_in' && Array.isArray(condition.countries)) {
+      return {
+        kind: 'country_in',
+        countries: condition.countries
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.toUpperCase()),
+      };
+    }
+    if (
+      condition.kind === 'country_not_in' &&
+      Array.isArray(condition.countries)
+    ) {
+      return {
+        kind: 'country_not_in',
+        countries: condition.countries
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.toUpperCase()),
+      };
+    }
+    return { kind: 'always' };
+  }
+
   private classifyExtraTax(row: HtsExtraTaxEntity): TariffComponentType {
     const taxCode = (row.taxCode || '').toUpperCase();
     const ref = (row.legalReference || '').toUpperCase();
@@ -411,8 +701,12 @@ export class TariffFormulaResolverService {
     }
     const type = this.normalizeType(row.extraRateType);
     if (type === 'POST_CALCULATION') return 'post_tax';
-    // Default: bucket as section_301-style additional tariff.
-    return 'section_301';
+    // Default: an unlabeled additional tariff is treated as a generic
+    // Chapter 99 row. classifyProgramFamily() will downgrade it to
+    // `other_chapter_99` so we don't silently collapse new programs into
+    // Section 301. Pre-2026 behavior was to default to `section_301`,
+    // which masked Section 201/421, IEEPA, quota, MTB, etc.
+    return 'chapter_99';
   }
 
   private buildAppliesWhen(
@@ -465,6 +759,10 @@ export class TariffFormulaResolverService {
     }));
   }
 
+  private normalizeFormulaAliases(formula: string): string {
+    return formula.replace(/\bpf_liter\b/g, 'proof_liter');
+  }
+
   private isMathjsKeyword(name: string): boolean {
     return new Set([
       'min',
@@ -490,6 +788,8 @@ export class TariffFormulaResolverService {
         return 'Declared value of goods';
       case 'weight':
         return 'Weight of goods (kg)';
+      case 'weight_ton':
+        return 'Weight of goods (metric tons)';
       case 'quantity':
         return 'Quantity of items';
       case 'quantity_each':
@@ -506,6 +806,10 @@ export class TariffFormulaResolverService {
         return 'Volume in liters';
       case 'proof_liter':
         return 'Alcohol proof liters';
+      case 'volume_barrel':
+        return 'Volume in barrels';
+      case 'volume_m3':
+        return 'Volume in cubic meters';
       case 'area_m2':
         return 'Area in square meters';
       case 'length_m':
@@ -521,6 +825,7 @@ export class TariffFormulaResolverService {
 
   private describeVariableUnit(name: string): string | undefined {
     if (name === 'weight' || name === 'weight_kg') return 'kg';
+    if (name === 'weight_ton') return 't';
     if (name === 'quantity_each') return 'each';
     if (name === 'quantity_pair') return 'pair';
     if (name === 'quantity_dozen') return 'dozen';
@@ -528,6 +833,8 @@ export class TariffFormulaResolverService {
     if (name === 'quantity_gross') return 'gross';
     if (name === 'volume_liter') return 'L';
     if (name === 'proof_liter') return 'proof L';
+    if (name === 'volume_barrel') return 'bbl';
+    if (name === 'volume_m3') return 'm3';
     if (name === 'area_m2') return 'm2';
     if (name === 'length_m') return 'm';
     return undefined;
@@ -539,9 +846,10 @@ export class TariffFormulaResolverService {
     if (name === 'value' || name === 'duty' || name === 'total') {
       return 'money';
     }
-    if (name === 'weight' || name === 'weight_kg') return 'weight';
+    if (name === 'weight' || name === 'weight_kg' || name === 'weight_ton')
+      return 'weight';
     if (name.startsWith('quantity')) return 'quantity';
-    if (name.includes('liter')) return 'volume';
+    if (name.includes('liter') || name.startsWith('volume_')) return 'volume';
     if (name.includes('area')) return 'area';
     if (name.includes('length')) return 'length';
     return undefined;
@@ -572,6 +880,14 @@ export class TariffFormulaResolverService {
 
   private normalizeType(type: string | null | undefined): string {
     return (type || '').toUpperCase();
+  }
+
+  private cardReadMode(): 'off' | 'shadow' | 'primary' {
+    const raw = (process.env.TARIFF_CARD_READ_MODE || 'shadow').toLowerCase();
+    if (raw === 'primary' || raw === 'off') {
+      return raw;
+    }
+    return 'shadow';
   }
 
   private normalizeChapter99Heading(value: string | null): string | null {

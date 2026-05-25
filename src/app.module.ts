@@ -31,6 +31,19 @@ import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
 import { BatchModule } from './modules/batch/batch.module';
 import { ShopifyAppModule } from './modules/shopify-app/shopify-app.module';
+import { MarketplaceModule } from './modules/marketplace/marketplace.module';
+import { BrokerCoreModule } from './modules/broker-core/broker-core.module';
+import { BrokerEntriesModule } from './modules/broker-entries/broker-entries.module';
+import { MarketplaceRequestsModule } from './modules/marketplace-requests/marketplace-requests.module';
+import { BrokerPacketsModule } from './modules/broker-packets/broker-packets.module';
+import { BrokerDecisionsModule } from './modules/broker-decisions/broker-decisions.module';
+import { BrokerRulesModule } from './modules/broker-rules/broker-rules.module';
+import { BrokerTasksModule } from './modules/broker-tasks/broker-tasks.module';
+import { BrokerAdaptersModule } from './modules/broker-adapters/broker-adapters.module';
+import { MarketplaceReviewsModule } from './modules/marketplace-reviews/marketplace-reviews.module';
+import { BrokerPostEntryModule } from './modules/broker-post-entry/broker-post-entry.module';
+import { BrokerAdminModule } from './modules/broker-admin/broker-admin.module';
+import { ObservabilityModule } from './modules/observability/observability.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
@@ -169,6 +182,47 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Shopify App module (OAuth, embedded app, GDPR webhooks)
     ShopifyAppModule,
+
+    // Broker marketplace module
+    MarketplaceModule,
+
+    // Broker platform — Phase 2 core (clients, POA, relationships)
+    BrokerCoreModule,
+
+    // Broker platform — Phase 2 entries (shipments, entries, lines)
+    BrokerEntriesModule,
+
+    // Broker platform — Phase 3+4 marketplace requests, matching, quotes, messaging
+    MarketplaceRequestsModule,
+
+    // Broker platform — Phase 5 packets, extraction, reconciliation
+    BrokerPacketsModule,
+
+    // Broker platform — Phase 6 AI suggestions + broker decisions
+    BrokerDecisionsModule,
+
+    // Broker platform — Phase 6 validation rules + policy exposure
+    BrokerRulesModule,
+
+    // Broker platform — Phase 7 missing-info tasks, status timeline, notification jobs
+    BrokerTasksModule,
+
+    // Broker platform — Phase 8 export adapters, exports, status imports
+    BrokerAdaptersModule,
+
+    // Broker platform — Phase 9 marketplace reviews, broker performance, credits/monetization
+    MarketplaceReviewsModule,
+
+    // Broker platform — Phase 10 post-entry cases, audit pack, prior decisions
+    BrokerPostEntryModule,
+
+    // Broker platform — plan-aligned /admin/marketplace/* and /admin/broker/*
+    // endpoints (analytics, audit, ai-governance, rules, adapters, requests).
+    BrokerAdminModule,
+
+    // Observability — global telemetry service + per-tenant request metrics
+    // middleware on broker / broker-portal / marketplace routes.
+    ObservabilityModule,
   ],
   controllers: [AppController],
   providers: [

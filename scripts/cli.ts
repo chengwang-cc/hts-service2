@@ -15,8 +15,8 @@ import { AppModule } from '../src/app.module';
 import { HtsImportService } from '../src/modules/admin/services/hts-import.service';
 import { KnowledgeAdminService } from '../src/modules/admin/services/knowledge.admin.service';
 import { QueueService } from '../src/modules/queue/queue.service';
-import { UsitcDownloaderService } from '../packages/core/src/services/usitc-downloader.service';
-import { createReadStream, existsSync } from 'fs';
+import { UsitcDownloaderService } from '@hts/core';
+import { existsSync } from 'fs';
 import { basename } from 'path';
 import * as dotenv from 'dotenv';
 
@@ -99,7 +99,7 @@ async function downloadLatest(app: any) {
       year: latest.year,
       revision: latest.revision,
     },
-    'CLI_USER'
+    'CLI_USER',
   );
 
   console.log('   ✅ JSON import started');
@@ -111,13 +111,11 @@ async function downloadLatest(app: any) {
   console.log('📄 Step 2/2: Importing HTS PDF (knowledge library)...');
   const knowledgeService = app.get(KnowledgeAdminService);
 
-  const pdfResult = await knowledgeService.uploadDocument(
-    {
-      year: latest.year,
-      revision: latest.revision,
-      chapter: '00',
-    }
-  );
+  const pdfResult = await knowledgeService.uploadDocument({
+    year: latest.year,
+    revision: latest.revision,
+    chapter: '00',
+  });
 
   console.log('   ✅ PDF import started');
   console.log(`   Document ID: ${pdfResult.id}`);
@@ -145,7 +143,9 @@ async function importHts(app: any, args: string[]) {
 
   if (!url || !version) {
     console.error('Usage: npm run cli:import-hts <url> <version>');
-    console.error('Example: npm run cli:import-hts https://hts.usitc.gov/data/2025.json 2025-revision-1');
+    console.error(
+      'Example: npm run cli:import-hts https://hts.usitc.gov/data/2025.json 2025-revision-1',
+    );
     process.exit(1);
   }
 
@@ -161,7 +161,7 @@ async function importHts(app: any, args: string[]) {
       sourceUrl: url,
       sourceVersion: version,
     },
-    'CLI_USER'
+    'CLI_USER',
   );
 
   console.log('✅ Import job created successfully!');
@@ -183,9 +183,15 @@ async function processPdf(app: any, args: string[]) {
   const [pathOrUrl, year, chapter] = args;
 
   if (!pathOrUrl || !year || !chapter) {
-    console.error('Usage: npm run cli:process-pdf <path-or-url> <year> <chapter>');
-    console.error('Example: npm run cli:process-pdf /path/to/chapter99.pdf 2025 99');
-    console.error('Example: npm run cli:process-pdf https://example.com/ch99.pdf 2025 99');
+    console.error(
+      'Usage: npm run cli:process-pdf <path-or-url> <year> <chapter>',
+    );
+    console.error(
+      'Example: npm run cli:process-pdf /path/to/chapter99.pdf 2025 99',
+    );
+    console.error(
+      'Example: npm run cli:process-pdf https://example.com/ch99.pdf 2025 99',
+    );
     process.exit(1);
   }
 
@@ -198,7 +204,8 @@ async function processPdf(app: any, args: string[]) {
   const knowledgeService = app.get(KnowledgeAdminService);
 
   // Determine if it's a URL or local file
-  const isUrl = pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://');
+  const isUrl =
+    pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://');
 
   let documentData: any;
 
@@ -207,8 +214,8 @@ async function processPdf(app: any, args: string[]) {
     documentData = {
       year: parseInt(year),
       chapter: chapter.padStart(2, '0'),
-      type: 'PDF',
-      url: pathOrUrl,
+      documentType: 'PDF',
+      sourceUrl: pathOrUrl,
       title: `Chapter ${chapter} - ${year}`,
     };
   } else {
@@ -218,21 +225,41 @@ async function processPdf(app: any, args: string[]) {
       process.exit(1);
     }
 
-    const fileBuffer = await import('fs/promises').then(fs => fs.readFile(pathOrUrl));
+    const fileBuffer = await import('fs/promises').then((fs) =>
+      fs.readFile(pathOrUrl),
+    );
     const fileName = basename(pathOrUrl);
 
     documentData = {
       year: parseInt(year),
       chapter: chapter.padStart(2, '0'),
-      type: 'PDF',
-      file: {
-        buffer: fileBuffer,
-        originalname: fileName,
-        mimetype: 'application/pdf',
-        size: fileBuffer.length,
-      },
+      documentType: 'PDF',
       title: `Chapter ${chapter} - ${year}`,
     };
+
+    const file = {
+      buffer: fileBuffer,
+      originalname: fileName,
+      mimetype: 'application/pdf',
+      size: fileBuffer.length,
+    } as Express.Multer.File;
+
+    const result = await knowledgeService.uploadDocument(documentData, file);
+
+    console.log('✅ Document processing job created successfully!');
+    console.log(`   Document ID: ${result.id}`);
+    console.log(`   Job ID: ${result.jobId}`);
+    console.log(`   Status: ${result.status}`);
+    console.log(
+      `   File Size: ${((result.fileSize || 0) / 1024 / 1024).toFixed(2)} MB`,
+    );
+    console.log('');
+    console.log('Monitor progress with:');
+    console.log(`   npm run cli:job-status ${result.jobId}`);
+    console.log('');
+    console.log('Or check database:');
+    console.log(`   SELECT * FROM hts_documents WHERE id = '${result.id}';`);
+    return;
   }
 
   const result = await knowledgeService.uploadDocument(documentData);
@@ -241,7 +268,9 @@ async function processPdf(app: any, args: string[]) {
   console.log(`   Document ID: ${result.id}`);
   console.log(`   Job ID: ${result.jobId}`);
   console.log(`   Status: ${result.status}`);
-  console.log(`   File Size: ${(result.fileSize || 0 / 1024 / 1024).toFixed(2)} MB`);
+  console.log(
+    `   File Size: ${((result.fileSize || 0) / 1024 / 1024).toFixed(2)} MB`,
+  );
   console.log('');
   console.log('Monitor progress with:');
   console.log(`   npm run cli:job-status ${result.jobId}`);
@@ -267,10 +296,9 @@ async function checkJobStatus(app: any, args: string[]) {
   // Query pg-boss directly
   const dataSource = app.get('DataSource');
 
-  const job = await dataSource.query(
-    `SELECT * FROM pgboss.job WHERE id = $1`,
-    [jobId]
-  );
+  const job = await dataSource.query(`SELECT * FROM pgboss.job WHERE id = $1`, [
+    jobId,
+  ]);
 
   if (job.length === 0) {
     console.log('❌ Job not found');
@@ -306,7 +334,7 @@ async function checkJobStatus(app: any, args: string[]) {
     const importId = jobData.data.importId;
     const importRecord = await dataSource.query(
       `SELECT id, source_version, status, checkpoint, s3_key FROM hts_import_history WHERE id = $1`,
-      [importId]
+      [importId],
     );
 
     if (importRecord.length > 0) {
@@ -317,26 +345,34 @@ async function checkJobStatus(app: any, args: string[]) {
       console.log(`   Status: ${importRecord[0].status}`);
       console.log(`   S3 Key: ${importRecord[0].s3_key || 'Not uploaded'}`);
       if (importRecord[0].checkpoint) {
-        console.log(`   Checkpoint: ${JSON.stringify(importRecord[0].checkpoint, null, 2)}`);
+        console.log(
+          `   Checkpoint: ${JSON.stringify(importRecord[0].checkpoint, null, 2)}`,
+        );
       }
     }
   } else if (jobData.name === 'document-processing' && jobData.data) {
     const documentId = jobData.data.documentId;
     const docRecord = await dataSource.query(
       `SELECT id, year, chapter, status, checkpoint, s3_key, file_size FROM hts_documents WHERE id = $1`,
-      [documentId]
+      [documentId],
     );
 
     if (docRecord.length > 0) {
       console.log('');
       console.log('Related Document:');
       console.log(`   Document ID: ${docRecord[0].id}`);
-      console.log(`   Year/Chapter: ${docRecord[0].year}/${docRecord[0].chapter}`);
+      console.log(
+        `   Year/Chapter: ${docRecord[0].year}/${docRecord[0].chapter}`,
+      );
       console.log(`   Status: ${docRecord[0].status}`);
       console.log(`   S3 Key: ${docRecord[0].s3_key || 'Not uploaded'}`);
-      console.log(`   File Size: ${(docRecord[0].file_size / 1024 / 1024).toFixed(2)} MB`);
+      console.log(
+        `   File Size: ${(docRecord[0].file_size / 1024 / 1024).toFixed(2)} MB`,
+      );
       if (docRecord[0].checkpoint) {
-        console.log(`   Checkpoint: ${JSON.stringify(docRecord[0].checkpoint, null, 2)}`);
+        console.log(
+          `   Checkpoint: ${JSON.stringify(docRecord[0].checkpoint, null, 2)}`,
+        );
       }
     }
   }
@@ -364,16 +400,17 @@ async function listImports(app: any, args: string[]) {
   }
 
   console.table(
-    result.data.map(imp => ({
+    result.data.map((imp) => ({
       ID: imp.id.substring(0, 8),
       Version: imp.sourceVersion,
       Status: imp.status,
-      'Started At': imp.importStartedAt?.toISOString().substring(0, 19) || 'N/A',
+      'Started At':
+        imp.importStartedAt?.toISOString().substring(0, 19) || 'N/A',
       'Duration (s)': imp.durationSeconds || 'N/A',
       'Total Entries': imp.totalEntries,
-      'Imported': imp.importedEntries,
-      'Failed': imp.failedEntries,
-    }))
+      Imported: imp.importedEntries,
+      Failed: imp.failedEntries,
+    })),
   );
 
   console.log('');
@@ -402,15 +439,17 @@ async function listDocuments(app: any, args: string[]) {
   }
 
   console.table(
-    result.data.map(doc => ({
+    result.data.map((doc) => ({
       ID: doc.id.substring(0, 8),
       'Year/Ch': `${doc.year}/${doc.chapter}`,
       Type: doc.documentType,
       Status: doc.status,
-      'Size (MB)': doc.fileSize ? (doc.fileSize / 1024 / 1024).toFixed(2) : 'N/A',
-      'S3': doc.s3Key ? '✓' : '✗',
+      'Size (MB)': doc.fileSize
+        ? (doc.fileSize / 1024 / 1024).toFixed(2)
+        : 'N/A',
+      S3: doc.s3Key ? '✓' : '✗',
       Parsed: doc.isParsed ? '✓' : '✗',
-    }))
+    })),
   );
 
   console.log('');

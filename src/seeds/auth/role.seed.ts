@@ -80,6 +80,16 @@ export const roleSeed: RoleSeed[] = [
       'billing:*',
       'billing:view',
       'billing:manage',
+
+      // Broker marketplace permissions
+      'marketplace:*',
+      'marketplace:view',
+      'marketplace:verify',
+      'marketplace:moderate',
+      'broker:*',
+      'broker:profile:manage',
+      'broker:leads:view',
+      'broker:credentials:manage',
     ],
     isActive: true,
   },
@@ -112,6 +122,12 @@ export const roleSeed: RoleSeed[] = [
 
       // Analytics (org-level)
       'analytics:view-org',
+
+      // Broker marketplace
+      'marketplace:view',
+      'broker:profile:manage',
+      'broker:leads:view',
+      'broker:credentials:manage',
     ],
     isActive: true,
   },
@@ -132,6 +148,10 @@ export const roleSeed: RoleSeed[] = [
 
       // View own data
       'data:view-own',
+
+      // Broker marketplace
+      'marketplace:view',
+      'broker:profile:manage',
     ],
     isActive: true,
   },

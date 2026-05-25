@@ -496,7 +496,17 @@ export class DocumentProcessingJobHandler {
         timeout: 600000, // 10 minutes timeout for large PDFs
         maxContentLength: Infinity, // No size limit - stream to S3 (handles 140MB+ HTS PDFs)
         maxBodyLength: Infinity,
+        headers: {
+          Accept: 'application/pdf,application/octet-stream,*/*',
+        },
       });
+      const contentType = String(response.headers?.['content-type'] || '');
+      if (contentType.toLowerCase().includes('text/html')) {
+        response.data?.destroy?.();
+        throw new Error(
+          `Expected PDF response from ${url}, received content-type ${contentType}`,
+        );
+      }
       return response.data;
     } else {
       // Text/HTML
@@ -597,7 +607,9 @@ export class DocumentProcessingJobHandler {
     return Math.ceil(text.length / 4);
   }
 
-  private isPdfLikeDocumentType(documentType: string | null | undefined): boolean {
+  private isPdfLikeDocumentType(
+    documentType: string | null | undefined,
+  ): boolean {
     const normalized = (documentType || '').toUpperCase();
     return (
       normalized === 'PDF' ||

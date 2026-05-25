@@ -24,12 +24,27 @@ export interface LandedCostQuoteResponse {
   currency: string;
   expiresAt: string;
   totals: {
+    /** Goods value across all lines, request currency. */
     goods: number;
+    /** Alias for goods value. Calculator-v2 canonical name. */
+    goodsValue?: number;
     shipping: number;
     insurance: number;
+    /** Customs duty total — base + additional only, no fees/taxes mixed in. */
     duty: number;
+    /** Canonical alias for `duty`. */
+    totalCustomsDuty?: number;
+    /** Base customs duty (Chapter 1-97). */
+    baseDuty?: number;
+    /** Additional duties (Chapter 99 / 301 / 232 / IEEPA / etc.). */
+    additionalDuties?: number;
+    /** True taxes (jurisdictional VAT/GST/HST/excise). */
     tax: number;
+    /** Canonical alias for `tax`. */
+    taxes?: number;
     fees: number;
+    /** Border-payable amount: customs duty + fees + taxes. */
+    borderPayable?: number;
     landedCost: number;
   };
   lines: Array<{
@@ -46,6 +61,19 @@ export interface LandedCostQuoteResponse {
     warnings: string[];
     sourceCitations: Array<Record<string, any>>;
     requiredInputs?: string[];
+    /** Per-line totals using calculator-v2 canonical vocabulary. */
+    totals?: {
+      goodsValue: number;
+      shippingAllocated: number;
+      insuranceAllocated: number;
+      baseDuty: number;
+      additionalDuties: number;
+      totalCustomsDuty: number;
+      fees: number;
+      taxes: number;
+      borderPayable: number;
+      landedCost: number;
+    };
   }>;
   assumptions: string[];
   missingInputs: string[];
@@ -371,6 +399,37 @@ export class LandedCostService {
         confidenceSum += conf;
         confidenceCount++;
 
+        const lineDuties = convertedComponents
+          .filter((c) =>
+            ['base', 'special', 'non_ntr', 'chapter_99', 'section_301', 'section_232', 'section_122'].includes(
+              c.componentType,
+            ),
+          )
+          .map((c) => ({
+            type: c.componentType,
+            amount: c.amount,
+            formula: c.formula,
+          }));
+        const lineTaxes = convertedComponents
+          .filter((c) => c.componentType === 'post_tax')
+          .map((c) => ({ type: c.componentType, amount: c.amount }));
+        const lineFees = convertedComponents
+          .filter((c) => c.componentType === 'mpf' || c.componentType === 'hmf')
+          .map((c) => ({ type: c.componentType, amount: c.amount }));
+        const lineBaseDuty = lineDuties
+          .filter((d) => ['base', 'special', 'non_ntr'].includes(d.type))
+          .reduce((s, d) => s + d.amount, 0);
+        const lineAdditionalDuties = lineDuties
+          .filter((d) => !['base', 'special', 'non_ntr'].includes(d.type))
+          .reduce((s, d) => s + d.amount, 0);
+        const lineFeesTotal = lineFees.reduce((s, f) => s + f.amount, 0);
+        const lineTaxesTotal = lineTaxes.reduce((s, t) => s + t.amount, 0);
+        const lineTotalCustomsDuty = lineBaseDuty + lineAdditionalDuties;
+        const lineBorderPayable =
+          lineTotalCustomsDuty + lineFeesTotal + lineTaxesTotal;
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+        const lineGoodsValue = item.unitValue * item.quantity;
+
         lines.push({
           sku: item.sku,
           classification: {
@@ -378,26 +437,29 @@ export class LandedCostService {
             destinationCode: result.classification.destinationCode,
             source: classificationSource,
           },
-          duties: convertedComponents
-            .filter((c) =>
-              ['base', 'special', 'non_ntr', 'chapter_99', 'section_301', 'section_232', 'section_122'].includes(
-                c.componentType,
-              ),
-            )
-            .map((c) => ({
-              type: c.componentType,
-              amount: c.amount,
-              formula: c.formula,
-            })),
-          taxes: convertedComponents
-            .filter((c) => c.componentType === 'post_tax')
-            .map((c) => ({ type: c.componentType, amount: c.amount })),
-          fees: convertedComponents
-            .filter((c) => c.componentType === 'mpf' || c.componentType === 'hmf')
-            .map((c) => ({ type: c.componentType, amount: c.amount })),
+          duties: lineDuties,
+          taxes: lineTaxes,
+          fees: lineFees,
           controls: [],
           warnings: result.warnings,
           sourceCitations: result.citations.map((c) => ({ ...c })),
+          totals: {
+            goodsValue: round2(lineGoodsValue),
+            shippingAllocated: round2(result.shippingAllocated ?? 0),
+            insuranceAllocated: round2(result.insuranceAllocated ?? 0),
+            baseDuty: round2(lineBaseDuty),
+            additionalDuties: round2(lineAdditionalDuties),
+            totalCustomsDuty: round2(lineTotalCustomsDuty),
+            fees: round2(lineFeesTotal),
+            taxes: round2(lineTaxesTotal),
+            borderPayable: round2(lineBorderPayable),
+            landedCost: round2(
+              lineGoodsValue +
+                (result.shippingAllocated ?? 0) +
+                (result.insuranceAllocated ?? 0) +
+                lineBorderPayable,
+            ),
+          },
         });
       } catch (e: any) {
         warnings.push(
@@ -441,11 +503,12 @@ export class LandedCostService {
         )
       : 0;
     const totalDutyCombined = totalDuty + totalAdditional;
-    const landed =
-      totalGoods + shipping + insurance + totalDutyCombined + totalFees + totalTaxes;
+    const borderPayable = totalDutyCombined + totalFees + totalTaxes;
+    const landed = totalGoods + shipping + insurance + borderPayable;
     const expiresAt = new Date(Date.now() + this.defaultQuoteTtlSeconds * 1000);
     const round = (n: number) => Math.round(n * 100) / 100;
     const totals = {
+      // Legacy fields — kept for backward compat with existing callers.
       goods: round(totalGoods),
       shipping: round(shipping),
       insurance: round(insurance),
@@ -453,6 +516,13 @@ export class LandedCostService {
       tax: round(totalTaxes),
       fees: round(totalFees),
       landedCost: round(landed),
+      // Calculator-v2 canonical names.
+      goodsValue: round(totalGoods),
+      baseDuty: round(totalDuty),
+      additionalDuties: round(totalAdditional),
+      totalCustomsDuty: round(totalDutyCombined),
+      taxes: round(totalTaxes),
+      borderPayable: round(borderPayable),
     };
     const confidence = confidenceCount > 0 ? round(confidenceSum / confidenceCount) : 0;
 
@@ -499,9 +569,11 @@ export class LandedCostService {
           .reduce((s, d) => s + d.amount, 0),
         fees: l.fees.reduce((s, f) => s + f.amount, 0),
         taxes: l.taxes.reduce((s, t) => s + t.amount, 0),
-        totalDuty:
-          l.duties.reduce((s, d) => s + d.amount, 0) +
-          l.fees.reduce((s, f) => s + f.amount, 0),
+        // Customs duty total only — fees and taxes are stored separately.
+        // Older rows summed duties + fees into `totalDuty`, which masked
+        // MPF/HMF inside the duty number and made line totals diverge from
+        // the line-level breakdown.
+        totalDuty: l.duties.reduce((s, d) => s + d.amount, 0),
         landedCost:
           request.items[i].unitValue * request.items[i].quantity +
           l.duties.reduce((s, d) => s + d.amount, 0) +

@@ -7,6 +7,12 @@ import { FormulaEvaluationService } from './formula-evaluation.service';
 import { FormulaScopeService } from './formula-scope.service';
 import { PolicyApplicabilityService } from './policy-applicability.service';
 import { TariffConditionEngineService } from './tariff-condition-engine.service';
+import {
+  TariffConfidenceService,
+  TariffConfidenceSummary,
+} from './tariff-confidence.service';
+import { TariffFormulaResolverService } from './tariff-formula-resolver.service';
+import { TariffFormulaComponent } from './tariff-types';
 import { HtsExtraTaxEntity, CalculationHistoryEntity } from '@hts/core';
 import type { TariffSelectionMode } from '../dto/calculate.dto';
 
@@ -35,7 +41,7 @@ export interface CalculationInput {
   weightKg?: number;
   quantity?: number;
   quantityUnit?: string;
-  organizationId: string;
+  organizationId?: string;
   userId?: string;
   scenarioId?: string;
   tradeAgreementCode?: string;
@@ -76,7 +82,10 @@ export interface CalculationResult {
   breakdown: any;
   formulaUsed: string;
   rateSource: string;
+  /** Backward-compatible numeric score; preferred over legacy `confidence`. */
+  confidenceScore?: number;
   confidence: number;
+  confidenceDetails?: TariffConfidenceSummary;
   destinationCountry: string;
   tradeAgreementInfo?: {
     agreement: string;
@@ -133,6 +142,8 @@ export class CalculationService {
     private readonly formulaScope: FormulaScopeService,
     private readonly policyApplicability: PolicyApplicabilityService,
     private readonly conditionEngine: TariffConditionEngineService,
+    private readonly tariffConfidence: TariffConfidenceService,
+    private readonly formulaResolver: TariffFormulaResolverService,
   ) {}
 
   async calculate(input: CalculationInput): Promise<CalculationResult> {
@@ -219,44 +230,26 @@ export class CalculationService {
         rateSource = rateInfo.source;
       }
 
-      const additionalTariffVariables = {
-        ...baseVariables,
-        duty: baseDuty,
-        total: calculationInput.declaredValue + baseDuty,
-      };
-
       const applyExtraTaxes = !rateInfo.overrideExtraTax;
 
-      // Calculate additional tariffs (entity-driven)
-      const additionalTariffs = applyExtraTaxes
-        ? await this.calculateAdditionalTariffs(
-            calculationInput,
-            additionalTariffVariables,
+      const resolvedExtras = applyExtraTaxes
+        ? await this.calculateComponentizedExtraCharges({
+            input: calculationInput,
+            baseScope,
+            baseDuty,
             calculationDate,
-          )
-        : [];
+            selectedChapter99Headings: Array.from(selectedChapter99Headings),
+          })
+        : { additionalTariffs: [], taxes: [] };
+
+      const additionalTariffs = resolvedExtras.additionalTariffs;
 
       const totalAdditionalTariffs = additionalTariffs.reduce(
         (sum, t) => sum + t.amount,
         0,
       );
 
-      const postTariffDuty = baseDuty + totalAdditionalTariffs;
-      const postTariffTotal = calculationInput.declaredValue + postTariffDuty;
-      const taxVariables = {
-        ...baseVariables,
-        duty: postTariffDuty,
-        total: postTariffTotal,
-      };
-
-      // Calculate taxes (entity-driven)
-      const taxes = applyExtraTaxes
-        ? await this.calculateTaxes(
-            calculationInput,
-            taxVariables,
-            calculationDate,
-          )
-        : [];
+      const taxes = resolvedExtras.taxes;
 
       // Split MPF / HMF / generic fees out of the taxes bucket so the
       // top-level totals carry a clean (taxes vs fees) distinction.
@@ -264,12 +257,18 @@ export class CalculationService {
       const trueTaxes = taxes.filter((t) => !classifyTaxAsFee(t.type));
       const totalFees = fees.reduce((sum, t) => sum + t.amount, 0);
       const totalTaxes = trueTaxes.reduce((sum, t) => sum + t.amount, 0);
-      const totalDuty = postTariffDuty;
+      const totalDuty = baseDuty + totalAdditionalTariffs;
       const landedCost =
         calculationInput.declaredValue + totalDuty + totalTaxes + totalFees;
       const destinationCountry = (
         calculationInput.destinationCountry || 'US'
       ).toUpperCase();
+      const confidenceDetails = await this.tariffConfidence.scoreFor({
+        htsNumber: calculationInput.htsNumber,
+        countryCode: calculationInput.countryOfOrigin,
+        destinationCode: destinationCountry,
+        fallbackConfidence: rateInfo.confidence,
+      });
 
       const round = (n: number) => Math.round(n * 100) / 100;
       const totals: CalculationTotals = {
@@ -303,7 +302,9 @@ export class CalculationService {
         },
         formulaUsed,
         rateSource,
-        confidence: rateInfo.confidence,
+        confidenceScore: confidenceDetails.score,
+        confidence: confidenceDetails.score,
+        confidenceDetails,
         tradeAgreementInfo: tradeAgreementInfo.eligible
           ? tradeAgreementInfo
           : null,
@@ -318,6 +319,200 @@ export class CalculationService {
       this.logger.error(`Calculation failed: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Calculate extra components through TariffFormulaResolver so calculator,
+   * batch, card-primary, and shadow flows share the same component source.
+   */
+  private async calculateComponentizedExtraCharges(args: {
+    input: CalculationInput;
+    baseScope: {
+      value?: number;
+      weight?: number;
+      quantity?: number;
+      additionalInputs: Record<string, any>;
+    };
+    baseDuty: number;
+    calculationDate: Date;
+    selectedChapter99Headings: string[];
+  }): Promise<{
+    additionalTariffs: Array<{
+      type: string;
+      amount: number;
+      description: string;
+    }>;
+    taxes: Array<{ type: string; amount: number; description: string }>;
+  }> {
+    const resolved = await this.formulaResolver.resolve({
+      htsNumber: args.input.htsNumber,
+      countryOfOrigin: args.input.countryOfOrigin,
+      destinationCountry: args.input.destinationCountry || 'US',
+      entryDate: this.formatDateOnly(args.calculationDate),
+      htsVersion: args.input.htsVersion,
+      certificate: args.input.tradeAgreementCode
+        ? {
+            agreement: args.input.tradeAgreementCode,
+            claimed: !!args.input.tradeAgreementCertificate,
+          }
+        : undefined,
+      selectedChapter99Headings: args.selectedChapter99Headings,
+    });
+
+    if (resolved.blocked) {
+      this.logger.warn(
+        `Formula resolver blocked extra charges for ${args.input.htsNumber}: ${resolved.message}`,
+      );
+      return { additionalTariffs: [], taxes: [] };
+    }
+
+    const extras = resolved.components.slice(1);
+    const primary = extras.filter((component) => !this.isPostStage(component));
+    const post = extras.filter((component) => this.isPostStage(component));
+    const baseVars = {
+      value: args.baseScope.value ?? args.input.declaredValue,
+      weight: args.baseScope.weight ?? 0,
+      quantity: args.baseScope.quantity ?? 0,
+    };
+    const additionalInputs = args.baseScope.additionalInputs || {};
+
+    let runningDuty = args.baseDuty;
+    const additionalTariffs: Array<{
+      type: string;
+      amount: number;
+      description: string;
+    }> = [];
+    for (const component of primary) {
+      if (!this.shouldEvaluateComponent(component, args.input)) {
+        continue;
+      }
+      const amount = this.evaluateComponentAmount(component, {
+        baseVars,
+        additionalInputs,
+        duty: runningDuty,
+        total: args.input.declaredValue + runningDuty,
+      });
+      if (amount <= 0) {
+        continue;
+      }
+      runningDuty += amount;
+      additionalTariffs.push({
+        type: component.identifier || component.componentType,
+        amount: this.round2(amount),
+        description: component.description || component.componentType,
+      });
+    }
+
+    const taxes: Array<{ type: string; amount: number; description: string }> =
+      [];
+    const postTariffTotal = args.input.declaredValue + runningDuty;
+    for (const component of post) {
+      if (!this.shouldEvaluateComponent(component, args.input)) {
+        continue;
+      }
+      const amount = this.evaluateComponentAmount(component, {
+        baseVars,
+        additionalInputs,
+        duty: runningDuty,
+        total: postTariffTotal,
+      });
+      if (amount <= 0) {
+        continue;
+      }
+      taxes.push({
+        type: component.identifier || component.componentType,
+        amount: this.round2(amount),
+        description: component.description || component.componentType,
+      });
+    }
+
+    return { additionalTariffs, taxes };
+  }
+
+  private shouldEvaluateComponent(
+    component: TariffFormulaComponent,
+    input: CalculationInput,
+  ): boolean {
+    if (
+      component.conditions &&
+      !this.conditionEngine.evaluate(component.conditions, {
+        countryOfOrigin: input.countryOfOrigin,
+        declaredValue: input.declaredValue,
+        tradeAgreementCode: input.tradeAgreementCode,
+        tradeAgreementCertificate: input.tradeAgreementCertificate,
+        additionalInputs: input.additionalInputs,
+        selectedChapter99Headings:
+          this.policyApplicability.extractSelectedChapter99Headings(
+            input.additionalInputs,
+          ),
+      })
+    ) {
+      return false;
+    }
+
+    const appliesWhen = component.appliesWhen;
+    if (appliesWhen.kind === 'always') return true;
+    if (appliesWhen.kind === 'country_in') {
+      return appliesWhen.countries.includes(input.countryOfOrigin);
+    }
+    if (appliesWhen.kind === 'country_not_in') {
+      return !appliesWhen.countries.includes(input.countryOfOrigin);
+    }
+    if (appliesWhen.kind === 'requires_chapter99_selection') {
+      return this.policyApplicability
+        .extractSelectedChapter99Headings(input.additionalInputs)
+        .has(appliesWhen.heading);
+    }
+    if (appliesWhen.kind === 'requires_certificate') {
+      return (
+        input.tradeAgreementCode === appliesWhen.agreement &&
+        !!input.tradeAgreementCertificate
+      );
+    }
+    return true;
+  }
+
+  private evaluateComponentAmount(
+    component: TariffFormulaComponent,
+    args: {
+      baseVars: { value: number; weight: number; quantity: number };
+      additionalInputs: Record<string, any>;
+      duty: number;
+      total: number;
+    },
+  ): number {
+    try {
+      return this.formulaEvaluationService.evaluateWithConstraints(
+        component.formula,
+        {
+          ...args.baseVars,
+          duty: args.duty,
+          total: args.total,
+          additionalInputs: args.additionalInputs,
+          declaredVariables: component.requiredVariables.map((v) => v.name),
+        },
+        component.constraints,
+      ).amount;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to evaluate resolved component ${component.identifier || component.componentType}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return 0;
+    }
+  }
+
+  private isPostStage(component: TariffFormulaComponent): boolean {
+    return (
+      component.componentType === 'mpf' ||
+      component.componentType === 'hmf' ||
+      component.componentType === 'post_tax'
+    );
+  }
+
+  private round2(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 
   /**

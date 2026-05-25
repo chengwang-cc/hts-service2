@@ -103,28 +103,38 @@ export class UsHtsAdapter implements TariffJurisdictionAdapter {
       componentType: b.componentType,
       amount: b.amount,
       formula: b.formula,
-      identifier: b.chapter99HtsCode || undefined,
+      identifier: b.chapter99HtsCode || b.identifier || undefined,
     }));
 
     let baseDuty = 0;
     let additionalTariffs = 0;
     let fees = 0;
-    const taxes = 0;
+    let taxes = 0;
     for (const b of row.breakdown) {
       if (b.componentType === 'base' || b.componentType === 'special' || b.componentType === 'non_ntr') {
         baseDuty += b.amount;
       } else if (b.componentType === 'mpf' || b.componentType === 'hmf') {
         fees += b.amount;
       } else if (b.componentType === 'post_tax') {
-        // taxes are jurisdictional (US has none in calculator today)
-        fees += b.amount;
+        // US calculator does not currently emit true taxes, but if a card
+        // is upgraded to post-duty tax the amount lands in `taxes`, not in
+        // `fees`. Previously this was silently bucketed into fees, which
+        // distorted both the per-line fees number and the rolled-up totals.
+        taxes += b.amount;
       } else {
         additionalTariffs += b.amount;
       }
     }
 
-    const totalDuty = baseDuty + additionalTariffs + fees + taxes;
-    const landedCost = line.declaredValue + totalDuty;
+    // Customs duty total — base + additional only. MPF/HMF and taxes are
+    // reported separately. Older code summed everything into `totalDuty`,
+    // which is the bug the new calculator-v2 vocabulary fixes.
+    const totalCustomsDuty = baseDuty + additionalTariffs;
+    const borderPayable = totalCustomsDuty + fees + taxes;
+    const shippingAllocated = context.shippingAmount ?? 0;
+    const insuranceAllocated = context.insuranceAmount ?? 0;
+    const landedCost =
+      line.declaredValue + shippingAllocated + insuranceAllocated + borderPayable;
 
     return {
       classification: {
@@ -133,13 +143,18 @@ export class UsHtsAdapter implements TariffJurisdictionAdapter {
       },
       baseDuty,
       additionalTariffs,
+      additionalDuties: additionalTariffs,
       fees,
       taxes,
-      totalDuty,
+      totalDuty: totalCustomsDuty,
+      totalCustomsDuty,
+      borderPayable,
+      shippingAllocated,
+      insuranceAllocated,
       landedCost,
       components,
       warnings: row.blocked ? [row.blockReason || row.message] : [],
-      citations: [],
+      citations: row.sources ?? [],
     };
   }
 

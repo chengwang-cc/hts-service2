@@ -5,5 +5,23 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@hts/core$": "<rootDir>/../src/core/index",
+    "^@hts/core/(.*)$": "<rootDir>/../src/core/$1",
+    "^@hts/knowledgebase$": "<rootDir>/../src/modules/knowledgebase/index",
+    "^@hts/knowledgebase/(.*)$": "<rootDir>/../src/modules/knowledgebase/$1",
+    "^@hts/calculator$": "<rootDir>/../src/modules/calculator/index",
+    "^@hts/calculator/(.*)$": "<rootDir>/../src/modules/calculator/$1",
+    "^@hts/billing$": "<rootDir>/../src/modules/billing/index",
+    "^@hts/billing/(.*)$": "<rootDir>/../src/modules/billing/$1",
+    "^@hts/connectors$": "<rootDir>/../src/modules/connectors/index",
+    "^@hts/connectors/(.*)$": "<rootDir>/../src/modules/connectors/$1",
+    "^@hts/export$": "<rootDir>/../src/modules/export/index",
+    "^@hts/export/(.*)$": "<rootDir>/../src/modules/export/$1",
+    "^@hts/i18n$": "<rootDir>/../src/modules/i18n/index",
+    "^@hts/i18n/(.*)$": "<rootDir>/../src/modules/i18n/$1",
+    "^@hts/lookup$": "<rootDir>/../src/modules/lookup/index",
+    "^@hts/lookup/(.*)$": "<rootDir>/../src/modules/lookup/$1"
   }
 }
