@@ -18,10 +18,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
   ) {
+    // H8 fix (2026-05-27): mirror the auth.module.ts hard-fail in prod.
+    const jwtSecret = process.env.JWT_SECRET;
+    if ((!jwtSecret || jwtSecret.length === 0) && process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'JWT_SECRET is required in production. Set it via a k8s Secret + envFrom.',
+      );
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'your-secret-key',
+      secretOrKey: jwtSecret || 'your-secret-key',
     });
   }
 

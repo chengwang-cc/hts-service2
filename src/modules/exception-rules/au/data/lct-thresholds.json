@@ -1,0 +1,23 @@
+{
+  "$schema": "./lct-thresholds.schema.json",
+  "version": "2026-05-26.1",
+  "description": "Luxury Car Tax (LCT) thresholds per Australian financial year. LCT = 33% of the portion of customs value above the threshold. Fuel-efficient vehicles get the higher threshold.",
+  "sourceDocuments": ["ato.lct-thresholds", "ato.gst-act-section-1-200"],
+  "rate": 0.33,
+  "byFinancialYear": [
+    { "fy": "2023-24", "effectiveFrom": "2023-07-01", "effectiveTo": "2024-07-01", "thresholdStandard": 76950, "thresholdFuelEfficient": 89332 },
+    { "fy": "2024-25", "effectiveFrom": "2024-07-01", "effectiveTo": "2025-07-01", "thresholdStandard": 80567, "thresholdFuelEfficient": 91387 },
+    { "fy": "2025-26", "effectiveFrom": "2025-07-01", "effectiveTo": "2026-07-01", "thresholdStandard": 83000, "thresholdFuelEfficient": 94000 },
+    { "fy": "2026-27", "effectiveFrom": "2026-07-01", "effectiveTo": "2027-07-01", "thresholdStandard": 85000, "thresholdFuelEfficient": 96500 }
+  ],
+  "scope": [
+    { "htsCode": "8703.21.0000", "category": "passenger vehicles" },
+    { "htsCode": "8703.22.0000", "category": "passenger vehicles" },
+    { "htsCode": "8703.23.0000", "category": "passenger vehicles" },
+    { "htsCode": "8703.24.0000", "category": "passenger vehicles" },
+    { "htsCode": "8703.31.0000", "category": "passenger vehicles (diesel)" },
+    { "htsCode": "8703.32.0000", "category": "passenger vehicles (diesel)" },
+    { "htsCode": "8703.33.0000", "category": "passenger vehicles (diesel)" },
+    { "htsCode": "8703.80.0000", "category": "EV" }
+  ]
+}

@@ -59,6 +59,19 @@ export interface FormulaVariable {
   unit?: string;
   dimension?: 'money' | 'weight' | 'quantity' | 'volume' | 'area' | 'length';
   description?: string;
+  /**
+   * Rich input metadata for variables surfaced by exception rules (Phase 2).
+   * Optional + backward-compatible: existing resolver-emitted variables omit
+   * these fields.
+   */
+  required?: boolean;
+  label?: string;
+  helpRef?: string;
+  allowedValues?: string[] | string;
+  /** Origin marker: 'resolver' (default) or 'exception_rule'. */
+  origin?: 'resolver' | 'exception_rule';
+  /** When `origin === 'exception_rule'`, the rule id that declared this input. */
+  ruleId?: string;
 }
 
 export interface SourceCitationRef {
@@ -235,6 +248,14 @@ export interface BatchFormulaLineResult {
     identifier?: string;
     confidence: number;
   }>;
+  /**
+   * P2.T5 — additional inputs declared by applicable exception rules at
+   * the requested (htsCode, country, destination). Surfaced to the form
+   * so users can supply rule-required data (e.g. aluminum smelt/cast
+   * countries) before submitting a quote. Empty array when no rule is
+   * applicable.
+   */
+  additionalInputs?: FormulaVariable[];
 }
 
 export interface BatchRateLineResult {

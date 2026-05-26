@@ -124,6 +124,13 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
+  // H4 fix (2026-05-27): k8s sends SIGTERM at pod shutdown. Without
+  // this, OnModuleDestroy hooks (notably QueueService → pg-boss
+  // graceful stop with a 30s timeout) DO NOT run, and in-flight jobs
+  // get cut. Pair with `terminationGracePeriodSeconds: 35` in the
+  // Deployment manifest.
+  app.enableShutdownHooks();
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

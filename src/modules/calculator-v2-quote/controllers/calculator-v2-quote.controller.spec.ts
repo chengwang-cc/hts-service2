@@ -262,5 +262,84 @@ describe('CalculatorV2QuoteController', () => {
       );
       expect(out).toBe(stubResult);
     });
+
+    // E1 fix (2026-05-26): JWT route MUST NOT fall back to req.organizationId.
+    it('E1: JWT route refuses an org set only on req.organizationId (no req.user)', async () => {
+      const { controller, quote } = makeController();
+      quote.mockResolvedValue({ quoteId: 'quote_x' });
+      // Simulate a misordered middleware that set the API-key slot
+      // but no JWT. The JWT route must NOT honor that org.
+      await expect(
+        controller.quoteJwt(
+          baseRequest() as any,
+          { organizationId: 'org_apikey_should_be_ignored' } as any,
+        ),
+      ).rejects.toThrow(/organization is required/);
+      expect(quote).not.toHaveBeenCalled();
+    });
+
+    it('E1: JWT route uses req.user.organizationId even when req.organizationId is also set', async () => {
+      const { controller, quote } = makeController();
+      quote.mockResolvedValue({ quoteId: 'quote_x' });
+      await controller.quoteJwt(
+        baseRequest() as any,
+        {
+          user: { organizationId: 'org_from_jwt', id: 'user_1' },
+          organizationId: 'org_from_apikey_should_be_ignored',
+        } as any,
+      );
+      const [, caller] = quote.mock.calls[0];
+      expect(caller).toEqual({ organizationId: 'org_from_jwt', userId: 'user_1' });
+    });
+
+    // E2 fix (2026-05-26): API-key route requires the key to resolve to an org.
+    it('E2: API-key route refuses a request where the key did not resolve to an org', async () => {
+      const { controller, quote } = makeController();
+      quote.mockResolvedValue({ quoteId: 'quote_x' });
+      await expect(
+        controller.quoteApiKey(baseRequest() as any, {} as any),
+      ).rejects.toThrow(/API key did not resolve to an organization/);
+      expect(quote).not.toHaveBeenCalled();
+    });
+  });
+
+  // E3 fix (2026-05-26): previewFacts must also be JWT-only.
+  describe('previewFacts auth (E3)', () => {
+    it('refuses when only req.organizationId is set (no req.user)', async () => {
+      const { controller, factsFor } = makeController();
+      await expect(
+        controller.previewFacts(
+          'AU',
+          'US',
+          undefined,
+          undefined,
+          { organizationId: 'org_apikey_should_be_ignored' } as any,
+        ),
+      ).rejects.toThrow(/organization is required/);
+      expect(factsFor).not.toHaveBeenCalled();
+    });
+
+    it('API-key facts route requires the key to resolve to an org', async () => {
+      const { controller, factsFor } = makeController();
+      factsFor.mockReturnValue({} as any);
+      await expect(
+        controller.previewFactsApiKey('AU', 'US', undefined, undefined, {} as any),
+      ).rejects.toThrow(/API key did not resolve to an organization/);
+      expect(factsFor).not.toHaveBeenCalled();
+    });
+
+    it('API-key facts route succeeds when the key carries an org', async () => {
+      const { controller, factsFor } = makeController();
+      const seed = { schemaName: 'x' } as any;
+      factsFor.mockReturnValue(seed);
+      const out = await controller.previewFactsApiKey(
+        'AU',
+        'US',
+        undefined,
+        undefined,
+        { organizationId: 'org_apikey' } as any,
+      );
+      expect(out).toBe(seed);
+    });
   });
 });

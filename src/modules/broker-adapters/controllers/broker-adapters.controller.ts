@@ -89,11 +89,34 @@ export class BrokerAdaptersController {
   }
 
   @Get('export-jobs')
-  @OrgPermissions('broker:entries:view', 'broker:adapters:view', 'broker:adapters:write')
+  @OrgPermissions(
+    'broker:entries:view',
+    'broker:adapters:view',
+    'broker:adapters:write',
+  )
   async listJobs(@Req() req: Request, @Query('entryId') entryId?: string) {
     return {
       success: true,
       data: await this.adapters.listJobs(resolveRequestContext(req), entryId),
+    };
+  }
+
+  @Get('export-jobs/:id/artifact')
+  @OrgPermissions(
+    'broker:entries:view',
+    'broker:adapters:view',
+    'broker:adapters:write',
+  )
+  async exportArtifact(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      success: true,
+      data: await this.adapters.getExportArtifact(
+        resolveRequestContext(req),
+        id,
+      ),
     };
   }
 

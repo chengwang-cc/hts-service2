@@ -29,6 +29,7 @@ export class CreateConnectorDto {
     apiKey?: string;
     apiSecret?: string;
     accessToken?: string;
+    apiVersion?: string;
     webhookUrl?: string;
     syncEnabled?: boolean;
     syncInterval?: number;

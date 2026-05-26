@@ -14,10 +14,7 @@ import {
   UpdateBrokerClientDto,
   UpsertPoaDto,
 } from '../dto/broker-core.dto';
-import {
-  BrokerClientEntity,
-  BrokerPowerOfAttorneyEntity,
-} from '../entities';
+import { BrokerClientEntity, BrokerPowerOfAttorneyEntity } from '../entities';
 
 @Injectable()
 export class BrokerClientsService {
@@ -97,11 +94,7 @@ export class BrokerClientsService {
     return this.toResponse(saved);
   }
 
-  async update(
-    ctx: RequestContext,
-    id: string,
-    dto: UpdateBrokerClientDto,
-  ) {
+  async update(ctx: RequestContext, id: string, dto: UpdateBrokerClientDto) {
     const client = await this.requireOwned(ctx, id);
     if (dto.name) client.name = dto.name.trim();
     if (dto.legalName !== undefined) {
@@ -201,6 +194,10 @@ export class BrokerClientsService {
       metadata: { status: saved.status },
     });
     return this.toPoaResponse(saved);
+  }
+
+  async requireOwnedClient(ctx: RequestContext, clientId: string) {
+    return this.requireOwned(ctx, clientId);
   }
 
   private async requireOwned(ctx: RequestContext, id: string) {

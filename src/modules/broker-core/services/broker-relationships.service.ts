@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuditService } from '../../audit/services/audit.service';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
 import { UpdateRelationshipChecklistDto } from '../dto/broker-core.dto';
@@ -28,8 +28,11 @@ export class BrokerRelationshipsService {
     private readonly audit: AuditService,
   ) {}
 
-  async create(input: CreateRelationshipInput) {
-    const entity = this.relationships.create({
+  async create(input: CreateRelationshipInput, manager?: EntityManager) {
+    const relationships =
+      manager?.getRepository(BrokerClientRelationshipEntity) ??
+      this.relationships;
+    const entity = relationships.create({
       brokerOrganizationId: input.brokerOrganizationId,
       businessOrganizationId: input.businessOrganizationId,
       clientId: input.clientId ?? null,
@@ -42,18 +45,21 @@ export class BrokerRelationshipsService {
       onboardingChecklist:
         input.initialChecklist ?? this.defaultOnboardingChecklist(),
     });
-    const saved = await this.relationships.save(entity);
-    await this.audit.record({
-      eventType: 'broker_core.relationship.created',
-      organizationId: input.brokerOrganizationId,
-      resourceType: 'broker_client_relationship',
-      resourceId: saved.id,
-      source: 'broker-core',
-      metadata: {
-        businessOrganizationId: input.businessOrganizationId,
-        marketplaceRequestId: input.marketplaceRequestId,
+    const saved = await relationships.save(entity);
+    await this.audit.record(
+      {
+        eventType: 'broker_core.relationship.created',
+        organizationId: input.brokerOrganizationId,
+        resourceType: 'broker_client_relationship',
+        resourceId: saved.id,
+        source: 'broker-core',
+        metadata: {
+          businessOrganizationId: input.businessOrganizationId,
+          marketplaceRequestId: input.marketplaceRequestId,
+        },
       },
-    });
+      manager,
+    );
     return this.toResponse(saved);
   }
 

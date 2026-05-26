@@ -14,24 +14,38 @@ import { EncryptedSecretService } from '../../src/modules/security/encrypted-sec
 
 process.env.JWT_SECRET = 'test-secret';
 
-function build(seed: {
-  adapters?: Partial<BrokerAdapterEntity>[];
-  entries?: Partial<BrokerEntryEntity>[];
-  lines?: Partial<BrokerEntryLineEntity>[];
-} = {}) {
+function build(
+  seed: {
+    adapters?: Partial<BrokerAdapterEntity>[];
+    entries?: Partial<BrokerEntryEntity>[];
+    lines?: Partial<BrokerEntryLineEntity>[];
+  } = {},
+) {
   const adapters = createRepoMock<BrokerAdapterEntity>(
-    seed.adapters as unknown as BrokerAdapterEntity[] ?? [],
+    (seed.adapters as unknown as BrokerAdapterEntity[]) ?? [],
   );
   const jobs = createRepoMock<BrokerExportJobEntity>();
   const status = createRepoMock<BrokerStatusMessageEntity>();
   const entries = createRepoMock<BrokerEntryEntity>(
-    seed.entries as unknown as BrokerEntryEntity[] ?? [],
+    (seed.entries as unknown as BrokerEntryEntity[]) ?? [],
   );
   const lines = createRepoMock<BrokerEntryLineEntity>(
-    seed.lines as unknown as BrokerEntryLineEntity[] ?? [],
+    (seed.lines as unknown as BrokerEntryLineEntity[]) ?? [],
   );
   const secrets = new EncryptedSecretService();
   const statusService = { record: jest.fn() } as any;
+  const storage = {
+    store: jest.fn(async (input: any) => ({
+      storageKey: `broker-exports/${input.organizationId}/artifact`,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      byteSize: input.content.byteLength,
+      sha256: 'sha256',
+    })),
+    createReadUrl: jest.fn(async () => 'https://signed.example/artifact'),
+    keyBelongsToTenant: jest.fn(() => true),
+    providerKey: 'mock',
+  } as any;
   const csv = new GenericCsvAdapter();
   // Minimal adapter stub factory — vendor adapters are exercised via the
   // generic provider profile in unit tests; integration tests against real
@@ -42,7 +56,7 @@ function build(seed: {
       build: (ctx: any) => csv.build(ctx),
       deliver: async () => ({ delivered: true }),
       requiredFields: () => csv.requiredFields(),
-    } as any);
+    }) as any;
   const svc = new BrokerAdaptersService(
     adapters as any,
     jobs as any,
@@ -52,6 +66,7 @@ function build(seed: {
     secrets,
     statusService,
     createAuditMock(),
+    storage,
     csv,
     new JsonWebhookAdapter(),
     new ProviderProfileAdapter(),
@@ -168,7 +183,10 @@ describe('BrokerAdaptersService', () => {
         } as unknown as BrokerEntryLineEntity,
       ],
     });
-    const job = await svc.createExportJob(ctx, { entryId: 'e1', adapterId: 'a1' });
+    const job = await svc.createExportJob(ctx, {
+      entryId: 'e1',
+      adapterId: 'a1',
+    });
     expect(job.status).toBe('delivered');
     expect(jobs.__store).toHaveLength(1);
     expect(entries.__store[0].status).toBe('exported');

@@ -38,6 +38,7 @@ export const roleSeed: RoleSeed[] = [
       'admin:roles:edit',
       'admin:roles:delete',
       'admin:settings',
+      'admin:rules',
 
       // HTS permissions
       'hts:*',

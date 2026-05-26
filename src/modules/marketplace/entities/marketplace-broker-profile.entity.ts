@@ -92,6 +92,20 @@ export class MarketplaceBrokerProfileEntity {
   @Column('varchar', { length: 60, nullable: true })
   contactPhone: string | null;
 
+  /**
+   * Admin-controlled contact exposure on the public broker profile.
+   * Default `platform_only` hides raw email/phone/address; an admin can
+   * flip to `email_only`, `phone_only`, or `full` per broker — each
+   * change is audited via marketplace_profile.contact_exposure_set.
+   */
+  @Column('varchar', { length: 24, default: 'platform_only' })
+  publicContactExposure:
+    | 'platform_only'
+    | 'email_only'
+    | 'phone_only'
+    | 'full'
+    | string;
+
   @Column('jsonb', { nullable: true })
   officeAddress: {
     line1?: string;

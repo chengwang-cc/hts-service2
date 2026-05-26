@@ -49,6 +49,17 @@ import { TwTariffLookupService } from './adapters/tw/services/tw-tariff-lookup.s
 import { TwBusinessTaxResolverService } from './adapters/tw/services/tw-business-tax-resolver.service';
 import { TARIFF_ADAPTERS } from './interfaces/tariff-jurisdiction-adapter.interface';
 import { CalculatorModule } from '../calculator/calculator.module';
+// Wave 1+ (2026-05-26): stub adapter for 11 new destinations.
+import {
+  StubJurisdictionAdapter,
+  STUB_PROFILES,
+} from './adapters/stub/stub-jurisdiction.adapter';
+
+/**
+ * One stub adapter per new destination. Production adapters under
+ * `adapters/{country}/` will replace each stub when they ship.
+ */
+const STUB_ADAPTERS = STUB_PROFILES.map((p) => new StubJurisdictionAdapter(p));
 
 const tariffAdaptersProvider: Provider = {
   provide: TARIFF_ADAPTERS,
@@ -63,7 +74,7 @@ const tariffAdaptersProvider: Provider = {
     au: AuBorderForceAdapter,
     nz: NzCustomsAdapter,
     tw: TwCustomsAdapter,
-  ) => [us, hk, gb, ca, eu, kr, sg, au, nz, tw],
+  ) => [us, hk, gb, ca, eu, kr, sg, au, nz, tw, ...STUB_ADAPTERS],
   inject: [
     UsHtsAdapter,
     HkFreePortAdapter,

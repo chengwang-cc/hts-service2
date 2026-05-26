@@ -24,7 +24,8 @@ export interface ShopifyConfig {
   apiVersion?: string;
 }
 
-const DEFAULT_API_VERSION = '2024-10';
+export const DEFAULT_SHOPIFY_API_VERSION =
+  process.env.SHOPIFY_API_VERSION || '2026-04';
 
 @Injectable()
 export class ShopifyConnector {
@@ -32,7 +33,10 @@ export class ShopifyConnector {
 
   async testConnection(config: ShopifyConfig): Promise<boolean> {
     try {
-      await this.graphql<{ shop: { name: string } }>(config, '{ shop { name } }');
+      await this.graphql<{ shop: { name: string } }>(
+        config,
+        '{ shop { name } }',
+      );
       return true;
     } catch {
       throw new HttpException(
@@ -244,8 +248,7 @@ export class ShopifyConnector {
       { id: variantGid },
     );
 
-    const inventoryItemId =
-      variantResult.productVariant?.inventoryItem?.id;
+    const inventoryItemId = variantResult.productVariant?.inventoryItem?.id;
     if (!inventoryItemId) {
       throw new HttpException(
         `Inventory item not found for variant: ${variantId}`,
@@ -297,6 +300,14 @@ export class ShopifyConnector {
     config: ShopifyConfig,
     variantId: string,
   ): Promise<string | null> {
+    const compliance = await this.getVariantCompliance(config, variantId);
+    return compliance.hsCode;
+  }
+
+  async getVariantCompliance(
+    config: ShopifyConfig,
+    variantId: string,
+  ): Promise<{ hsCode: string | null; countryOfOrigin: string | null }> {
     const variantGid = normalizeVariantGid(variantId);
 
     const result = await this.graphql<{
@@ -319,8 +330,13 @@ export class ShopifyConnector {
       { id: variantGid },
     );
 
-    const code = result.productVariant?.inventoryItem?.harmonizedSystemCode;
-    return code?.trim() ? code.trim() : null;
+    const item = result.productVariant?.inventoryItem;
+    const code = item?.harmonizedSystemCode;
+    const country = item?.countryCodeOfOrigin;
+    return {
+      hsCode: code?.trim() ? code.trim() : null,
+      countryOfOrigin: country?.trim() ? country.trim().toUpperCase() : null,
+    };
   }
 
   /**
@@ -354,9 +370,7 @@ export class ShopifyConnector {
         }
       }`,
       {
-        metafields: [
-          { ownerId, namespace, key, type, value },
-        ],
+        metafields: [{ ownerId, namespace, key, type, value }],
       },
     );
 
@@ -440,8 +454,7 @@ export class ShopifyConnector {
       { topic: shopifyTopic, url: webhookUrl },
     );
 
-    const errors =
-      result.webhookSubscriptionCreate?.userErrors ?? [];
+    const errors = result.webhookSubscriptionCreate?.userErrors ?? [];
     if (errors.length > 0) {
       throw new HttpException(
         `Failed to create webhook: ${errors.map((e) => e.message).join('; ')}`,
@@ -450,8 +463,7 @@ export class ShopifyConnector {
     }
 
     return {
-      id:
-        result.webhookSubscriptionCreate?.webhookSubscription?.id ?? '',
+      id: result.webhookSubscriptionCreate?.webhookSubscription?.id ?? '',
     };
   }
 
@@ -461,7 +473,7 @@ export class ShopifyConnector {
     variables?: Record<string, unknown>,
   ): Promise<T> {
     const shopDomain = normalizeShopDomain(config.shopUrl);
-    const apiVersion = config.apiVersion || DEFAULT_API_VERSION;
+    const apiVersion = config.apiVersion || DEFAULT_SHOPIFY_API_VERSION;
 
     const response = await fetch(
       `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
@@ -505,7 +517,9 @@ function normalizeShopDomain(input: string): string {
   const text = input.trim();
   if (!text) return '';
   try {
-    const url = text.includes('://') ? new URL(text) : new URL(`https://${text}`);
+    const url = text.includes('://')
+      ? new URL(text)
+      : new URL(`https://${text}`);
     return url.host.toLowerCase();
   } catch {
     return text.toLowerCase();

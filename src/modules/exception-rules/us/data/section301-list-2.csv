@@ -1,0 +1,9 @@
+htsCode,effectiveFrom,effectiveTo,rate,chapter99,source,description
+# Section 301 List 2 — 279 HTS codes covering ~$16B in CN imports.
+# 25% additional duty effective 2018-08-23.
+# Chapter 99: 9903.88.02
+# Source: USTR List 2 (FR 83 FR 40823); CSMS 18-000489
+# NOTE: Scaffolded — populate from USTR official list.
+3812.39.6000,2018-08-23,,0.25,9903.88.02,fr.notice.83-40823,Antioxidants for rubber/plastics
+8536.20.0040,2018-08-23,,0.25,9903.88.02,fr.notice.83-40823,Automatic circuit breakers
+8542.31.0000,2018-08-23,,0.25,9903.88.02,fr.notice.83-40823,Processors and controllers

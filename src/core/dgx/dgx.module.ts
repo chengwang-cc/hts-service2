@@ -1,7 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { DgxEmbeddingService } from './dgx-embedding.service';
 import { DgxRerankerService } from './dgx-reranker.service';
 
 /**
@@ -9,8 +8,12 @@ import { DgxRerankerService } from './dgx-reranker.service';
  *
  * Provides HTTP clients for the self-hosted AI services running on the
  * DGX Spark supercomputer (192.168.1.201):
- *   - /embed   → DgxEmbeddingService  (port 8001, via nginx :80)
  *   - /rerank  → DgxRerankerService   (port 8002, via nginx :80)
+ *
+ * The embedding service (port 8001 / `/embed`) was retired 2026-05-27.
+ * Embeddings now go through `OpenAI.text-embedding-3-small` exclusively.
+ * The reranker is preserved because it serves a different purpose
+ * (cross-encoder ranking, not vector generation or LLM completion).
  *
  * Marked @Global so it can be injected anywhere without re-importing.
  */
@@ -30,7 +33,7 @@ import { DgxRerankerService } from './dgx-reranker.service';
       }),
     }),
   ],
-  providers: [DgxEmbeddingService, DgxRerankerService],
-  exports: [DgxEmbeddingService, DgxRerankerService],
+  providers: [DgxRerankerService],
+  exports: [DgxRerankerService],
 })
 export class DgxModule {}

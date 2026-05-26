@@ -5,6 +5,7 @@ import {
   AdapterDeliveryResult,
   BrokerExportAdapter,
 } from './adapter.contract';
+import { OutboundHttpPolicyService } from './outbound-http-policy.service';
 import { ProviderProfileAdapter } from './provider-profile.adapter';
 
 /**
@@ -31,7 +32,10 @@ export class MagayaAcelynkAdapter implements BrokerExportAdapter {
   readonly key = 'magaya_acelynk' as const;
   private readonly logger = new Logger(MagayaAcelynkAdapter.name);
 
-  constructor(private readonly provider: ProviderProfileAdapter) {}
+  constructor(
+    private readonly provider: ProviderProfileAdapter,
+    private readonly outboundPolicy: OutboundHttpPolicyService = new OutboundHttpPolicyService(),
+  ) {}
 
   build(ctx: AdapterContext): Promise<AdapterArtifact> {
     return this.provider.build(ctx);
@@ -57,8 +61,18 @@ export class MagayaAcelynkAdapter implements BrokerExportAdapter {
       };
     }
 
-    const timeoutMs = clampInt(config.timeoutMs as number | undefined, 1000, 30000, 15000);
-    const retryLimit = clampInt(config.retryLimit as number | undefined, 0, 5, 2);
+    const timeoutMs = clampInt(
+      config.timeoutMs as number | undefined,
+      1000,
+      30000,
+      15000,
+    );
+    const retryLimit = clampInt(
+      config.retryLimit as number | undefined,
+      0,
+      5,
+      2,
+    );
 
     const headers: Record<string, string> = {
       'content-type': 'application/json',
@@ -73,12 +87,21 @@ export class MagayaAcelynkAdapter implements BrokerExportAdapter {
     const attempts = retryLimit + 1;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: new Uint8Array(artifact.body),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        const response = await this.outboundPolicy.fetch(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: new Uint8Array(artifact.body),
+          },
+          {
+            tenantId: ctx.adapter.organizationId,
+            adapterId: ctx.adapter.id,
+            provider: this.key,
+            timeoutMs,
+            allowedHosts: asStringArray(config.allowedHosts),
+          },
+        );
         const responseText = await response.text().catch(() => '');
         lastResponseSummary = {
           status: response.status,
@@ -138,9 +161,9 @@ export class MagayaAcelynkAdapter implements BrokerExportAdapter {
 function extractProviderRef(body: string): string | undefined {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    return (parsed.shipmentId ??
-      parsed.referenceNumber ??
-      parsed.acelynkId) as string | undefined;
+    return (parsed.shipmentId ?? parsed.referenceNumber ?? parsed.acelynkId) as
+      | string
+      | undefined;
   } catch {
     return undefined;
   }
@@ -158,6 +181,14 @@ function clampInt(
 ): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(v)));
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return values.length ? values : undefined;
 }
 
 function sleep(ms: number): Promise<void> {

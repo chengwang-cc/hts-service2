@@ -4,6 +4,10 @@ import { AddressInfo } from 'net';
 import { JsonWebhookAdapter } from '../../src/modules/broker-adapters/adapters/json-webhook.adapter';
 import type { AdapterContext } from '../../src/modules/broker-adapters/adapters/adapter.contract';
 
+const testOutboundPolicy = {
+  fetch: (url: string, init: RequestInit) => fetch(url, init),
+};
+
 describe('JsonWebhookAdapter HMAC + retry hardening (R0-B-02/03)', () => {
   let server: Server;
   let port: number;
@@ -47,7 +51,7 @@ describe('JsonWebhookAdapter HMAC + retry hardening (R0-B-02/03)', () => {
       res.statusCode = 200;
       res.end('ok');
     };
-    const adapter = new JsonWebhookAdapter();
+    const adapter = new JsonWebhookAdapter(testOutboundPolicy as any);
     const ctx = buildCtx('s3cr3t');
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
@@ -70,7 +74,7 @@ describe('JsonWebhookAdapter HMAC + retry hardening (R0-B-02/03)', () => {
       res.statusCode = 200;
       res.end('ok');
     };
-    const adapter = new JsonWebhookAdapter();
+    const adapter = new JsonWebhookAdapter(testOutboundPolicy as any);
     const ctx = buildCtx(null);
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
@@ -90,7 +94,7 @@ describe('JsonWebhookAdapter HMAC + retry hardening (R0-B-02/03)', () => {
         res.end('ok');
       }
     };
-    const adapter = new JsonWebhookAdapter();
+    const adapter = new JsonWebhookAdapter(testOutboundPolicy as any);
     const ctx = buildCtx(null);
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
@@ -104,7 +108,7 @@ describe('JsonWebhookAdapter HMAC + retry hardening (R0-B-02/03)', () => {
       res.statusCode = 400;
       res.end('bad');
     };
-    const adapter = new JsonWebhookAdapter();
+    const adapter = new JsonWebhookAdapter(testOutboundPolicy as any);
     const ctx = buildCtx(null);
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);

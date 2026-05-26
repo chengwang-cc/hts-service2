@@ -29,7 +29,20 @@ interface SeedJurisdiction {
   currencyCode: string;
   defaultLocale?: string;
   tariffSchema: string;
+  /**
+   * W0.5.T3 (2026-05-26): country lifecycle state. Existing destinations
+   * default to PRODUCTION (live in calculator); Wave 1+ destinations
+   * (JP/MX/CN/IN/VN/PH/ID/MY/TH/AE/BR) start at SOURCE_VALIDATION until
+   * their per-country adapter ships and legal/tax review completes.
+   * Operators advance state via PUT /admin/jurisdictions/{code}/state.
+   */
+  countryState?: 'SOURCE_VALIDATION' | 'SHADOW' | 'BETA' | 'PRODUCTION' | 'PAUSED';
 }
+
+/** ISO-2 codes for the 11-country expansion. Used to default new countries to SOURCE_VALIDATION. */
+const EXPANSION_COUNTRIES = new Set([
+  'JP', 'MX', 'CN', 'IN', 'VN', 'PH', 'ID', 'MY', 'TH', 'AE', 'BR',
+]);
 
 const JURISDICTIONS: SeedJurisdiction[] = [
   { code: 'US', displayName: 'United States', type: 'country', currencyCode: 'USD', defaultLocale: 'en-US', tariffSchema: 'HTS_10' },
@@ -58,6 +71,19 @@ const JURISDICTIONS: SeedJurisdiction[] = [
   { code: 'KR', displayName: 'South Korea', type: 'country', currencyCode: 'KRW', defaultLocale: 'ko-KR', tariffSchema: 'HSK_10' },
   { code: 'SG', displayName: 'Singapore', type: 'country', currencyCode: 'SGD', defaultLocale: 'en-SG', tariffSchema: 'AHTN_8' },
   { code: 'TW', displayName: 'Taiwan', type: 'country', currencyCode: 'TWD', defaultLocale: 'zh-TW', tariffSchema: 'TW_CCC_11' },
+  // Wave 1+ (2026-05-26) — 11-country expansion. All start at SOURCE_VALIDATION
+  // state until per-country jurisdiction adapters land + legal/tax review
+  // completes per the rollout sequence. JP + CN already seeded above (kept
+  // for historical reasons); the rest land below.
+  { code: 'MX', displayName: 'Mexico', type: 'country', currencyCode: 'MXN', defaultLocale: 'es-MX', tariffSchema: 'TIGIE_10' },
+  { code: 'IN', displayName: 'India', type: 'country', currencyCode: 'INR', defaultLocale: 'en-IN', tariffSchema: 'CTH_8' },
+  { code: 'VN', displayName: 'Vietnam', type: 'country', currencyCode: 'VND', defaultLocale: 'vi-VN', tariffSchema: 'AHTN_10' },
+  { code: 'PH', displayName: 'Philippines', type: 'country', currencyCode: 'PHP', defaultLocale: 'en-PH', tariffSchema: 'AHTN_8' },
+  { code: 'ID', displayName: 'Indonesia', type: 'country', currencyCode: 'IDR', defaultLocale: 'id-ID', tariffSchema: 'BTKI_8' },
+  { code: 'MY', displayName: 'Malaysia', type: 'country', currencyCode: 'MYR', defaultLocale: 'ms-MY', tariffSchema: 'HS_MY_10' },
+  { code: 'TH', displayName: 'Thailand', type: 'country', currencyCode: 'THB', defaultLocale: 'th-TH', tariffSchema: 'AHTN_TH_11' },
+  { code: 'AE', displayName: 'United Arab Emirates', type: 'country', currencyCode: 'AED', defaultLocale: 'en-AE', tariffSchema: 'GCC_12' },
+  { code: 'BR', displayName: 'Brazil', type: 'country', currencyCode: 'BRL', defaultLocale: 'pt-BR', tariffSchema: 'NCM_8' },
 ];
 
 async function main() {
@@ -83,19 +109,35 @@ async function main() {
     let upsertedSources = 0;
 
     for (const j of JURISDICTIONS) {
+      // W0.5.T3: default the lifecycle state — new Wave-1+ countries
+      // start at SOURCE_VALIDATION (hidden from public UI; admin-only
+      // dry-run). Existing destinations default to PRODUCTION so they
+      // stay live. Explicit `countryState` on the seed row wins.
+      const countryState =
+        j.countryState ??
+        (EXPANSION_COUNTRIES.has(j.code) ? 'SOURCE_VALIDATION' : 'PRODUCTION');
+      const seedRow = { ...j, isActive: true, countryState };
       const existing = await jurRepo.findOne({ where: { code: j.code } });
       if (!existing) {
-        if (!dry) await jurRepo.save(jurRepo.create({ ...j, isActive: true }));
+        if (!dry) await jurRepo.save(jurRepo.create(seedRow));
         upsertedJurisdictions++;
       } else {
-        // Keep displayName / tariffSchema fresh.
+        // Keep displayName / tariffSchema fresh. Don't downgrade an
+        // existing PRODUCTION country back to SOURCE_VALIDATION on
+        // re-seed — operators may have advanced it; respect the DB.
         const dirty =
           existing.displayName !== j.displayName ||
           existing.tariffSchema !== j.tariffSchema ||
           existing.parentCode !== (j.parentCode ?? null) ||
           existing.currencyCode !== j.currencyCode;
-        if (dirty && !dry) {
-          await jurRepo.save({ ...existing, ...j });
+        const needsStateSeed = !existing.countryState;
+        if ((dirty || needsStateSeed) && !dry) {
+          await jurRepo.save({
+            ...existing,
+            ...j,
+            // Only set countryState if missing — never overwrite operator changes.
+            countryState: existing.countryState ?? countryState,
+          });
           upsertedJurisdictions++;
         }
       }

@@ -1,0 +1,14 @@
+htsCode,effectiveFrom,effectiveTo,rate,chapter99,source,description
+# Section 301 List 1 — 818 HTS codes covering ~$34B in CN imports.
+# 25% additional duty effective 2018-07-06.
+# Chapter 99: 9903.88.01
+# Source: USTR List 1 (FR 83 FR 28710); CSMS 18-000390
+# NOTE: Scaffolded — populate from USTR official list. The loader handles
+# 0+ rows; rules check the loader before emitting.
+8412.21.0045,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Hydraulic power engines
+8413.50.0090,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Reciprocating positive displacement pumps
+8414.59.6595,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Fans (other)
+8421.21.0000,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Water filtering or purifying machinery
+8471.30.0100,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Portable digital ADP machines (laptops)
+8479.89.9499,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Machines and mechanical appliances n.e.s.
+8525.50.3000,2018-07-06,,0.25,9903.88.01,fr.notice.83-28710,Television transmission apparatus

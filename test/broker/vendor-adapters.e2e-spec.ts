@@ -6,6 +6,10 @@ import { MagayaAcelynkAdapter } from '../../src/modules/broker-adapters/adapters
 import { ProviderProfileAdapter } from '../../src/modules/broker-adapters/adapters/provider-profile.adapter';
 import type { AdapterContext } from '../../src/modules/broker-adapters/adapters/adapter.contract';
 
+const testOutboundPolicy = {
+  fetch: (url: string, init: RequestInit) => fetch(url, init),
+};
+
 /**
  * R2-C-01..03 — exercise the vendor adapter HTTP shape against a local
  * test server. These tests confirm the adapters send the right auth
@@ -54,7 +58,9 @@ describe('Vendor adapter shells (R2-C-01..03)', () => {
         },
       } as any,
       entry: { id: 'e1', entryNumber: 'E1', currency: 'USD' } as any,
-      lines: [{ lineNumber: 1, htsNumber: '6109.10.00', countryOfOrigin: 'VN' }] as any,
+      lines: [
+        { lineNumber: 1, htsNumber: '6109.10.00', countryOfOrigin: 'VN' },
+      ] as any,
       decryptedSecrets: secrets,
     };
   }
@@ -65,11 +71,17 @@ describe('Vendor adapter shells (R2-C-01..03)', () => {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ shipmentId: 'MAG-42' }));
     };
-    const adapter = new MagayaAcelynkAdapter(new ProviderProfileAdapter());
-    const ctx = mkCtx({}, {
-      acelynkApiToken: 'token-xyz',
-      acelynkAccountId: '7777',
-    });
+    const adapter = new MagayaAcelynkAdapter(
+      new ProviderProfileAdapter(),
+      testOutboundPolicy as any,
+    );
+    const ctx = mkCtx(
+      {},
+      {
+        acelynkApiToken: 'token-xyz',
+        acelynkAccountId: '7777',
+      },
+    );
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
     expect(result.delivered).toBe(true);
@@ -90,10 +102,16 @@ describe('Vendor adapter shells (R2-C-01..03)', () => {
       res.statusCode = 400;
       res.end('bad');
     };
-    const adapter = new MagayaAcelynkAdapter(new ProviderProfileAdapter());
-    const ctx = mkCtx({ retryLimit: 2 }, {
-      acelynkApiToken: 'tok',
-    });
+    const adapter = new MagayaAcelynkAdapter(
+      new ProviderProfileAdapter(),
+      testOutboundPolicy as any,
+    );
+    const ctx = mkCtx(
+      { retryLimit: 2 },
+      {
+        acelynkApiToken: 'tok',
+      },
+    );
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
     expect(result.delivered).toBe(false);
@@ -106,11 +124,17 @@ describe('Vendor adapter shells (R2-C-01..03)', () => {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ referenceId: 'DES-101' }));
     };
-    const adapter = new DescartesAdapter(new ProviderProfileAdapter());
-    const ctx = mkCtx({}, {
-      descartesApiKey: 'desc-key',
-      descartesCustomerCode: 'CUST01',
-    });
+    const adapter = new DescartesAdapter(
+      new ProviderProfileAdapter(),
+      testOutboundPolicy as any,
+    );
+    const ctx = mkCtx(
+      {},
+      {
+        descartesApiKey: 'desc-key',
+        descartesCustomerCode: 'CUST01',
+      },
+    );
     const artifact = await adapter.build(ctx);
     const result = await adapter.deliver(ctx, artifact);
     expect(result.delivered).toBe(true);
@@ -128,7 +152,7 @@ describe('Vendor adapter shells (R2-C-01..03)', () => {
         '<envelope><faultstring>InvalidShipment: missing LRN</faultstring></envelope>',
       );
     };
-    const adapter = new CargoWiseAdapter();
+    const adapter = new CargoWiseAdapter(testOutboundPolicy as any);
     const ctx = mkCtx(
       { clientCode: 'TST' },
       {

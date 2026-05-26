@@ -1,0 +1,22 @@
+{
+  "$schema": "./reciprocal-deal-matrix.schema.json",
+  "version": "2026-05-26.1",
+  "description": "Country-specific reciprocal-tariff rates negotiated since EO 14257 (April 2025). Countries not listed default to 10% baseline. Sentinel 'OFF' on a row disables the line when the deal has fully expired.",
+  "baselineRate": 0.10,
+  "baselineChapter99": "9903.01.25",
+  "baselineEffectiveFrom": "2025-04-09",
+  "sourceDocuments": [
+    "fr.eo.14257",
+    "cbp.csms.64287000",
+    "ustr.deal.uk-2025",
+    "ustr.deal.eu-2025",
+    "ustr.deal.japan-2025"
+  ],
+  "deals": [
+    { "country": "GB", "rate": 0.10, "chapter99": "9903.01.26", "effectiveFrom": "2025-06-05", "source": "ustr.deal.uk-2025", "note": "UK baseline deal" },
+    { "country": "EU", "rate": 0.15, "chapter99": "9903.01.27", "effectiveFrom": "2025-07-21", "source": "ustr.deal.eu-2025", "note": "EU deal — 15% with carve-outs" },
+    { "country": "JP", "rate": 0.15, "chapter99": "9903.01.28", "effectiveFrom": "2025-07-28", "source": "ustr.deal.japan-2025", "note": "Japan reciprocal deal" },
+    { "country": "KR", "rate": 0.15, "chapter99": "9903.01.29", "effectiveFrom": "2025-07-30", "source": "ustr.deal.korea-2025", "note": "Korea reciprocal deal" }
+  ],
+  "exemptOrigins": ["US", "PR", "GU", "VI", "AS", "MP"]
+}

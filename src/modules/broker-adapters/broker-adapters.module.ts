@@ -7,6 +7,7 @@ import {
   BrokerEntryLineEntity,
 } from '../broker-entries/entities';
 import { BrokerTasksModule } from '../broker-tasks/broker-tasks.module';
+import { DocumentsModule } from '../documents/documents.module';
 import { QueueModule } from '../queue/queue.module';
 import { SecurityModule } from '../security/security.module';
 import { CargoWiseAdapter } from './adapters/cargowise.adapter';
@@ -14,6 +15,7 @@ import { DescartesAdapter } from './adapters/descartes.adapter';
 import { GenericCsvAdapter } from './adapters/generic-csv.adapter';
 import { JsonWebhookAdapter } from './adapters/json-webhook.adapter';
 import { MagayaAcelynkAdapter } from './adapters/magaya-acelynk.adapter';
+import { OutboundHttpPolicyService } from './adapters/outbound-http-policy.service';
 import { ProviderProfileAdapter } from './adapters/provider-profile.adapter';
 import {
   LocalDiskSftpTransport,
@@ -42,6 +44,7 @@ import { BrokerAdaptersService } from './services/broker-adapters.service';
     AuditModule,
     SecurityModule,
     BrokerTasksModule,
+    DocumentsModule,
     QueueModule,
   ],
   controllers: [BrokerAdaptersController],
@@ -49,6 +52,7 @@ import { BrokerAdaptersService } from './services/broker-adapters.service';
     BrokerAdaptersService,
     GenericCsvAdapter,
     JsonWebhookAdapter,
+    OutboundHttpPolicyService,
     ProviderProfileAdapter,
     MagayaAcelynkAdapter,
     DescartesAdapter,

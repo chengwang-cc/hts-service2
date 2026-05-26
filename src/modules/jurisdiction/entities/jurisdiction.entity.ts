@@ -51,6 +51,26 @@ export class JurisdictionEntity {
   @Column('boolean', { default: true })
   isActive: boolean;
 
+  /**
+   * W0.5.T3 (2026-05-26): country lifecycle state for the 11-country
+   * rollout. Five values:
+   *   - SOURCE_VALIDATION: hidden from public UI; admin-only dry-run
+   *   - SHADOW: internal quotes run; user-facing destination hidden
+   *   - BETA: visible to selected orgs with limitation banner
+   *   - PRODUCTION: generally visible
+   *   - PAUSED: destination hidden; API returns UnsupportedJurisdictionError
+   *
+   * Existing destinations seeded to 'PRODUCTION' on migration.
+   * `pickForDestination()` returns UnsupportedJurisdictionError for PAUSED.
+   */
+  @Column('varchar', { length: 24, default: 'PRODUCTION' })
+  countryState:
+    | 'SOURCE_VALIDATION'
+    | 'SHADOW'
+    | 'BETA'
+    | 'PRODUCTION'
+    | 'PAUSED';
+
   /** Free-form metadata: timezone, regulator URLs, etc. */
   @Column('jsonb', { nullable: true })
   metadata: Record<string, any> | null;

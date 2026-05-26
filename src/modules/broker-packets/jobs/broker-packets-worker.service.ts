@@ -19,7 +19,7 @@ export class BrokerPacketsWorker implements OnModuleInit {
       BROKER_PACKET_PROCESS_QUEUE,
       async (job) => {
         const { packetId } = job.data as { packetId: string };
-        await this.packets.process(packetId);
+        await this.packets.processSystem(packetId, 'queue_worker');
       },
       { teamSize: 1, teamConcurrency: 3 },
     );

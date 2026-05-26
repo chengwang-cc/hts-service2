@@ -23,6 +23,7 @@ import { CalculatorModule } from '../calculator/calculator.module';
 import { QueueModule } from '../queue/queue.module';
 import { QueueService } from '../queue/queue.service';
 import { BillingModule } from '../billing/billing.module';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BillingModule } from '../billing/billing.module';
     CalculatorModule,
     QueueModule,
     BillingModule,
+    SecurityModule,
   ],
   controllers: [
     ShopifyAuthController,
@@ -67,7 +69,9 @@ export class ShopifyAppModule implements OnModuleInit {
     await this.queueService.registerHandler(
       SHOPIFY_ORDER_WRITEBACK_QUEUE,
       async (job) => {
-        await this.writebackService.processOrder(job.data as OrderWritebackJobData);
+        await this.writebackService.processOrder(
+          job.data as OrderWritebackJobData,
+        );
       },
       { teamSize: 1, teamConcurrency: 4 },
     );

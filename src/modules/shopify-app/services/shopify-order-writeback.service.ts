@@ -30,6 +30,7 @@ import {
 } from '../../connectors/services/shopify.connector';
 import { CheckoutOrderEntity } from '../../widget/entities/checkout-order.entity';
 import { ShopifySessionEntity } from '../entities/shopify-session.entity';
+import { ShopifyAuthService } from './shopify-auth.service';
 
 export const SHOPIFY_ORDER_WRITEBACK_QUEUE = 'shopify-order-writeback';
 export const ORDER_METAFIELD_NAMESPACE = 'hts_classify';
@@ -116,6 +117,7 @@ export class ShopifyOrderWritebackService {
     private readonly calculationService: CalculationService,
     private readonly shopifyConnector: ShopifyConnector,
     private readonly billingCharge: BillingChargeService,
+    private readonly shopifyAuthService: ShopifyAuthService,
   ) {}
 
   async processOrder(data: OrderWritebackJobData): Promise<void> {
@@ -137,6 +139,9 @@ export class ShopifyOrderWritebackService {
       );
       return;
     }
+    session.accessToken = this.shopifyAuthService.decryptAccessToken(
+      session.accessToken,
+    );
     if (session.calculateDuty === false) {
       // Merchant opted out — no calculation, no write-back, no billable work.
       return;
@@ -199,7 +204,12 @@ export class ShopifyOrderWritebackService {
       };
     }
 
-    await this.upsertCheckoutOrder(organizationId, orderId, connectorId, breakdown);
+    await this.upsertCheckoutOrder(
+      organizationId,
+      orderId,
+      connectorId,
+      breakdown,
+    );
 
     try {
       await this.shopifyConnector.setOrderMetafield(
@@ -236,8 +246,6 @@ export class ShopifyOrderWritebackService {
       order.line_items?.[0]?.price_set?.presentment_money?.currency_code ||
       order.currency ||
       'USD';
-    const fallbackCountry = order.shipping_address?.country_code || 'CN';
-
     const lineItems: LineItemResult[] = [];
     let batchCalculationId = '';
     let totalDuties = 0;
@@ -251,7 +259,6 @@ export class ShopifyOrderWritebackService {
         config,
         organizationId,
         currency,
-        fallbackCountry,
       );
       lineItems.push(lineResult);
 
@@ -274,7 +281,9 @@ export class ShopifyOrderWritebackService {
         duties: round2(totalDuties),
         taxes: round2(totalTaxes),
         fees: round2(totalFees),
-        landedCost: round2(totalDeclaredValue + totalDuties + totalTaxes + totalFees),
+        landedCost: round2(
+          totalDeclaredValue + totalDuties + totalTaxes + totalFees,
+        ),
       },
       lineItems,
       shop: config.shopUrl ?? '',
@@ -288,7 +297,6 @@ export class ShopifyOrderWritebackService {
     config: ShopifyConfig,
     organizationId: string,
     currency: string,
-    fallbackCountry: string,
   ): Promise<LineItemResult> {
     const lineItemId = line.id;
     const variantId = line.variant_id != null ? String(line.variant_id) : null;
@@ -301,16 +309,28 @@ export class ShopifyOrderWritebackService {
         line.price ??
         '0',
     );
-    const countryOfOrigin =
-      line.origin_location?.country_code?.trim()?.toUpperCase() || fallbackCountry;
-
     if (!variantId) {
-      return zeroLine(lineItemId, variantId, sku, title, quantity, unitDeclaredValue, 'Line has no variant_id');
+      return zeroLine(
+        lineItemId,
+        variantId,
+        sku,
+        title,
+        quantity,
+        unitDeclaredValue,
+        'Line has no variant_id',
+      );
     }
 
     let hsCode: string | null = null;
+    let countryOfOrigin: string | null =
+      line.origin_location?.country_code?.trim()?.toUpperCase() || null;
     try {
-      hsCode = await this.shopifyConnector.getVariantHsCode(config, variantId);
+      const compliance = await this.shopifyConnector.getVariantCompliance(
+        config,
+        variantId,
+      );
+      hsCode = compliance.hsCode;
+      countryOfOrigin = countryOfOrigin || compliance.countryOfOrigin;
     } catch (err: any) {
       return zeroLine(
         lineItemId,
@@ -331,6 +351,17 @@ export class ShopifyOrderWritebackService {
         quantity,
         unitDeclaredValue,
         'No HS code on variant — run product sync first',
+      );
+    }
+    if (!countryOfOrigin) {
+      return zeroLine(
+        lineItemId,
+        variantId,
+        sku,
+        title,
+        quantity,
+        unitDeclaredValue,
+        'Missing country of origin on Shopify line and inventory item',
       );
     }
 
@@ -356,11 +387,15 @@ export class ShopifyOrderWritebackService {
       // what merchants see on the website calculator.
       const breakdownTaxes = (result.breakdown as { taxes?: unknown })?.taxes;
       if (Array.isArray(breakdownTaxes)) {
-        for (const t of breakdownTaxes as Array<{ type?: string; amount?: number }>) {
+        for (const t of breakdownTaxes as Array<{
+          type?: string;
+          amount?: number;
+        }>) {
           const isFee =
             t.type === 'MPF' ||
             t.type === 'HMF' ||
-            (typeof t.type === 'string' && t.type.toLowerCase().includes('fee'));
+            (typeof t.type === 'string' &&
+              t.type.toLowerCase().includes('fee'));
           if (isFee) {
             fees += t.amount ?? 0;
             taxes -= t.amount ?? 0;
@@ -410,7 +445,10 @@ export class ShopifyOrderWritebackService {
 
     if (existing) {
       existing.calculationId = breakdown.calculationId;
-      existing.calculationSummary = breakdown as unknown as Record<string, unknown>;
+      existing.calculationSummary = breakdown as unknown as Record<
+        string,
+        unknown
+      >;
       if (connectorId) existing.storeConnectionId = connectorId;
       await this.checkoutOrderRepository.save(existing);
       return;

@@ -44,7 +44,17 @@ export interface CalculatorV2LineRequest {
   unitValue: number;
   weightKg?: number;
   selectedChapter99Headings?: string[];
-  additionalInputs?: Record<string, number>;
+  /**
+   * Per-line rule inputs. Phase 2+ broadened from `Record<string, number>`
+   * to `Record<string, number | string | boolean>` so exception rules
+   * can read country codes ("RU", "Y"), exporter names, and qualifying
+   * flags from the same map alongside numeric variables like
+   * `aluminum_pct` or `eu_cbam_quantity_tonnes`.
+   *
+   * Downstream adapters (`LandedCostLineInput.additionalInputs`) accept
+   * the same shape; rules cast specific fields they read.
+   */
+  additionalInputs?: Record<string, number | string | boolean>;
 }
 
 export interface CalculatorV2QuoteLine {
@@ -53,6 +63,16 @@ export interface CalculatorV2QuoteLine {
   description?: string;
   request: CalculatorV2LineRequest;
   result: RichCalculationResult;
+  /**
+   * A3 fix (2026-05-26): echo the Chapter 99 headings the user
+   * explicitly selected on this line. The adapter reduces these to a
+   * numeric marker on the way down to the resolver; surfacing them
+   * here keeps the user's choice visible in the response without
+   * coupling the FE to the resolver's internal representation.
+   *
+   * Empty / undefined when the user didn't pick any.
+   */
+  selectedChapter99Headings?: string[];
 }
 
 export interface CalculatorV2QuoteResult {

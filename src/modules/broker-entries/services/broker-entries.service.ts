@@ -8,9 +8,10 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { AuditService } from '../../audit/services/audit.service';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
+import { BrokerClientEntity } from '../../broker-core/entities/broker-client.entity';
 import { BrokerRulesService } from '../../broker-rules/services/broker-rules.service';
 import {
   CreateEntryDto,
@@ -22,6 +23,7 @@ import {
 import {
   BrokerEntryEntity,
   BrokerEntryLineEntity,
+  BrokerShipmentEntity,
 } from '../entities';
 
 export interface DraftEntryFromHandoffInput {
@@ -46,6 +48,12 @@ export class BrokerEntriesService {
     @Optional()
     @Inject(forwardRef(() => BrokerRulesService))
     private readonly rules: BrokerRulesService | null = null,
+    @Optional()
+    @InjectRepository(BrokerClientEntity)
+    private readonly clients: Repository<BrokerClientEntity> | null = null,
+    @Optional()
+    @InjectRepository(BrokerShipmentEntity)
+    private readonly shipments: Repository<BrokerShipmentEntity> | null = null,
   ) {}
 
   async list(ctx: RequestContext, dto: ListEntriesDto) {
@@ -64,7 +72,10 @@ export class BrokerEntriesService {
       qb.andWhere('entry.clientId = :clientId', { clientId: dto.clientId });
     }
     if (dto.status) {
-      const statuses = dto.status.split(',').map((s) => s.trim()).filter(Boolean);
+      const statuses = dto.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (statuses.length) {
         qb.andWhere('entry.status IN (:...statuses)', { statuses });
       }
@@ -104,6 +115,10 @@ export class BrokerEntriesService {
 
   async create(ctx: RequestContext, dto: CreateEntryDto) {
     this.assertAuthenticated(ctx);
+    await this.requireOwnedClient(ctx, dto.clientId);
+    if (dto.shipmentId) {
+      await this.requireOwnedShipment(ctx, dto.shipmentId);
+    }
     const entry = this.entries.create({
       brokerOrganizationId: ctx.organizationId,
       clientId: dto.clientId,
@@ -198,7 +213,8 @@ export class BrokerEntriesService {
       entry.assigneeUserId = dto.assigneeUserId;
     }
     if (dto.dueAt !== undefined) entry.dueAt = dto.dueAt;
-    if (dto.internalNotes !== undefined) entry.internalNotes = dto.internalNotes;
+    if (dto.internalNotes !== undefined)
+      entry.internalNotes = dto.internalNotes;
 
     const saved = await this.entries.save(entry);
     await this.audit.record({
@@ -235,12 +251,14 @@ export class BrokerEntriesService {
       htsNumber: dto.htsNumber ?? existing?.htsNumber ?? null,
       countryOfOrigin: dto.countryOfOrigin ?? existing?.countryOfOrigin ?? null,
       quantity:
-        dto.quantity != null ? String(dto.quantity) : existing?.quantity ?? null,
+        dto.quantity != null
+          ? String(dto.quantity)
+          : (existing?.quantity ?? null),
       unitOfMeasure: dto.unitOfMeasure ?? existing?.unitOfMeasure ?? null,
       unitValue:
         dto.unitValue != null
           ? String(dto.unitValue)
-          : existing?.unitValue ?? null,
+          : (existing?.unitValue ?? null),
       currency: dto.currency ?? existing?.currency ?? entry.currency ?? null,
       metadata: dto.metadata ?? existing?.metadata ?? null,
     });
@@ -250,7 +268,7 @@ export class BrokerEntriesService {
     line.totalValue =
       quantity > 0 && unitValue > 0
         ? String(quantity * unitValue)
-        : existing?.totalValue ?? null;
+        : (existing?.totalValue ?? null);
 
     const saved = await this.lines.save(line);
 
@@ -292,8 +310,13 @@ export class BrokerEntriesService {
     });
   }
 
-  async draftFromHandoff(input: DraftEntryFromHandoffInput) {
-    const entry = this.entries.create({
+  async draftFromHandoff(
+    input: DraftEntryFromHandoffInput,
+    manager?: EntityManager,
+  ) {
+    const entries = manager?.getRepository(BrokerEntryEntity) ?? this.entries;
+    const lines = manager?.getRepository(BrokerEntryLineEntity) ?? this.lines;
+    const entry = entries.create({
       brokerOrganizationId: input.brokerOrganizationId,
       clientId: input.clientId,
       shipmentId: input.shipmentId ?? null,
@@ -304,10 +327,10 @@ export class BrokerEntriesService {
       dueAt: input.dueAt ?? null,
       metadata: input.metadata ?? null,
     });
-    const saved = await this.entries.save(entry);
+    const saved = await entries.save(entry);
     if (input.lines?.length) {
       const lineEntities = input.lines.map((line) =>
-        this.lines.create({
+        lines.create({
           entryId: saved.id,
           lineNumber: line.lineNumber,
           sku: line.sku ?? null,
@@ -320,15 +343,18 @@ export class BrokerEntriesService {
           metadata: line.metadata ?? null,
         }),
       );
-      await this.lines.save(lineEntities);
+      await lines.save(lineEntities);
     }
-    await this.audit.record({
-      eventType: 'broker_entries.entry.handoff_drafted',
-      organizationId: input.brokerOrganizationId,
-      resourceType: 'broker_entry',
-      resourceId: saved.id,
-      source: 'broker-entries',
-    });
+    await this.audit.record(
+      {
+        eventType: 'broker_entries.entry.handoff_drafted',
+        organizationId: input.brokerOrganizationId,
+        resourceType: 'broker_entry',
+        resourceId: saved.id,
+        source: 'broker-entries',
+      },
+      manager,
+    );
     return saved;
   }
 
@@ -387,6 +413,10 @@ export class BrokerEntriesService {
     });
   }
 
+  async requireOwnedEntry(ctx: RequestContext, entryId: string) {
+    return this.requireOwned(ctx, entryId);
+  }
+
   private async recomputeEntryTotals(entry: BrokerEntryEntity) {
     const lines = await this.lines.find({ where: { entryId: entry.id } });
     entry.totalValue = this.sumStringNumbers(lines.map((l) => l.totalValue));
@@ -419,6 +449,26 @@ export class BrokerEntriesService {
       throw new ForbiddenException('Entry belongs to another tenant');
     }
     return entry;
+  }
+
+  private async requireOwnedClient(ctx: RequestContext, clientId: string) {
+    if (!this.clients) return;
+    const client = await this.clients.findOne({ where: { id: clientId } });
+    if (!client) throw new NotFoundException('Broker client not found');
+    if (client.brokerOrganizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Broker client belongs to another tenant');
+    }
+  }
+
+  private async requireOwnedShipment(ctx: RequestContext, shipmentId: string) {
+    if (!this.shipments) return;
+    const shipment = await this.shipments.findOne({
+      where: { id: shipmentId },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    if (shipment.brokerOrganizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Shipment belongs to another tenant');
+    }
   }
 
   private assertAuthenticated(ctx: RequestContext) {

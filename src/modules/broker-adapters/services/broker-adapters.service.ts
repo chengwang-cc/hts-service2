@@ -13,6 +13,7 @@ import { RequestContext } from '../../auth/interfaces/request-context.interface'
 import { BrokerEntryEntity } from '../../broker-entries/entities/broker-entry.entity';
 import { BrokerEntryLineEntity } from '../../broker-entries/entities/broker-entry-line.entity';
 import { BrokerStatusService } from '../../broker-tasks/services/broker-status.service';
+import { DocumentStorageService } from '../../documents/document-storage.service';
 import { EncryptedSecretService } from '../../security/encrypted-secret.service';
 import {
   AdapterContext,
@@ -59,6 +60,7 @@ export class BrokerAdaptersService {
     private readonly secrets: EncryptedSecretService,
     private readonly statusService: BrokerStatusService,
     private readonly audit: AuditService,
+    private readonly storage: DocumentStorageService,
     csvAdapter: GenericCsvAdapter,
     webhookAdapter: JsonWebhookAdapter,
     providerAdapter: ProviderProfileAdapter,
@@ -133,11 +135,7 @@ export class BrokerAdaptersService {
     return this.toAdapterResponse(saved);
   }
 
-  async updateAdapter(
-    ctx: RequestContext,
-    id: string,
-    dto: UpdateAdapterDto,
-  ) {
+  async updateAdapter(ctx: RequestContext, id: string, dto: UpdateAdapterDto) {
     const adapter = await this.requireOwnedAdapter(ctx, id);
     if (dto.label != null) adapter.label = dto.label;
     if (dto.publicConfig !== undefined) adapter.publicConfig = dto.publicConfig;
@@ -301,15 +299,30 @@ export class BrokerAdaptersService {
       };
       const artifact = await handler.build(ctxA);
       const sha256 = createHash('sha256').update(artifact.body).digest('hex');
-      job.artifactStorageKey = `broker-exports/${adapter.organizationId}/${job.id}/${artifact.fileName}`;
-      job.artifactByteSize = artifact.body.byteLength;
+      const stored = await this.storage.store({
+        organizationId: ctx.organizationId,
+        ownerUserId: ctx.userId,
+        fileName: artifact.fileName,
+        mimeType: artifact.contentType,
+        content: artifact.body,
+        purpose: 'broker-exports',
+      });
+      job.artifactStorageKey = stored.storageKey;
+      job.artifactByteSize = stored.byteSize;
       job.artifactSha256 = sha256;
-      job.requestSummary = { fileName: artifact.fileName, contentType: artifact.contentType };
+      job.requestSummary = {
+        fileName: artifact.fileName,
+        contentType: artifact.contentType,
+        storageProvider: this.storage.providerKey,
+      };
 
       if (handler.deliver) {
         const delivery = await handler.deliver(ctxA, artifact);
         job.status = delivery.delivered ? 'delivered' : 'failed';
-        job.requestSummary = { ...(job.requestSummary ?? {}), ...(delivery.requestSummary ?? {}) };
+        job.requestSummary = {
+          ...(job.requestSummary ?? {}),
+          ...(delivery.requestSummary ?? {}),
+        };
         job.responseSummary = delivery.responseSummary ?? null;
         job.errorMessage = delivery.error ?? null;
       } else {
@@ -365,10 +378,42 @@ export class BrokerAdaptersService {
     });
   }
 
-  async importStatusMessage(
-    ctx: RequestContext,
-    dto: ImportStatusMessageDto,
-  ) {
+  async getExportArtifact(ctx: RequestContext, jobId: string) {
+    this.assertAuthenticated(ctx);
+    const job = await this.jobs.findOne({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Export job not found');
+    if (job.organizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Export job belongs to another tenant');
+    }
+    if (!job.artifactStorageKey) {
+      throw new NotFoundException('Export artifact is not available');
+    }
+    if (
+      !this.storage.keyBelongsToTenant(
+        job.artifactStorageKey,
+        ctx.organizationId,
+      )
+    ) {
+      throw new ForbiddenException('Export artifact belongs to another tenant');
+    }
+    const url = await this.storage.createReadUrl(job.artifactStorageKey, {
+      organizationId: ctx.organizationId,
+      expiresInSeconds: 300,
+      fileName:
+        typeof job.requestSummary?.fileName === 'string'
+          ? job.requestSummary.fileName
+          : undefined,
+    });
+    return {
+      url,
+      provider: this.storage.providerKey,
+      sha256: job.artifactSha256,
+      byteSize: job.artifactByteSize,
+      contentType: job.requestSummary?.contentType ?? null,
+    };
+  }
+
+  async importStatusMessage(ctx: RequestContext, dto: ImportStatusMessageDto) {
     this.assertAuthenticated(ctx);
     const entry = await this.entries.findOne({ where: { id: dto.entryId } });
     if (!entry) throw new NotFoundException('Entry not found');

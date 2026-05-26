@@ -6,6 +6,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  NotFoundException,
   Post,
   Query,
   Req,
@@ -58,7 +59,12 @@ export class CalculatorV2QuoteController {
     @Body() request: CalculatorV2QuoteRequest,
     @Req() req: any,
   ): Promise<CalculatorV2QuoteResult> {
-    const userOrg = req?.user?.organizationId ?? req?.organizationId;
+    // E1 fix (2026-05-26): only trust the JWT's `req.user.organizationId`.
+    // The prior fallback to `req.organizationId` (the API-key guard's
+    // slot) was a cross-tenant leak vector — a misordered upstream
+    // middleware that set both could route a JWT request against the
+    // API-key org. The JWT route MUST authenticate via the JWT only.
+    const userOrg = req?.user?.organizationId;
     if (!userOrg) {
       throw new ForbiddenException('Authenticated organization is required');
     }
@@ -90,8 +96,12 @@ export class CalculatorV2QuoteController {
     @Query('currency') currency?: string,
     @Req() req?: any,
   ): Promise<JurisdictionFacts> {
+    // E3 fix (2026-05-26): JWT-only authentication — match the JWT
+    // /v2/quote route's contract. The prior `|| req?.organizationId`
+    // fallback let any upstream proxy that set the API-key slot pass
+    // the auth check without a JWT.
     const userOrg = req?.user?.organizationId;
-    if (!userOrg && !req?.organizationId) {
+    if (!userOrg) {
       throw new ForbiddenException('Authenticated organization is required');
     }
     return this.factsFromQuery({ destination, origin, goodsValue, currency });
@@ -109,7 +119,17 @@ export class CalculatorV2QuoteController {
     @Query('origin') origin: string,
     @Query('goodsValue') goodsValue?: string,
     @Query('currency') currency?: string,
+    @Req() req?: any,
   ): Promise<JurisdictionFacts> {
+    // E2 fix (2026-05-26): symmetric with quoteApiKey — require that
+    // the API key carries an organization. Facts are stateless but
+    // a key without an org is a misconfigured caller we should refuse.
+    const apiKeyOrg = req?.organizationId;
+    if (!apiKeyOrg) {
+      throw new ForbiddenException(
+        'API key did not resolve to an organization — check key configuration',
+      );
+    }
     return this.factsFromQuery({ destination, origin, goodsValue, currency });
   }
 
@@ -154,8 +174,19 @@ export class CalculatorV2QuoteController {
     @Body() request: CalculatorV2QuoteRequest,
     @Req() req: any,
   ): Promise<CalculatorV2QuoteResult> {
+    // E2 fix (2026-05-26): assert the API key resolved to an
+    // organization. A misconfigured key (passed ApiKeyGuard but with
+    // no org metadata) used to produce a 200 with no history
+    // persistence — the user saw a quote but compliance couldn't find
+    // it. Fail closed instead.
+    const apiKeyOrg = req?.organizationId;
+    if (!apiKeyOrg) {
+      throw new ForbiddenException(
+        'API key did not resolve to an organization — check key configuration',
+      );
+    }
     return this.run(request, {
-      organizationId: req?.organizationId,
+      organizationId: apiKeyOrg,
     });
   }
 
@@ -186,6 +217,23 @@ export class CalculatorV2QuoteController {
             message: e.message,
           },
           HttpStatus.BAD_REQUEST,
+        );
+      }
+      // D4 fix (2026-05-26): the resolver/adapter throws NotFoundException
+      // when a classification code is unknown. Surface as 404 with a
+      // discriminator code so client error-handling logic can branch on
+      // it without parsing the message.
+      if (
+        e instanceof NotFoundException ||
+        /classification|hts.*not.*found|unknown.*hts/i.test(e?.message ?? '')
+      ) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.NOT_FOUND,
+            code: 'HTS_NOT_FOUND',
+            message: e?.message ?? 'classification code not found',
+          },
+          HttpStatus.NOT_FOUND,
         );
       }
       throw e;

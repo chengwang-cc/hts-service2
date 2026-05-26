@@ -1,0 +1,160 @@
+{
+  "fixtureId": "phase0-broker-marketplace-baseline",
+  "version": 1,
+  "generatedAt": "2026-05-26T09:44:00-07:00",
+  "purpose": "Baseline Phase 0 fixture for broker marketplace trust, connector, and UI quality gates.",
+  "organizations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "type": "broker",
+      "name": "Pacific Rim Customs Brokerage",
+      "slug": "pacific-rim-customs-brokerage",
+      "country": "US",
+      "roles": ["broker_admin", "licensed_broker"],
+      "profile": {
+        "displayName": "Pacific Rim Customs Brokerage",
+        "verificationStatus": "verified",
+        "countries": ["US", "CN", "JP", "KR", "TW"],
+        "serviceCategories": ["ocean_clearance", "air_clearance", "isf"],
+        "shipmentModes": ["ocean", "air"],
+        "specialties": ["electronics", "semiconductors", "consumer_goods"],
+        "ports": ["LAX", "LGB", "SFO"],
+        "publicContactEnabled": false
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "type": "broker",
+      "name": "Atlantic Clearance Partners",
+      "slug": "atlantic-clearance-partners",
+      "country": "US",
+      "roles": ["broker_admin", "licensed_broker"],
+      "profile": {
+        "displayName": "Atlantic Clearance Partners",
+        "verificationStatus": "verified",
+        "countries": ["US", "DE", "GB", "FR", "IT"],
+        "serviceCategories": ["ocean_clearance", "pga", "fda"],
+        "shipmentModes": ["ocean", "truck"],
+        "specialties": ["food", "chemicals", "industrial_machinery"],
+        "ports": ["NYC", "NWK", "BAL"],
+        "publicContactEnabled": false
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000201",
+      "type": "importer",
+      "name": "Northstar Home Imports",
+      "slug": "northstar-home-imports",
+      "country": "US",
+      "roles": ["importer_admin"],
+      "tradeProfile": {
+        "primaryDestinations": ["US", "CA"],
+        "originCountries": ["CN", "VN", "IN"],
+        "productCategories": ["home_goods", "lighting", "small_appliances"],
+        "defaultIncoterm": "DAP"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000301",
+      "type": "exporter",
+      "name": "Cascadia Outdoor Supply",
+      "slug": "cascadia-outdoor-supply",
+      "country": "CA",
+      "roles": ["exporter_admin"],
+      "tradeProfile": {
+        "primaryDestinations": ["US", "GB", "EU"],
+        "originCountries": ["CA", "US"],
+        "productCategories": ["outdoor_equipment", "textiles"],
+        "defaultIncoterm": "DDP"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "00000000-0000-4000-8000-000000001101",
+      "organizationId": "00000000-0000-4000-8000-000000000101",
+      "email": "broker-admin@pacific-rim.example",
+      "roles": ["broker_admin", "licensed_broker"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001102",
+      "organizationId": "00000000-0000-4000-8000-000000000102",
+      "email": "broker-admin@atlantic-clearance.example",
+      "roles": ["broker_admin", "licensed_broker"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001201",
+      "organizationId": "00000000-0000-4000-8000-000000000201",
+      "email": "tradeops@northstar-home.example",
+      "roles": ["importer_admin"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001301",
+      "organizationId": "00000000-0000-4000-8000-000000000301",
+      "email": "exports@cascadia-outdoor.example",
+      "roles": ["exporter_admin"]
+    }
+  ],
+  "storeConnections": [
+    {
+      "id": "00000000-0000-4000-8000-000000002001",
+      "organizationId": "00000000-0000-4000-8000-000000000201",
+      "platform": "shopify",
+      "platformStoreId": "northstar-home.myshopify.com",
+      "status": "active",
+      "scopes": ["read_products", "write_products", "read_orders", "write_orders"],
+      "secretRef": "test-secret-ref-shopify-northstar"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000002002",
+      "organizationId": "00000000-0000-4000-8000-000000000301",
+      "platform": "woocommerce",
+      "platformStoreId": "https://shop.cascadia-outdoor.example",
+      "status": "active",
+      "scopes": ["products:read", "products:write", "orders:read", "orders:write"],
+      "secretRef": "test-secret-ref-woocommerce-cascadia"
+    }
+  ],
+  "marketplaceRequests": [
+    {
+      "id": "00000000-0000-4000-8000-000000003001",
+      "requesterOrganizationId": "00000000-0000-4000-8000-000000000201",
+      "visibilityMode": "private",
+      "originCountry": "CN",
+      "destinationCountry": "US",
+      "serviceCategories": ["ocean_clearance", "isf"],
+      "shipmentMode": "ocean",
+      "commoditySummary": "LED table lamps and home lighting accessories",
+      "expectedMatches": 0
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000003002",
+      "requesterOrganizationId": "00000000-0000-4000-8000-000000000301",
+      "visibilityMode": "invited",
+      "originCountry": "CA",
+      "destinationCountry": "GB",
+      "serviceCategories": ["export_documentation", "landed_cost"],
+      "shipmentMode": "air",
+      "commoditySummary": "Outdoor textile sample shipment",
+      "invitedBrokerOrganizationIds": ["00000000-0000-4000-8000-000000000101"]
+    }
+  ],
+  "acceptanceScenarios": [
+    {
+      "id": "visibility-private-no-broad-match",
+      "description": "Private importer request must not create broad broker matches.",
+      "actorOrganizationId": "00000000-0000-4000-8000-000000000201",
+      "requestId": "00000000-0000-4000-8000-000000003001"
+    },
+    {
+      "id": "broker-conversation-isolation",
+      "description": "Broker A must not read Broker B conversation on the same request.",
+      "brokerAOrganizationId": "00000000-0000-4000-8000-000000000101",
+      "brokerBOrganizationId": "00000000-0000-4000-8000-000000000102"
+    },
+    {
+      "id": "store-registration-auth-required",
+      "description": "Connector runtime store registration requires signed install or ops auth."
+    }
+  ]
+}

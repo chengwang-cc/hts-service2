@@ -24,6 +24,7 @@ export class TelemetryService {
   private readonly debug =
     (process.env.OTEL_DEBUG_SPANS ?? 'false').toLowerCase() === 'true';
   private readonly counters = new Map<string, number>();
+  private readonly gauges = new Map<string, number>();
   private readonly latencyBuckets = new Map<string, number[]>();
   /** Cap per-key histogram retention to avoid unbounded memory in dev. */
   private readonly latencyCap = Number(
@@ -66,17 +67,35 @@ export class TelemetryService {
   countEvent(
     name: string,
     labels: Record<string, string> = {},
+    by = 1,
   ): void {
     const key = this.buildKey(name, labels);
-    this.counters.set(key, (this.counters.get(key) ?? 0) + 1);
+    this.counters.set(key, (this.counters.get(key) ?? 0) + by);
   }
 
   /**
-   * Snapshot every counter + latency p50/p95 for the admin metrics page.
+   * Set an absolute gauge value (timestamps, current row counts, etc).
+   * Unlike `countEvent`, gauges can go up or down — every call overwrites
+   * the previous value for the (name, labels) tuple.
+   */
+  setGauge(
+    name: string,
+    labels: Record<string, string> = {},
+    value: number,
+  ): void {
+    if (!Number.isFinite(value)) return;
+    const key = this.buildKey(name, labels);
+    this.gauges.set(key, value);
+  }
+
+  /**
+   * Snapshot every counter + gauge + latency p50/p95.
    */
   snapshot() {
     const counters: Record<string, number> = {};
     for (const [k, v] of this.counters) counters[k] = v;
+    const gauges: Record<string, number> = {};
+    for (const [k, v] of this.gauges) gauges[k] = v;
     const latencies: Record<
       string,
       { count: number; p50: number; p95: number; max: number }
@@ -93,7 +112,7 @@ export class TelemetryService {
         max: sorted[sorted.length - 1],
       };
     }
-    return { counters, latencies };
+    return { counters, gauges, latencies };
   }
 
   private recordLatency(name: string, ms: number) {

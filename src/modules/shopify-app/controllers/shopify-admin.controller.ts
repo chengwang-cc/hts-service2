@@ -23,6 +23,7 @@ import { ApiKeyService } from '../../api-keys/services/api-key.service';
 import { ShopifyOrderTransactionsService } from '../services/shopify-order-transactions.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { BillingChargeService } from '../../billing/services/billing-charge.service';
+import { ShopifyAuthService } from '../services/shopify-auth.service';
 
 const VALID_DUTY_MODES = ['ddu', 'ddp', 'disabled'] as const;
 type DutyDisplayMode = (typeof VALID_DUTY_MODES)[number];
@@ -37,14 +38,17 @@ interface ShopifySettingsPayload {
   dutyDisplayMode: DutyDisplayMode;
 }
 
-function serializeSettings(session: ShopifySessionEntity): ShopifySettingsPayload {
+function serializeSettings(
+  session: ShopifySessionEntity,
+): ShopifySettingsPayload {
   // Defensive coalesce: rows that pre-date the bool-flags migration may
   // briefly have undefined values during a rollback window.
   const calculateDuty = session.calculateDuty ?? true;
-  const displayAtCheckout = (session.displayAtCheckout ?? true) && calculateDuty;
+  const displayAtCheckout =
+    (session.displayAtCheckout ?? true) && calculateDuty;
   const dutyDisplayMode: DutyDisplayMode = !calculateDuty
     ? 'disabled'
-    : ((session.dutyDisplayMode as DutyDisplayMode) || 'ddu');
+    : (session.dutyDisplayMode as DutyDisplayMode) || 'ddu';
   return { calculateDuty, displayAtCheckout, dutyDisplayMode };
 }
 
@@ -61,8 +65,7 @@ export class ShopifyAdminController {
     private readonly transactionsService: ShopifyOrderTransactionsService,
     private readonly creditPurchaseService: CreditPurchaseService,
     private readonly billingChargeService: BillingChargeService,
-    @InjectRepository(ShopifySessionEntity)
-    private readonly sessionRepository: Repository<ShopifySessionEntity>,
+    private readonly shopifyAuthService: ShopifyAuthService,
     @InjectRepository(OrganizationEntity)
     private readonly organizationRepository: Repository<OrganizationEntity>,
   ) {}
@@ -118,7 +121,8 @@ export class ShopifyAdminController {
 
     // 3. Create or reuse connector for this shop (idempotent — handles double-click and re-link)
     let connectorId: string;
-    const existingConnector = await this.connectorService.findConnectorByShopDomain(session.shop);
+    const existingConnector =
+      await this.connectorService.findConnectorByShopDomain(session.shop);
     if (existingConnector) {
       if (existingConnector.organizationId !== accountNumber) {
         // Shop was previously linked to a different organization. Refuse to silently re-link.
@@ -137,13 +141,18 @@ export class ShopifyAdminController {
         },
       );
       connectorId = existingConnector.id;
-      this.logger.log(`Reactivated connector ${connectorId} for ${session.shop}`);
+      this.logger.log(
+        `Reactivated connector ${connectorId} for ${session.shop}`,
+      );
     } else {
-      const connector = await this.connectorService.createConnector(accountNumber, {
-        connectorType: 'shopify',
-        name: `Shopify: ${session.shop}`,
-        config: { shopUrl: session.shop, accessToken: session.accessToken },
-      });
+      const connector = await this.connectorService.createConnector(
+        accountNumber,
+        {
+          connectorType: 'shopify',
+          name: `Shopify: ${session.shop}`,
+          config: { shopUrl: session.shop, accessToken: session.accessToken },
+        },
+      );
       connectorId = connector.id;
       this.logger.log(`Created connector ${connectorId} for ${session.shop}`);
     }
@@ -151,18 +160,28 @@ export class ShopifyAdminController {
     // 4. Link session
     session.organizationId = accountNumber;
     session.connectorId = connectorId;
-    await this.sessionRepository.save(session);
+    await this.shopifyAuthService.saveSession(session);
 
     // 5. Register product/order webhooks now that the shop is linked
     const webhookUrl = `${process.env.API_BASE_URL ?? 'https://api.usahts.com'}/api/v1/webhooks/shopify`;
     const config = { shopUrl: session.shop, accessToken: session.accessToken };
-    const topics = ['products/create', 'products/update', 'orders/create', 'app/uninstalled'];
+    const topics = [
+      'products/create',
+      'products/update',
+      'orders/create',
+      'app/uninstalled',
+    ];
     for (const topic of topics) {
       try {
         await this.shopifyConnector.createWebhook(config, webhookUrl, topic);
       } catch (e: any) {
-        if (!e.message?.includes('already exists') && !e.message?.includes('has already been taken')) {
-          this.logger.warn(`Webhook ${topic} registration failed for ${session.shop}: ${e.message}`);
+        if (
+          !e.message?.includes('already exists') &&
+          !e.message?.includes('has already been taken')
+        ) {
+          this.logger.warn(
+            `Webhook ${topic} registration failed for ${session.shop}: ${e.message}`,
+          );
         }
       }
     }
@@ -239,7 +258,7 @@ export class ShopifyAdminController {
     // Keep the deprecated column in sync so a rollback window stays safe.
     session.dutyDisplayMode = !session.calculateDuty ? 'disabled' : 'ddu';
 
-    await this.sessionRepository.save(session);
+    await this.shopifyAuthService.saveSession(session);
     this.logger.log(
       `Settings updated for ${session.shop}: calculateDuty=${session.calculateDuty} displayAtCheckout=${session.displayAtCheckout}`,
     );
@@ -311,7 +330,10 @@ export class ShopifyAdminController {
     const session: ShopifySessionEntity = req.shopifySession;
 
     if (!session.connectorId || !session.organizationId) {
-      return { success: false, message: 'No connector configured for this shop' };
+      return {
+        success: false,
+        message: 'No connector configured for this shop',
+      };
     }
 
     const syncLog = await this.connectorService.syncConnector(

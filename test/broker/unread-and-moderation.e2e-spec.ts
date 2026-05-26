@@ -23,9 +23,32 @@ function build(
   convos: MarketplaceConversationEntity[],
   messages: MarketplaceMessageEntity[] = [],
 ) {
-  const requests = createRepoMock<MarketplaceRequestEntity>();
+  const requests = createRepoMock<MarketplaceRequestEntity>(
+    convos.map(
+      (convo) =>
+        ({
+          id: convo.requestId,
+          requestingOrganizationId: convo.businessOrganizationId,
+          status: 'in_quotes',
+          candidateHtsNumbers: [],
+          regulatoryFlags: [],
+          serviceCategories: [],
+        }) as unknown as MarketplaceRequestEntity,
+    ),
+  );
   const quotes = createRepoMock<MarketplaceQuoteEntity>();
-  const matches = createRepoMock<MarketplaceBrokerMatchEntity>();
+  const matches = createRepoMock<MarketplaceBrokerMatchEntity>(
+    convos.map(
+      (convo) =>
+        ({
+          id: `match-${convo.id}`,
+          requestId: convo.requestId,
+          brokerProfileId: convo.brokerProfileId,
+          brokerOrganizationId: convo.brokerOrganizationId,
+          status: 'quoted',
+        }) as unknown as MarketplaceBrokerMatchEntity,
+    ),
+  );
   const conversations = createRepoMock<MarketplaceConversationEntity>(convos);
   const messagesRepo = createRepoMock<MarketplaceMessageEntity>(messages);
   const clients = createRepoMock<BrokerClientEntity>();
@@ -107,7 +130,7 @@ describe('R1-A-03: unread message badges', () => {
             return this;
           },
           getCount: jest.fn(async () => 2),
-        } as any),
+        }) as any,
     );
     const result = await svc.unreadCounts(ctx);
     expect(result.total).toBe(2);
@@ -129,7 +152,11 @@ describe('R1-A-03: unread message badges', () => {
       consentHistory: [],
     } as unknown as MarketplaceConversationEntity;
     const { svc, conversations } = build([convo]);
-    await svc.markConversationRead(ctx, CONVO_ID, new Date('2026-05-25T00:00:00Z'));
+    await svc.markConversationRead(
+      ctx,
+      CONVO_ID,
+      new Date('2026-05-25T00:00:00Z'),
+    );
     const stored = conversations.__store[0];
     expect(stored.businessLastReadAt).toEqual(new Date('2026-05-25T00:00:00Z'));
     expect(stored.brokerLastReadAt).toBeNull();

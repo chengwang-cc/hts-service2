@@ -2,11 +2,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditService } from '../../audit/services/audit.service';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
+import { BrokerClientEntity } from '../../broker-core/entities/broker-client.entity';
 import { CreateShipmentDto } from '../dto/broker-entries.dto';
 import { BrokerShipmentEntity } from '../entities';
 
@@ -16,6 +18,9 @@ export class BrokerShipmentsService {
     @InjectRepository(BrokerShipmentEntity)
     private readonly shipments: Repository<BrokerShipmentEntity>,
     private readonly audit: AuditService,
+    @Optional()
+    @InjectRepository(BrokerClientEntity)
+    private readonly clients: Repository<BrokerClientEntity> | null = null,
   ) {}
 
   async list(ctx: RequestContext, clientId?: string) {
@@ -34,6 +39,7 @@ export class BrokerShipmentsService {
 
   async create(ctx: RequestContext, dto: CreateShipmentDto) {
     this.assertAuthenticated(ctx);
+    await this.requireOwnedClient(ctx, dto.clientId);
     const entity = this.shipments.create({
       brokerOrganizationId: ctx.organizationId,
       clientId: dto.clientId,
@@ -63,12 +69,25 @@ export class BrokerShipmentsService {
   }
 
   async get(ctx: RequestContext, id: string) {
+    return this.requireOwnedShipment(ctx, id);
+  }
+
+  async requireOwnedShipment(ctx: RequestContext, id: string) {
     const shipment = await this.shipments.findOne({ where: { id } });
     if (!shipment) throw new NotFoundException('Shipment not found');
     if (shipment.brokerOrganizationId !== ctx.organizationId) {
       throw new ForbiddenException('Shipment belongs to another tenant');
     }
     return shipment;
+  }
+
+  private async requireOwnedClient(ctx: RequestContext, clientId: string) {
+    if (!this.clients) return;
+    const client = await this.clients.findOne({ where: { id: clientId } });
+    if (!client) throw new NotFoundException('Broker client not found');
+    if (client.brokerOrganizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Broker client belongs to another tenant');
+    }
   }
 
   private assertAuthenticated(ctx: RequestContext) {

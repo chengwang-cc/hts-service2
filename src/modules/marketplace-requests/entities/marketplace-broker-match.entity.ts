@@ -37,6 +37,7 @@ export class MarketplaceBrokerMatchEntity {
     responsiveness?: number;
     software?: number;
     commercial?: number;
+    trustQuality?: number;
   } | null;
 
   @Column('jsonb', { nullable: true })
@@ -51,6 +52,7 @@ export class MarketplaceBrokerMatchEntity {
 
   @Column('varchar', { length: 40, default: 'notified' })
   status:
+    | 'invited'
     | 'notified'
     | 'viewed'
     | 'declined'

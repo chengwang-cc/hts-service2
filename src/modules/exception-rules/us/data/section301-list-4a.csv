@@ -1,0 +1,10 @@
+htsCode,effectiveFrom,effectiveTo,rate,chapter99,source,description
+# Section 301 List 4A — 3,229 HTS codes covering ~$120B in CN imports.
+# Initially 15% effective 2019-09-01, reduced to 7.5% on 2020-02-14
+# (Phase One trade deal).
+# Chapter 99: 9903.88.15
+# Source: USTR List 4A (FR 84 FR 43304, FR 85 FR 3741); CSMS 19-000457, 20-000045
+# NOTE: Scaffolded — populate from USTR official list. List 4B never took effect.
+6109.10.0004,2020-02-14,,0.075,9903.88.15,fr.notice.85-3741,T-shirts of cotton (men's/boys')
+6109.10.0010,2020-02-14,,0.075,9903.88.15,fr.notice.85-3741,T-shirts of cotton (women's/girls')
+8517.13.0000,2020-02-14,,0.075,9903.88.15,fr.notice.85-3741,Smartphones (cellular)

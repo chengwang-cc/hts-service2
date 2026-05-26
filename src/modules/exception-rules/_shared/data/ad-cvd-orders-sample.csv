@@ -1,0 +1,35 @@
+destinationCountry,htsCode,originCountry,exporterName,orderCaseNumber,orderType,cashDepositRate,effectiveFrom,effectiveTo,source,description
+# Phase 9 sample seed — ~25 representative orders across destinations.
+# Production data is loaded via POST /admin/ad-cvd-orders/upload-csv from
+# USDOC / CBSA / TRA / EU Commission / ADC / MBIE / KTC / MOEA per the
+# spec in docs/2026-05-27/0900_phase-9-ad-cvd-data-sourcing-spec.md.
+US,2916.14.2000,CN,,A-570-979,AD,0.7373,2019-08-29,,usdoc.adcvd.A-570-979,Methyl Acrylate from China — all others rate
+US,7222.30.0000,CN,,A-570-080,AD,0.2456,2017-04-03,,usdoc.adcvd.A-570-080,Stainless Steel Bar from China — all others rate
+US,7222.30.0000,CN,Baowu Special Materials,A-570-080,AD,0.0987,2017-04-03,,usdoc.adcvd.A-570-080,Stainless Steel Bar from China — Baowu rate
+US,7307.93.3000,IN,,A-533-887,AD,0.1996,2021-04-23,,usdoc.adcvd.A-533-887,Forged Steel Fittings from India — all others
+US,8541.42.0010,VN,,A-552-829,AD,0.2710,2023-12-15,,usdoc.adcvd.A-552-829,Solar Cells from Vietnam — all others
+US,9403.20.0090,CN,,A-570-117,AD,0.0540,2024-07-01,,usdoc.adcvd.A-570-117,Metal File Cabinets from China — all others
+US,9403.20.0090,CN,,C-570-118,CVD,0.1320,2024-07-01,,usdoc.adcvd.C-570-118,Metal File Cabinets from China — CVD all others
+
+CA,7208.51.0091,CN,,AD/1492,AD,0.45,2020-05-08,,cbsa.sima.AD-1492,Heavy Plate from China — all others
+CA,7228.30.0099,CN,,AD/1428,AD,0.1545,2020-05-21,,cbsa.sima.AD-1428,Carbon Steel Welded Pipe from China
+CA,7222.30.0000,KR,,AD/1488,AD,0.1100,2021-09-30,,cbsa.sima.AD-1488,Stainless Bar from Korea
+
+GB,7208.10.0000,CN,,TD0014,AD,0.20,2022-06-30,,gb.tra.TD0014,Steel Plate from China (transitioned EU measure)
+GB,2208.30.0000,US,,TD0002,AD,0.25,2024-05-15,,gb.tra.TD0002,Whisky from US — countermeasure
+
+EU,7301.10.0000,RU,,R-2024-007,AD,0.18,2024-07-15,,eu.commission.r-2024-007,Welded Tubes from Russia
+EU,8541.42.0010,CN,,R-2023-088,AD,0.0654,2023-08-01,,eu.commission.r-2023-088,Photovoltaic Cells from China — all others
+EU,7208.10.0000,CN,,R-2018-160,AD,0.2270,2018-04-13,,eu.commission.r-2018-160,Hot-rolled flat steel from China
+EU,2208.30.0000,RU,,R-2022-555,AD,0.50,2022-04-08,,eu.commission.r-2022-555,Vodka from Russia — sanctions-related AD
+
+AU,7208.51.0000,CN,,INV-589,AD,0.1762,2022-11-03,,au.adc.INV-589,Hot-rolled Steel Plate from China
+AU,3920.10.0000,KR,,INV-602,AD,0.1245,2023-04-19,,au.adc.INV-602,Polyethylene film from Korea
+AU,7404.00.0000,MY,,INV-571,AD,0.0890,2022-02-14,,au.adc.INV-571,Copper Tube from Malaysia
+
+NZ,7208.10.0000,CN,,2023-AD-04,AD,0.1500,2023-08-08,,nz.mbie.2023-AD-04,Galvanised Steel Coil from China
+
+KR,3920.10.0000,JP,,KTC-2022-118,AD,0.0850,2022-03-15,,kr.ktc.2022-118,Polyethylene film from Japan
+KR,7222.30.0000,CN,,KTC-2024-035,AD,0.2515,2024-09-01,,kr.ktc.2024-035,Stainless Bar from China
+
+TW,7208.10.0000,CN,,TW-AD-2023-12,AD,0.1845,2023-06-12,,tw.moea.2023-12,Hot-rolled steel from China

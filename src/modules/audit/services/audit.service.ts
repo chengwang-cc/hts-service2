@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuditEventEntity } from '../entities/audit-event.entity';
 
 export interface AuditEventInput {
@@ -24,9 +24,14 @@ export class AuditService {
     private readonly auditEvents: Repository<AuditEventEntity>,
   ) {}
 
-  async record(input: AuditEventInput): Promise<AuditEventEntity | null> {
+  async record(
+    input: AuditEventInput,
+    manager?: EntityManager,
+  ): Promise<AuditEventEntity | null> {
     try {
-      const event = this.auditEvents.create({
+      const auditEvents =
+        manager?.getRepository(AuditEventEntity) ?? this.auditEvents;
+      const event = auditEvents.create({
         eventType: input.eventType,
         organizationId: input.organizationId ?? null,
         actorUserId: input.actorUserId ?? null,
@@ -38,7 +43,7 @@ export class AuditService {
         metadata: input.metadata ?? null,
       });
 
-      return await this.auditEvents.save(event);
+      return await auditEvents.save(event);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown audit event failure';

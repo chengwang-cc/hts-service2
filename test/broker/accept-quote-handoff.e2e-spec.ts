@@ -11,6 +11,138 @@ import type { BrokerClientEntity } from '../../src/modules/broker-core/entities/
 import type { OrganizationEntity } from '../../src/modules/auth/entities/organization.entity';
 
 describe('MarketplaceRequestsService.acceptQuote — handoff (Plan M4-08)', () => {
+  it('uses a transaction with pessimistic locks when a DataSource is available', async () => {
+    const businessOrgId = ctx.organizationId;
+    const brokerOrgId = 'org-broker-1';
+    const request = {
+      id: 'req-1',
+      requestingOrganizationId: businessOrgId,
+      status: 'in_quotes',
+      commoditySummary: 'cotton tees',
+      candidateHtsNumbers: [],
+      regulatoryFlags: [],
+      serviceCategories: [],
+    } as unknown as MarketplaceRequestEntity;
+    const quote = {
+      id: 'q1',
+      requestId: 'req-1',
+      brokerProfileId: 'bp1',
+      brokerOrganizationId: brokerOrgId,
+      status: 'submitted',
+      currency: 'USD',
+      requiredDocuments: [],
+      metadata: null,
+    } as unknown as MarketplaceQuoteEntity;
+    const otherQuote = {
+      id: 'q2',
+      requestId: 'req-1',
+      brokerProfileId: 'bp2',
+      brokerOrganizationId: 'org-broker-2',
+      status: 'submitted',
+      currency: 'USD',
+      requiredDocuments: [],
+    } as unknown as MarketplaceQuoteEntity;
+
+    const lockModes: string[] = [];
+    const qb = (result: unknown, many = false) => ({
+      setLock: jest.fn((mode: string) => {
+        lockModes.push(mode);
+        return qb(result, many);
+      }),
+      where: jest.fn(() => qb(result, many)),
+      andWhere: jest.fn(() => qb(result, many)),
+      getOne: jest.fn(async () => result),
+      getMany: jest.fn(async () => (many ? result : [])),
+    });
+    const quoteQbs = [qb(quote), qb([], true), qb([otherQuote], true)];
+    const quoteRepo = {
+      findOne: jest.fn(async () => quote),
+      createQueryBuilder: jest.fn(() => quoteQbs.shift()),
+      save: jest.fn(async (entity: any) => entity),
+    };
+    const requestRepo = {
+      createQueryBuilder: jest.fn(() => qb(request)),
+      save: jest.fn(async (entity: any) => entity),
+    };
+    const matchRepo = { update: jest.fn(async () => ({ affected: 1 })) };
+    const brokerClientRepo = {
+      findOne: jest.fn(async () => null),
+      create: jest.fn((input: any) => input),
+      save: jest.fn(async (entity: any) => ({
+        id: 'broker-client-1',
+        ...entity,
+      })),
+    };
+    const organizationRepo = {
+      findOne: jest.fn(async () => ({
+        id: businessOrgId,
+        name: 'Cool Importer Inc.',
+      })),
+    };
+    const manager = {
+      getRepository: jest.fn((entity: any) => {
+        if (entity.name === 'MarketplaceQuoteEntity') return quoteRepo;
+        if (entity.name === 'MarketplaceRequestEntity') return requestRepo;
+        if (entity.name === 'MarketplaceBrokerMatchEntity') return matchRepo;
+        if (entity.name === 'BrokerClientEntity') return brokerClientRepo;
+        if (entity.name === 'OrganizationEntity') return organizationRepo;
+        return {};
+      }),
+    };
+    const dataSource = {
+      transaction: jest.fn(async (_isolation: string, callback: any) =>
+        callback(manager),
+      ),
+    };
+    const createRelFn = jest.fn(async (input: any) => ({
+      id: 'rel-1',
+      ...input,
+    }));
+    const draftEntryFn = jest.fn(async () => ({ id: 'draft-entry-1' }));
+    const audit = createAuditMock();
+
+    const svc = new MarketplaceRequestsService(
+      createRepoMock() as any,
+      createRepoMock() as any,
+      createRepoMock() as any,
+      createRepoMock() as any,
+      createRepoMock() as any,
+      createRepoMock() as any,
+      createRepoMock() as any,
+      { preflight: jest.fn() } as any,
+      { listForRequest: jest.fn(async () => []) } as any,
+      { create: createRelFn } as any,
+      { draftFromHandoff: draftEntryFn } as any,
+      audit,
+      {
+        keyBelongsToTenant: () => true,
+        createReadUrl: jest.fn(),
+        providerKey: 'mock',
+      } as any,
+      null,
+      null,
+      null,
+      dataSource as any,
+    );
+
+    const result = await svc.acceptQuote(ctx, 'q1', {
+      idempotencyKey: 'retry-1',
+    });
+
+    expect(dataSource.transaction).toHaveBeenCalledWith(
+      'READ COMMITTED',
+      expect.any(Function),
+    );
+    expect(lockModes).toContain('pessimistic_write');
+    expect(quote.status).toBe('accepted');
+    expect(request.status).toBe('broker_selected');
+    expect(otherQuote.status).toBe('expired');
+    expect(createRelFn).toHaveBeenCalledWith(expect.any(Object), manager);
+    expect(draftEntryFn).toHaveBeenCalledWith(expect.any(Object), manager);
+    expect(audit.record).toHaveBeenCalledWith(expect.any(Object), manager);
+    expect(result.draftEntryId).toBe('draft-entry-1');
+  });
+
   it('auto-creates broker client + relationship + draft entry', async () => {
     const draftEntryFn = jest.fn(async () => ({ id: 'draft-entry-1' }));
     const createRelFn = jest.fn(async (input: any) => ({
@@ -48,7 +180,10 @@ describe('MarketplaceRequestsService.acceptQuote — handoff (Plan M4-08)', () =
     const messages = createRepoMock<MarketplaceMessageEntity>();
     const brokerClients = createRepoMock<BrokerClientEntity>();
     const organizations = createRepoMock<OrganizationEntity>([
-      { id: businessOrgId, name: 'Cool Importer Inc.' } as unknown as OrganizationEntity,
+      {
+        id: businessOrgId,
+        name: 'Cool Importer Inc.',
+      } as unknown as OrganizationEntity,
     ]);
 
     const svc = new MarketplaceRequestsService(
@@ -71,7 +206,11 @@ describe('MarketplaceRequestsService.acceptQuote — handoff (Plan M4-08)', () =
       { create: createRelFn } as any,
       { draftFromHandoff: draftEntryFn } as any,
       createAuditMock(),
-      { keyBelongsToTenant: () => true, createReadUrl: jest.fn(), providerKey: 'mock' } as any,
+      {
+        keyBelongsToTenant: () => true,
+        createReadUrl: jest.fn(),
+        providerKey: 'mock',
+      } as any,
     );
 
     const result = await svc.acceptQuote(ctx, 'q1', { note: 'lgtm' });
@@ -154,7 +293,11 @@ describe('MarketplaceRequestsService.acceptQuote — handoff (Plan M4-08)', () =
       { create: jest.fn(async () => ({ id: 'rel-1' })) } as any,
       { draftFromHandoff: draftEntryFn } as any,
       createAuditMock(),
-      { keyBelongsToTenant: () => true, createReadUrl: jest.fn(), providerKey: 'mock' } as any,
+      {
+        keyBelongsToTenant: () => true,
+        createReadUrl: jest.fn(),
+        providerKey: 'mock',
+      } as any,
     );
 
     await svc.acceptQuote(ctx, 'q1', {});
@@ -201,8 +344,14 @@ describe('MarketplaceRequestsService.acceptQuote — handoff (Plan M4-08)', () =
       { create: jest.fn() } as any,
       { draftFromHandoff: jest.fn() } as any,
       createAuditMock(),
-      { keyBelongsToTenant: () => true, createReadUrl: jest.fn(), providerKey: 'mock' } as any,
+      {
+        keyBelongsToTenant: () => true,
+        createReadUrl: jest.fn(),
+        providerKey: 'mock',
+      } as any,
     );
-    await expect(svc.acceptQuote(ctx, 'q1', {})).rejects.toThrow(/cannot accept/i);
+    await expect(svc.acceptQuote(ctx, 'q1', {})).rejects.toThrow(
+      /cannot accept/i,
+    );
   });
 });

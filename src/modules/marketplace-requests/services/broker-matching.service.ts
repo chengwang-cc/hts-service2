@@ -40,9 +40,7 @@ export class BrokerMatchingService {
     // qualityAdjustedRank meets the floor get pinned to the top of the
     // match list; the reason list is annotated with `sponsored=true` so
     // the UI can render the disclosure label.
-    const sponsoredSlots = Number(
-      process.env.MARKETPLACE_SPONSORED_SLOTS || 1,
-    );
+    const sponsoredSlots = Number(process.env.MARKETPLACE_SPONSORED_SLOTS || 1);
     const sponsoredFloor = Number(
       process.env.MARKETPLACE_SPONSORED_RANK_FLOOR || 80,
     );
@@ -137,7 +135,7 @@ export class BrokerMatchingService {
     if (!match || match.brokerOrganizationId !== brokerOrganizationId) {
       return null;
     }
-    if (match.status === 'notified') {
+    if (match.status === 'notified' || match.status === 'invited') {
       match.status = 'viewed';
       match.viewedAt = new Date();
       await this.matches.save(match);
@@ -164,12 +162,18 @@ export class BrokerMatchingService {
     request: MarketplaceRequestEntity,
     brokerProfileIds: string[],
   ): Promise<MarketplaceBrokerMatchEntity[]> {
+    const uniqueProfileIds = Array.from(new Set(brokerProfileIds));
     const profiles = await this.profiles.find({
-      where: brokerProfileIds.map((id) => ({ id })),
+      where: uniqueProfileIds.map((id) => ({ id })),
     });
     const created: MarketplaceBrokerMatchEntity[] = [];
     for (const profile of profiles) {
-      if (profile.verificationStatus !== 'verified') continue;
+      if (
+        profile.status !== 'published' ||
+        profile.verificationStatus !== 'verified'
+      ) {
+        continue;
+      }
       const candidate = this.score(profile, request);
       const existing = await this.matches.findOne({
         where: { requestId: request.id, brokerProfileId: profile.id },
@@ -183,7 +187,10 @@ export class BrokerMatchingService {
         scoreBreakdown: candidate.breakdown,
         reasons: candidate.reasons,
         gaps: candidate.gaps,
-        status: existing?.status === 'declined' ? 'notified' : existing?.status ?? 'notified',
+        status:
+          existing?.status === 'declined'
+            ? 'invited'
+            : (existing?.status ?? 'invited'),
       });
       created.push(await this.matches.save(match));
     }
@@ -210,14 +217,16 @@ export class BrokerMatchingService {
     const responsivenessScore = this.responsivenessScore(profile, reasons);
     const softwareScore = this.softwareScore(profile, reasons);
     const commercialScore = this.commercialScore(profile, request, reasons);
+    const trustQualityScore = this.trustQualityScore(profile, reasons, gaps);
 
     const weighted =
-      commodityScore * 0.35 +
+      commodityScore * 0.3 +
       laneScore * 0.2 +
       credentialScore * 0.15 +
       responsivenessScore * 0.15 +
       softwareScore * 0.1 +
-      commercialScore * 0.05;
+      commercialScore * 0.05 +
+      trustQualityScore * 0.05;
 
     return {
       profile,
@@ -229,6 +238,7 @@ export class BrokerMatchingService {
         responsiveness: Math.round(responsivenessScore),
         software: Math.round(softwareScore),
         commercial: Math.round(commercialScore),
+        trustQuality: Math.round(trustQualityScore),
       },
       reasons,
       gaps,
@@ -241,9 +251,7 @@ export class BrokerMatchingService {
     reasons: NonNullable<MarketplaceBrokerMatchEntity['reasons']>,
     gaps: string[],
   ): number {
-    const specialties = (profile.specialties ?? []).map((s) =>
-      s.toLowerCase(),
-    );
+    const specialties = (profile.specialties ?? []).map((s) => s.toLowerCase());
     const services = (profile.serviceCategories ?? []).map((s) =>
       s.toLowerCase(),
     );
@@ -445,6 +453,47 @@ export class BrokerMatchingService {
   ): number {
     if (!profile.minimumEngagement) return 70;
     return 60;
+  }
+
+  private trustQualityScore(
+    profile: MarketplaceBrokerProfileEntity,
+    reasons: NonNullable<MarketplaceBrokerMatchEntity['reasons']>,
+    gaps: string[],
+  ): number {
+    let score = 50;
+    const qualityRank = profile.qualityAdjustedRank
+      ? Number(profile.qualityAdjustedRank)
+      : null;
+    if (qualityRank != null && Number.isFinite(qualityRank)) {
+      score = Math.max(score, Math.min(100, qualityRank));
+      reasons.push({
+        code: 'quality_adjusted_rank',
+        detail: `Quality rank ${qualityRank.toFixed(1)}`,
+        verified: true,
+      });
+    }
+
+    const metrics = profile.metrics;
+    if (metrics?.satisfactionScore != null) {
+      score += Math.min(15, (metrics.satisfactionScore / 5) * 15);
+      reasons.push({
+        code: 'review_quality',
+        detail: `Review score ${metrics.satisfactionScore}/5`,
+        verified: true,
+      });
+    }
+    if (metrics?.completedShipments != null && metrics.completedShipments > 0) {
+      score += Math.min(10, Math.log10(metrics.completedShipments + 1) * 5);
+      reasons.push({
+        code: 'shipment_experience',
+        detail: `${metrics.completedShipments} completed shipment(s)`,
+        verified: true,
+      });
+    } else {
+      gaps.push('No completed shipment history on profile');
+    }
+
+    return Math.max(0, Math.min(100, score));
   }
 
   private profileSummary(profile: MarketplaceBrokerProfileEntity) {

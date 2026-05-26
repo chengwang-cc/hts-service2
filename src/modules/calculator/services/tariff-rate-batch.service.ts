@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { TariffFormulaResolverService } from './tariff-formula-resolver.service';
 import { FormulaEvaluationService } from './formula-evaluation.service';
 import { FormulaScopeService } from './formula-scope.service';
@@ -9,6 +9,7 @@ import {
   BatchFormulaLineResult,
   BatchRateLineResult,
   BatchRateRequest,
+  FormulaVariable,
   SourceCitationRef,
   TariffComponentType,
   TariffFormulaComponent,
@@ -17,6 +18,8 @@ import {
   classifyProgramFamily,
   extractChapter99FromConditions,
 } from './program-family.helper';
+import { ExceptionRuleRegistry } from '../../exception-rules/exception-rule.registry';
+import type { ExceptionRuleContext } from '../../exception-rules/types';
 
 /**
  * TariffRateBatchService
@@ -41,6 +44,9 @@ export class TariffRateBatchService {
     private readonly policyApplicability: PolicyApplicabilityService,
     private readonly conditionEngine: TariffConditionEngineService,
     private readonly tariffConfidence: TariffConfidenceService,
+    // Optional so unit tests that hand-build the service don't have to
+    // thread the registry in. Production wires it via DI.
+    @Optional() private readonly exceptionRuleRegistry?: ExceptionRuleRegistry,
   ) {}
 
   async batchCalculate(
@@ -125,9 +131,73 @@ export class TariffRateBatchService {
             confidence: c.confidence,
           };
         }),
+        additionalInputs: this.collectRuleInputs({
+          htsCode: r.htsCode,
+          country: r.country,
+          destination: 'US',
+          asOfDate: this.parseCalculationDate(r.entryDate) ?? new Date(),
+        }),
       });
     }
     return out;
+  }
+
+  /**
+   * P2.T5 — walk the exception-rule registry for the requested
+   * (htsCode, country, destination) and union each applicable rule's
+   * `declaredInputs()`. Returns an empty array when no registry is
+   * wired (unit tests, legacy callers) or no rule applies.
+   *
+   * Applicability is evaluated against a synthetic context with empty
+   * additionalInputs because the user hasn't supplied any yet. Rules
+   * whose `isApplicable()` checks HTS/destination/origin (the common
+   * pattern) work correctly; rules that need actual user input to
+   * decide applicability won't surface their inputs until after the
+   * first submit — a known limitation, not yet observed in P2 scope.
+   */
+  private collectRuleInputs(args: {
+    htsCode: string;
+    country: string;
+    destination: string;
+    asOfDate: Date;
+  }): FormulaVariable[] {
+    if (!this.exceptionRuleRegistry) return [];
+    const rules = this.exceptionRuleRegistry.rulesFor(args.destination);
+    if (rules.length === 0) return [];
+    const ctx: ExceptionRuleContext = {
+      htsCode: args.htsCode,
+      origin: (args.country || '').toUpperCase(),
+      destination: args.destination,
+      asOfDate: args.asOfDate,
+      declaredValue: 0,
+      currency: 'USD',
+      additionalInputs: {},
+      baseComponents: [],
+      pendingComponents: [],
+      firedRules: [],
+    };
+    const merged = new Map<string, FormulaVariable>();
+    for (const rule of rules) {
+      try {
+        if (!rule.isApplicable(ctx)) continue;
+      } catch {
+        continue; // a misbehaving rule does not block the formula response
+      }
+      for (const spec of rule.declaredInputs()) {
+        if (merged.has(spec.name)) continue;
+        merged.set(spec.name, {
+          name: spec.name,
+          type: spec.type,
+          required: spec.required,
+          label: spec.label,
+          helpRef: spec.helpRef,
+          allowedValues: spec.allowedValues,
+          origin: 'exception_rule',
+          ruleId: rule.id,
+        });
+      }
+    }
+    return Array.from(merged.values());
   }
 
   private async calculateOne(

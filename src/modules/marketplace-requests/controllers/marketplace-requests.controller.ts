@@ -26,6 +26,7 @@ import {
   CreateMarketplaceRequestDto,
   CreateQuoteDto,
   DeclineLeadDto,
+  InviteBrokersDto,
   ListMarketplaceRequestsDto,
   SendMessageDto,
 } from '../dto/marketplace-requests.dto';
@@ -60,10 +61,7 @@ export class MarketplaceRequestsController {
   }
 
   @Post('requests')
-  async create(
-    @Req() req: Request,
-    @Body() dto: CreateMarketplaceRequestDto,
-  ) {
+  async create(@Req() req: Request, @Body() dto: CreateMarketplaceRequestDto) {
     return {
       success: true,
       data: await this.requests.create(resolveRequestContext(req), dto),
@@ -85,7 +83,10 @@ export class MarketplaceRequestsController {
   ) {
     return {
       success: true,
-      data: await this.requests.recomputeMatches(resolveRequestContext(req), id),
+      data: await this.requests.recomputeMatches(
+        resolveRequestContext(req),
+        id,
+      ),
     };
   }
 
@@ -121,14 +122,14 @@ export class MarketplaceRequestsController {
   async inviteBrokers(
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { brokerProfileIds: string[] },
+    @Body() body: InviteBrokersDto,
   ) {
     return {
       success: true,
       data: await this.requests.inviteBrokers(
         resolveRequestContext(req),
         id,
-        body.brokerProfileIds ?? [],
+        body.brokerProfileIds,
       ),
     };
   }
@@ -285,9 +286,7 @@ export class MarketplaceRequestsController {
       throw new BadRequestException('since must be an ISO timestamp');
     }
     let cursor: Date | null = startCursor;
-    const periodMs = Number(
-      process.env.MARKETPLACE_POLL_INTERVAL_MS || 3_000,
-    );
+    const periodMs = Number(process.env.MARKETPLACE_POLL_INTERVAL_MS || 3_000);
     return new Observable<MessageEvent>((subscriber) => {
       const sub = interval(periodMs)
         .pipe(
@@ -472,10 +471,9 @@ export class MarketplaceRequestsController {
           typeof session?.subscription === 'object'
             ? session.subscription
             : null;
-        const activeUntil =
-          subscription?.current_period_end
-            ? new Date(subscription.current_period_end * 1000)
-            : null;
+        const activeUntil = subscription?.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : null;
         try {
           await this.requests.promoteProSubscription(profileId, activeUntil);
         } catch (err) {
@@ -522,10 +520,7 @@ export class MarketplaceRequestsController {
    * R2-D-05 — broker win-rate by commodity chapter over the last N days.
    */
   @Get('broker/win-rate-by-commodity')
-  async winRateByCommodity(
-    @Req() req: Request,
-    @Query('days') days?: string,
-  ) {
+  async winRateByCommodity(@Req() req: Request, @Query('days') days?: string) {
     const ctx = resolveRequestContext(req);
     return {
       success: true,
@@ -552,7 +547,6 @@ export class MarketplaceRequestsController {
     };
   }
 }
-
 
 @Controller('marketplace/broker')
 export class MarketplaceBrokerLeadsController {

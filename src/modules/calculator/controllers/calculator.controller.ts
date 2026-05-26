@@ -8,6 +8,7 @@ import {
   Req,
   HttpException,
   HttpStatus,
+  Logger,
   UseGuards,
   ForbiddenException,
 } from '@nestjs/common';
@@ -30,6 +31,8 @@ interface CallerContext {
 
 @Controller('calculator')
 export class CalculatorController {
+  private readonly logger = new Logger(CalculatorController.name);
+
   constructor(
     private readonly calculationService: CalculationService,
     private readonly formulaEvaluation: FormulaEvaluationService,
@@ -173,7 +176,48 @@ export class CalculatorController {
         item.systemSelectedChapter99Headings ?? [],
       exclusiveSection301: false,
       formulas: item.formulas,
+      // P2.T5 — forward rule-declared inputs (aluminum smelt/cast,
+      // AD/CVD exporter, CBAM tonnage, etc.) so the FE renderer can
+      // surface them. Computed by `TariffRateBatchService.collectRuleInputs()`.
+      // I1 fix (2026-05-26): filter out entries that don't carry the
+      // minimum required shape so a malformed batch-service response
+      // doesn't break the FE renderer. Logged so we can chase the
+      // root cause without breaking the user-facing response.
+      additionalInputs: this.sanitizeAdditionalInputs(item.additionalInputs),
     };
+  }
+
+  /**
+   * I1 fix (2026-05-26): defensive shape check on the rule-declared
+   * inputs forwarded to the FE. Drops anything missing the `name` or
+   * `type` field; surfaces the count of dropped entries via debug log.
+   */
+  private sanitizeAdditionalInputs(
+    inputs: unknown,
+  ): Array<{ name: string; type: string; [k: string]: unknown }> {
+    if (!Array.isArray(inputs)) return [];
+    const ok: Array<{ name: string; type: string; [k: string]: unknown }> = [];
+    let dropped = 0;
+    for (const raw of inputs) {
+      if (
+        raw &&
+        typeof raw === 'object' &&
+        typeof (raw as any).name === 'string' &&
+        (raw as any).name.length > 0 &&
+        typeof (raw as any).type === 'string' &&
+        (raw as any).type.length > 0
+      ) {
+        ok.push(raw as any);
+      } else {
+        dropped += 1;
+      }
+    }
+    if (dropped > 0) {
+      this.logger.debug(
+        `/v2/formula additionalInputs: dropped ${dropped} malformed entries`,
+      );
+    }
+    return ok;
   }
 
   @Post('v2/tariff-rates')

@@ -20,12 +20,26 @@ const userTypeOrmModule = TypeOrmModule.forFeature([
   OrganizationEntity,
 ]);
 
+// H8 fix (2026-05-27): hard-fail boot in production if JWT_SECRET is
+// missing. Default dev secret is preserved so local + test runs work,
+// but a missing-in-prod JWT_SECRET is a security defect — fail loud.
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.length > 0) return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET is required in production. Set it via a k8s Secret + envFrom.',
+    );
+  }
+  return 'your-secret-key';
+}
+
 @Module({
   imports: [
     userTypeOrmModule,
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key',
+      secret: resolveJwtSecret(),
       signOptions: { expiresIn: '1h' },
     }),
     ApiKeysModule,

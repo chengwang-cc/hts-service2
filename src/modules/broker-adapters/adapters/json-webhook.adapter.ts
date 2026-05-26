@@ -6,6 +6,7 @@ import {
   AdapterDeliveryResult,
   BrokerExportAdapter,
 } from './adapter.contract';
+import { OutboundHttpPolicyService } from './outbound-http-policy.service';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_LIMIT = 1;
@@ -15,6 +16,10 @@ const RETRY_BACKOFF_MS = 500;
 export class JsonWebhookAdapter implements BrokerExportAdapter {
   readonly key = 'json_webhook' as const;
   private readonly logger = new Logger(JsonWebhookAdapter.name);
+
+  constructor(
+    private readonly outboundPolicy: OutboundHttpPolicyService = new OutboundHttpPolicyService(),
+  ) {}
 
   async build(ctx: AdapterContext): Promise<AdapterArtifact> {
     const payload = {
@@ -108,12 +113,21 @@ export class JsonWebhookAdapter implements BrokerExportAdapter {
     const attempts = retryLimit + 1;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: new Uint8Array(artifact.body),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        const response = await this.outboundPolicy.fetch(
+          url,
+          {
+            method: 'POST',
+            headers: baseHeaders,
+            body: new Uint8Array(artifact.body),
+          },
+          {
+            tenantId: ctx.adapter.organizationId,
+            adapterId: ctx.adapter.id,
+            provider: this.key,
+            timeoutMs,
+            allowedHosts: asStringArray(config.allowedHosts),
+          },
+        );
         const responseText = await response.text().catch(() => '');
         lastResponseSummary = {
           status: response.status,
@@ -182,6 +196,14 @@ function clampInt(
 function shouldRetry(status: number): boolean {
   // 5xx and 429 are retryable; everything else is a permanent client error.
   return status >= 500 || status === 429;
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return values.length ? values : undefined;
 }
 
 function sleep(ms: number): Promise<void> {

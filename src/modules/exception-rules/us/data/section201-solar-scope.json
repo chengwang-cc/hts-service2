@@ -1,0 +1,23 @@
+{
+  "$schema": "./section201-solar-scope.schema.json",
+  "version": "2026-05-26.1",
+  "description": "Section 201 Solar (CSPV) safeguard scope. Rates step down annually per Proclamation 10723 + 9693. TRQ on cells (in-quota / out-of-quota). 2024–2025 rate: 14.25%.",
+  "sourceDocuments": [
+    "fr.proclamation.9693",
+    "fr.proclamation.10723",
+    "usitc.investigation.ta-201-75"
+  ],
+  "rateSchedule": [
+    { "effectiveFrom": "2024-02-07", "effectiveTo": "2025-02-06", "rate": 0.1425 },
+    { "effectiveFrom": "2025-02-07", "effectiveTo": "2026-02-06", "rate": 0.1400 },
+    { "effectiveFrom": "2026-02-07", "effectiveTo": "2027-02-06", "rate": 0.1300 }
+  ],
+  "entries": [
+    { "htsCode": "8541.43.0010", "subscope": "modules", "chapter99": "9903.45.25", "effectiveFrom": "2018-02-07", "source": "fr.proclamation.9693" },
+    { "htsCode": "8541.43.0080", "subscope": "modules", "chapter99": "9903.45.25", "effectiveFrom": "2018-02-07", "source": "fr.proclamation.9693" },
+    { "htsCode": "8541.42.0010", "subscope": "cells_in_quota", "chapter99": "9903.45.21", "effectiveFrom": "2018-02-07", "source": "fr.proclamation.9693", "note": "Within annual 5 GW TRQ — 0%" },
+    { "htsCode": "8541.42.0080", "subscope": "cells_out_of_quota", "chapter99": "9903.45.22", "effectiveFrom": "2018-02-07", "source": "fr.proclamation.9693", "note": "Out-of-quota — full rate" }
+  ],
+  "exemptOrigins": ["BD", "BO", "BT", "KH", "DJ", "ET", "GM", "GN", "HT", "KI", "LA", "LR", "MG", "MW", "ML", "MM", "MZ", "NE", "RW", "ST", "SN", "SL", "SO", "TZ", "TG", "UG", "VU", "YE", "ZM"],
+  "exemptOriginsNote": "Excluded developing countries per Proclamation 9693 unless §301-only safeguard reached"
+}

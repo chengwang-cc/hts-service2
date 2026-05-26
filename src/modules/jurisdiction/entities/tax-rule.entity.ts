@@ -41,6 +41,25 @@ export class TaxRuleEntity {
   @Column('text', { nullable: true })
   baseFormula: string | null;
 
+  /**
+   * W0.5.T5 (2026-05-26): canonical tax-base enum. Lets the FE explain
+   * "why was this tax computed on a broader base than the goods value?"
+   *   - GOODS_VALUE: rate × declaredValue
+   *   - CIF: rate × (declaredValue + shipping + insurance)
+   *   - CIF_PLUS_DUTY: rate × (CIF + base customs duty)
+   *   - CIF_PLUS_DUTY_PLUS_FEES: rate × (CIF + duty + MPF/HMF/etc.)
+   *   - GROSS_UP_INCLUSIVE: tax is included in the price; back out
+   *   - COUNTRY_CUSTOM_FORMULA: see `baseFormula` for the explicit formula
+   */
+  @Column('varchar', { length: 32, default: 'GOODS_VALUE' })
+  taxBaseFormula:
+    | 'GOODS_VALUE'
+    | 'CIF'
+    | 'CIF_PLUS_DUTY'
+    | 'CIF_PLUS_DUTY_PLUS_FEES'
+    | 'GROSS_UP_INCLUSIVE'
+    | 'COUNTRY_CUSTOM_FORMULA';
+
   /** 'checkout' | 'border' | 'reverse_charge' | 'exempt' */
   @Column('varchar', { length: 24 })
   collectionPoint: string;

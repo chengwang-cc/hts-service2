@@ -1,0 +1,48 @@
+{
+  "$schema": "./cbam-scope.schema.json",
+  "version": "2026-05-26.1",
+  "description": "EU CBAM in-scope CN/HS codes (Phase 1 — transitional + definitive). Six sectors: cement, iron/steel, aluminum, fertilizers, electricity, hydrogen. Per Regulation (EU) 2023/956.",
+  "sourceDocuments": [
+    "eu.regulation.2023-956",
+    "eu.commission.cbam-implementing-regulation",
+    "eu.commission.cbam-default-values-2025"
+  ],
+  "certificatePriceEurPerTCO2e": 80,
+  "freeAllocationShare": {
+    "byYear": [
+      { "year": 2026, "share": 0.975 },
+      { "year": 2027, "share": 0.95 },
+      { "year": 2028, "share": 0.90 },
+      { "year": 2029, "share": 0.775 },
+      { "year": 2030, "share": 0.515 },
+      { "year": 2031, "share": 0.30 },
+      { "year": 2032, "share": 0.15 },
+      { "year": 2033, "share": 0 },
+      { "year": 2034, "share": 0 }
+    ],
+    "note": "Free-allocation share is subtracted from embedded emissions before the certificate cost; phase-out per Reg 2023/956 Annex IV."
+  },
+  "entries": [
+    { "htsCode": "2523.10.0000", "sector": "cement", "defaultDirectTCO2eperT": 0.76, "defaultIndirectTCO2eperT": 0.15 },
+    { "htsCode": "2523.21.0000", "sector": "cement", "defaultDirectTCO2eperT": 0.81, "defaultIndirectTCO2eperT": 0.15 },
+    { "htsCode": "2523.29.0000", "sector": "cement", "defaultDirectTCO2eperT": 0.83, "defaultIndirectTCO2eperT": 0.15 },
+
+    { "htsCode": "7206.10.0000", "sector": "iron_steel", "defaultDirectTCO2eperT": 1.85, "defaultIndirectTCO2eperT": 0.30 },
+    { "htsCode": "7207.11.0000", "sector": "iron_steel", "defaultDirectTCO2eperT": 1.85, "defaultIndirectTCO2eperT": 0.30 },
+    { "htsCode": "7208.10.0000", "sector": "iron_steel", "defaultDirectTCO2eperT": 1.85, "defaultIndirectTCO2eperT": 0.30 },
+    { "htsCode": "7308.30.0000", "sector": "iron_steel", "defaultDirectTCO2eperT": 1.85, "defaultIndirectTCO2eperT": 0.30 },
+    { "htsCode": "7326.20.0000", "sector": "iron_steel", "defaultDirectTCO2eperT": 1.85, "defaultIndirectTCO2eperT": 0.30 },
+
+    { "htsCode": "7601.10.0000", "sector": "aluminum", "defaultDirectTCO2eperT": 1.50, "defaultIndirectTCO2eperT": 11.00 },
+    { "htsCode": "7601.20.0000", "sector": "aluminum", "defaultDirectTCO2eperT": 1.50, "defaultIndirectTCO2eperT": 11.00 },
+    { "htsCode": "7616.99.0000", "sector": "aluminum", "defaultDirectTCO2eperT": 1.20, "defaultIndirectTCO2eperT": 7.00 },
+
+    { "htsCode": "3102.10.0000", "sector": "fertilizers", "defaultDirectTCO2eperT": 1.60, "defaultIndirectTCO2eperT": 0.50 },
+    { "htsCode": "3102.30.0000", "sector": "fertilizers", "defaultDirectTCO2eperT": 2.10, "defaultIndirectTCO2eperT": 0.60 },
+    { "htsCode": "3105.10.0000", "sector": "fertilizers", "defaultDirectTCO2eperT": 1.40, "defaultIndirectTCO2eperT": 0.40 },
+
+    { "htsCode": "2716.00.0000", "sector": "electricity", "defaultDirectTCO2eperT": 0, "defaultIndirectTCO2eperT": 0.55, "note": "Electricity — emissions in tCO2e per MWh, not per tonne. Operators supply emissions per MWh + quantity in MWh." },
+
+    { "htsCode": "2804.10.0000", "sector": "hydrogen", "defaultDirectTCO2eperT": 10.5, "defaultIndirectTCO2eperT": 0, "note": "Default for grey/blue hydrogen; green hydrogen producers can declare 0–3 tCO2e/t with verification." }
+  ]
+}

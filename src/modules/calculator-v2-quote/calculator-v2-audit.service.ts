@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { CalculatorV2QuoteResult } from './calculator-v2-quote.types';
 import type { SourceCitationRef } from '../calculator/services/tariff-types';
+import type { ExceptionRuleRunResult } from '../exception-rules/types';
 
 /**
  * CalculatorV2AuditService (Phase F1)
@@ -54,13 +55,40 @@ export interface AuditSnapshot {
   }>;
   /** Optional reference to an FX record id created for this quote. */
   fxRecordId?: string | null;
+  /**
+   * P1.T8 — per-line exception-rule run result. One entry per quote
+   * line, in line order. Empty `firedRules[]` on every entry when no
+   * rule fires (the Phase 1 default).
+   */
+  exceptionRuleRuns?: Array<{
+    lineNumber: number;
+    firedRules: string[];
+    skippedByConflict: string[];
+    notes: Record<string, string[]>;
+  }>;
+  /**
+   * P1.T8 — enabled/disabled state of every registered rule at quote
+   * time, so historical replay sees the exact toggle picture. Empty
+   * when no rules are registered.
+   */
+  ruleStatusSnapshot?: Record<string, boolean>;
+}
+
+/** Optional extras passed by the calculator service into `build()`. */
+export interface AuditExtras {
+  exceptionRuleRuns?: ExceptionRuleRunResult[];
+  ruleStatusSnapshot?: Record<string, boolean>;
 }
 
 @Injectable()
 export class CalculatorV2AuditService {
   private readonly logger = new Logger(CalculatorV2AuditService.name);
 
-  build(quote: CalculatorV2QuoteResult, fxRecordId?: string | null): AuditSnapshot {
+  build(
+    quote: CalculatorV2QuoteResult,
+    fxRecordId?: string | null,
+    extras?: AuditExtras,
+  ): AuditSnapshot {
     const sourceCitations = this.dedupeCitations(
       quote.lines.flatMap((l) => l.result.sources),
     );
@@ -87,6 +115,12 @@ export class CalculatorV2AuditService {
         });
       }
     }
+    const exceptionRuleRuns = extras?.exceptionRuleRuns?.map((r, i) => ({
+      lineNumber: i + 1,
+      firedRules: r.firedRules.slice(),
+      skippedByConflict: r.skippedByConflict.slice(),
+      notes: { ...r.notes },
+    }));
     return {
       quoteId: quote.quoteId,
       engineVersion: quote.engineVersion,
@@ -101,6 +135,8 @@ export class CalculatorV2AuditService {
       systemSelectedChapter99Headings: Array.from(ch99Set).sort(),
       formulaSemanticHashes: hashes,
       fxRecordId: fxRecordId ?? null,
+      exceptionRuleRuns,
+      ruleStatusSnapshot: extras?.ruleStatusSnapshot,
     };
   }
 
@@ -112,14 +148,18 @@ export class CalculatorV2AuditService {
   recordAndLog(
     quote: CalculatorV2QuoteResult,
     fxRecordId?: string | null,
+    extras?: AuditExtras,
   ): AuditSnapshot {
-    const snapshot = this.build(quote, fxRecordId);
+    const snapshot = this.build(quote, fxRecordId, extras);
+    const firedCount =
+      snapshot.exceptionRuleRuns?.reduce((s, r) => s + r.firedRules.length, 0) ?? 0;
     this.logger.log(
       `audit.quote quoteId=${snapshot.quoteId} ` +
         `engine=${snapshot.engineVersion} ` +
         `lines=${quote.lines.length} ` +
         `citations=${snapshot.sourceCitations.length} ` +
         `ch99=${snapshot.systemSelectedChapter99Headings.length} ` +
+        `rulesFired=${firedCount} ` +
         `fx=${snapshot.fxRecordId ?? 'none'}`,
     );
     return snapshot;

@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { OrgPermissionsGuard } from '../auth/guards/org-permissions.guard';
+import { BrokerClientEntity } from '../broker-core/entities/broker-client.entity';
 import { BrokerRulesModule } from '../broker-rules/broker-rules.module';
 import { LandedCostModule } from '../landed-cost/landed-cost.module';
 import { BrokerEntriesController } from './controllers/broker-entries.controller';
@@ -20,6 +21,7 @@ import { BrokerShipmentsService } from './services/broker-shipments.service';
       BrokerShipmentEntity,
       BrokerEntryEntity,
       BrokerEntryLineEntity,
+      BrokerClientEntity,
     ]),
     AuditModule,
     forwardRef(() => BrokerRulesModule),

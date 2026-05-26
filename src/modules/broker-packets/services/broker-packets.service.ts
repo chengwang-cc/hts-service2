@@ -11,10 +11,9 @@ import { AuditService } from '../../audit/services/audit.service';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
 import { BrokerClientEntity } from '../../broker-core/entities/broker-client.entity';
 import { BrokerRelationshipsService } from '../../broker-core/services/broker-relationships.service';
+import { BrokerShipmentEntity } from '../../broker-entries/entities';
 import { BrokerEntriesService } from '../../broker-entries/services/broker-entries.service';
-import {
-  DocumentSecurityScanService,
-} from '../../documents/document-security-scan.service';
+import { DocumentSecurityScanService } from '../../documents/document-security-scan.service';
 import { DocumentStorageService } from '../../documents/document-storage.service';
 import { QueueService } from '../../queue/queue.service';
 import {
@@ -50,6 +49,8 @@ export class BrokerPacketsService {
     private readonly fields: Repository<BrokerExtractedFieldEntity>,
     @InjectRepository(BrokerClientEntity)
     private readonly brokerClients: Repository<BrokerClientEntity>,
+    @InjectRepository(BrokerShipmentEntity)
+    private readonly shipments: Repository<BrokerShipmentEntity>,
     private readonly scan: DocumentSecurityScanService,
     private readonly storage: DocumentStorageService,
     private readonly classifier: DocumentClassifierService,
@@ -99,6 +100,10 @@ export class BrokerPacketsService {
     if (!dto.documents?.length) {
       throw new BadRequestException('At least one document is required');
     }
+    await this.requireOwnedClient(ctx, dto.clientId);
+    if (dto.shipmentId) {
+      await this.requireOwnedShipment(ctx, dto.shipmentId, dto.clientId);
+    }
     const packet = await this.packets.save(
       this.packets.create({
         brokerOrganizationId: ctx.organizationId,
@@ -133,9 +138,7 @@ export class BrokerPacketsService {
   async createFromPortal(ctx: RequestContext, dto: ClientPortalUploadDto) {
     this.assertAuthenticated(ctx);
     const relationships = await this.relationships.listForBusiness(ctx);
-    const relationship = relationships.find(
-      (r) => r.id === dto.relationshipId,
-    );
+    const relationship = relationships.find((r) => r.id === dto.relationshipId);
     if (!relationship) {
       throw new NotFoundException('Relationship not found');
     }
@@ -188,7 +191,19 @@ export class BrokerPacketsService {
     return packet;
   }
 
+  async processForContext(
+    ctx: RequestContext,
+    packetId: string,
+  ): Promise<void> {
+    await this.requireOwned(ctx, packetId);
+    await this.processSystem(packetId, 'broker_reprocess');
+  }
+
   async process(packetId: string): Promise<void> {
+    await this.processSystem(packetId, 'legacy_internal');
+  }
+
+  async processSystem(packetId: string, reason = 'system'): Promise<void> {
     const packet = await this.packets.findOne({ where: { id: packetId } });
     if (!packet) {
       this.logger.warn(`Packet ${packetId} not found during processing`);
@@ -250,6 +265,7 @@ export class BrokerPacketsService {
         resourceId: packet.id,
         source: 'broker-packets',
         metadata: {
+          processingReason: reason,
           documents: documents.length,
           reconciliationFindings: reconciliation.length,
         },
@@ -325,11 +341,14 @@ export class BrokerPacketsService {
     });
     const acceptedByPath = new Map<string, string>();
     for (const f of fields) {
-      if (f.acceptedStatus === 'accepted' || f.acceptedStatus === 'overridden') {
+      if (
+        f.acceptedStatus === 'accepted' ||
+        f.acceptedStatus === 'overridden'
+      ) {
         const value =
           f.acceptedStatus === 'overridden'
-            ? f.reviewedValue ?? f.normalizedValue ?? f.rawValue ?? ''
-            : f.normalizedValue ?? f.rawValue ?? '';
+            ? (f.reviewedValue ?? f.normalizedValue ?? f.rawValue ?? '')
+            : (f.normalizedValue ?? f.rawValue ?? '');
         if (value) acceptedByPath.set(f.fieldPath, value);
       }
     }
@@ -357,7 +376,8 @@ export class BrokerPacketsService {
               quantity: lineQuantity || undefined,
               unitValue: lineUnitValue || undefined,
               currency: acceptedByPath.get('invoice.currency') ?? undefined,
-              countryOfOrigin: acceptedByPath.get('origin.country') ?? undefined,
+              countryOfOrigin:
+                acceptedByPath.get('origin.country') ?? undefined,
             },
           ]
         : [],
@@ -464,6 +484,39 @@ export class BrokerPacketsService {
       throw new ForbiddenException('Packet belongs to another tenant');
     }
     return packet;
+  }
+
+  async requireOwnedPacket(ctx: RequestContext, id: string) {
+    return this.requireOwned(ctx, id);
+  }
+
+  private async requireOwnedClient(ctx: RequestContext, clientId: string) {
+    const client = await this.brokerClients.findOne({
+      where: { id: clientId },
+    });
+    if (!client) throw new NotFoundException('Broker client not found');
+    if (client.brokerOrganizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Broker client belongs to another tenant');
+    }
+  }
+
+  private async requireOwnedShipment(
+    ctx: RequestContext,
+    shipmentId: string,
+    clientId?: string,
+  ) {
+    const shipment = await this.shipments.findOne({
+      where: { id: shipmentId },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    if (shipment.brokerOrganizationId !== ctx.organizationId) {
+      throw new ForbiddenException('Shipment belongs to another tenant');
+    }
+    if (clientId && shipment.clientId !== clientId) {
+      throw new BadRequestException(
+        'Shipment does not belong to packet client',
+      );
+    }
   }
 
   private assertAuthenticated(ctx: RequestContext) {

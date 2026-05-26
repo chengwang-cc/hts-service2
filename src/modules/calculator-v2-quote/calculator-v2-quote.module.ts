@@ -12,6 +12,8 @@ import { JurisdictionModule } from '../jurisdiction/jurisdiction.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { PublicApiModule } from '../public-api/public-api.module';
+import { ExceptionRulesModule } from '../exception-rules/exception-rules.module';
+import { EuExceptionRulesModule } from '../exception-rules/eu/eu-exception-rules.module';
 
 /**
  * CalculatorV2QuoteModule (Phase A)
@@ -32,6 +34,8 @@ import { PublicApiModule } from '../public-api/public-api.module';
     CalculatorModule,
     ApiKeysModule,
     PublicApiModule, // for CalculationHistoryService
+    ExceptionRulesModule, // P1.T7 — runner is a no-op until rules register in P2+
+    EuExceptionRulesModule, // D7 fix — exposes CbamQuarterlySettlementService for per-line recording
     TypeOrmModule.forFeature([FxRecordEntity]),
   ],
   controllers: [CalculatorV2QuoteController],

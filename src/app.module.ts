@@ -13,6 +13,33 @@ import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.modul
 import { LookupModule } from './modules/lookup/lookup.module';
 import { CalculatorModule } from './modules/calculator/calculator.module';
 import { CalculatorV2QuoteModule } from './modules/calculator-v2-quote/calculator-v2-quote.module';
+import { ExceptionRulesModule } from './modules/exception-rules/exception-rules.module';
+import { UsExceptionRulesModule } from './modules/exception-rules/us/us-exception-rules.module';
+import { AuExceptionRulesModule } from './modules/exception-rules/au/au-exception-rules.module';
+import { TwExceptionRulesModule } from './modules/exception-rules/tw/tw-exception-rules.module';
+import { KrExceptionRulesModule } from './modules/exception-rules/kr/kr-exception-rules.module';
+import { SgExceptionRulesModule } from './modules/exception-rules/sg/sg-exception-rules.module';
+import { NzExceptionRulesModule } from './modules/exception-rules/nz/nz-exception-rules.module';
+import { CaExceptionRulesModule } from './modules/exception-rules/ca/ca-exception-rules.module';
+import { GbExceptionRulesModule } from './modules/exception-rules/gb/gb-exception-rules.module';
+import { EuExceptionRulesModule } from './modules/exception-rules/eu/eu-exception-rules.module';
+// W1 (2026-05-26): Japan + Mexico
+import { JpExceptionRulesModule } from './modules/exception-rules/jp/jp-exception-rules.module';
+import { MxExceptionRulesModule } from './modules/exception-rules/mx/mx-exception-rules.module';
+// W2: China + India
+import { CnExceptionRulesModule } from './modules/exception-rules/cn/cn-exception-rules.module';
+import { InExceptionRulesModule } from './modules/exception-rules/in/in-exception-rules.module';
+// W3: ASEAN cluster (VN, PH, ID, MY, TH)
+import { VnExceptionRulesModule } from './modules/exception-rules/vn/vn-exception-rules.module';
+import { PhExceptionRulesModule } from './modules/exception-rules/ph/ph-exception-rules.module';
+import { IdExceptionRulesModule } from './modules/exception-rules/id/id-exception-rules.module';
+import { MyExceptionRulesModule } from './modules/exception-rules/my/my-exception-rules.module';
+import { ThExceptionRulesModule } from './modules/exception-rules/th/th-exception-rules.module';
+// W4: UAE + Brazil
+import { AeExceptionRulesModule } from './modules/exception-rules/ae/ae-exception-rules.module';
+import { BrExceptionRulesModule } from './modules/exception-rules/br/br-exception-rules.module';
+import { KnowledgebaseCardsModule } from './modules/knowledgebase-cards/knowledgebase-cards.module';
+import { ExceptionRulesSchedulerModule } from './modules/exception-rules-scheduler/exception-rules-scheduler.module';
 import { JurisdictionModule } from './modules/jurisdiction/jurisdiction.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ClassificationModule } from './modules/classification/classification.module';
@@ -44,7 +71,12 @@ import { BrokerAdaptersModule } from './modules/broker-adapters/broker-adapters.
 import { MarketplaceReviewsModule } from './modules/marketplace-reviews/marketplace-reviews.module';
 import { BrokerPostEntryModule } from './modules/broker-post-entry/broker-post-entry.module';
 import { BrokerAdminModule } from './modules/broker-admin/broker-admin.module';
+import { BrokerOutreachModule } from './modules/broker-outreach/broker-outreach.module';
+import { QueryBuilderModule } from './modules/query-builder/query-builder.module';
+import { DataTransformerModule } from './modules/data-transformer/data-transformer.module';
+import { EcommerceHandoffModule } from './modules/ecommerce-handoff/ecommerce-handoff.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
+import { ObservabilityGaugesModule } from './modules/observability/observability-gauges.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
@@ -145,6 +177,51 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // Landed-cost module (P3 — POST /landed-cost/quotes + quote lifecycle)
     LandedCostModule,
 
+    // Exception rules module (Phase 1 — runner + registry + admin console)
+    ExceptionRulesModule,
+
+    // US exception rules (Phase 2 + 3 + 4 — aluminum smelt/cast, steel,
+    // §301 lists, exclusions, IEEPA fentanyl + reciprocal, Chapter 98,
+    // USMCA, Section 201 solar). Rules ship DISABLED by default;
+    // operators enable per rule via /admin/exception-rules after
+    // baseline diff.
+    UsExceptionRulesModule,
+
+    // Phase 5 — non-US destination tax rules. All disabled by default.
+    AuExceptionRulesModule,
+    TwExceptionRulesModule,
+    KrExceptionRulesModule,
+    SgExceptionRulesModule,
+    NzExceptionRulesModule,
+
+    // Phase 6 — non-US trade remedies + sanctions + FTA preferences.
+    // Phase 7 — EU CBAM (lives inside EuExceptionRulesModule).
+    CaExceptionRulesModule,
+    GbExceptionRulesModule,
+    EuExceptionRulesModule,
+
+    // Wave 1+ (2026-05-26) — 11-country expansion. All rules ship
+    // DISABLED; per-country adapters still need source ingestion. See
+    // docs/2026-05-26/1420_11-country-tariff-source-of-truth-execution-plan.md
+    JpExceptionRulesModule,   // W1
+    MxExceptionRulesModule,   // W1
+    CnExceptionRulesModule,   // W2
+    InExceptionRulesModule,   // W2
+    VnExceptionRulesModule,   // W3 ASEAN
+    PhExceptionRulesModule,   // W3 ASEAN
+    IdExceptionRulesModule,   // W3 ASEAN
+    MyExceptionRulesModule,   // W3 ASEAN
+    ThExceptionRulesModule,   // W3 ASEAN
+    AeExceptionRulesModule,   // W4
+    BrExceptionRulesModule,   // W4
+
+    // Phase 8 — knowledge-cards ingestion + rule-review-alert loop.
+    KnowledgebaseCardsModule,
+
+    // Phase-8/9 follow-up — pg-boss cron registrations (env-gated; off
+    // by default so test/dev runs don't poll external sources).
+    ExceptionRulesSchedulerModule,
+
     // Calculator V2 quote module (Phase A — unified multi-country calculator)
     CalculatorV2QuoteModule,
 
@@ -217,6 +294,12 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // Broker platform — Phase 9 marketplace reviews, broker performance, credits/monetization
     MarketplaceReviewsModule,
 
+    // Broker platform — outreach leads, campaigns, and one-click trial invites
+    BrokerOutreachModule,
+    QueryBuilderModule,
+    DataTransformerModule,
+    EcommerceHandoffModule,
+
     // Broker platform — Phase 10 post-entry cases, audit pack, prior decisions
     BrokerPostEntryModule,
 
@@ -227,6 +310,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // Observability — global telemetry service + per-tenant request metrics
     // middleware on broker / broker-portal / marketplace routes.
     ObservabilityModule,
+    ObservabilityGaugesModule,
   ],
   controllers: [AppController],
   providers: [

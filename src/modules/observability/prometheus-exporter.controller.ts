@@ -22,18 +22,11 @@ export class PrometheusExporterController {
   @Get('metrics')
   @Header('content-type', 'text/plain; version=0.0.4; charset=utf-8')
   scrape(): string {
-    const { counters, latencies } = this.telemetry.snapshot();
+    const { counters, gauges, latencies } = this.telemetry.snapshot();
     const lines: string[] = [];
 
-    if (Object.keys(counters).length > 0) {
-      lines.push(
-        '# HELP broker_http_requests_total Per-route HTTP request counter (router / org / method / status).',
-      );
-      lines.push('# TYPE broker_http_requests_total counter');
-      for (const [key, value] of Object.entries(counters)) {
-        lines.push(`${toPrometheusKey(key)} ${value}`);
-      }
-    }
+    emitGroupedMetrics(lines, counters, 'counter');
+    emitGroupedMetrics(lines, gauges, 'gauge');
 
     if (Object.keys(latencies).length > 0) {
       lines.push(
@@ -51,6 +44,35 @@ export class PrometheusExporterController {
 
     lines.push('');
     return lines.join('\n');
+  }
+}
+
+/**
+ * Group TelemetryService keys by base metric name so we emit one
+ * `# TYPE foo counter|gauge` header per metric with every labelled
+ * sample beneath it, per the Prometheus text format.
+ */
+function emitGroupedMetrics(
+  lines: string[],
+  entries: Record<string, number>,
+  type: 'counter' | 'gauge',
+): void {
+  const grouped = new Map<
+    string,
+    Array<{ key: string; value: number }>
+  >();
+  for (const [key, value] of Object.entries(entries)) {
+    const baseName = key.includes('{') ? key.slice(0, key.indexOf('{')) : key;
+    const safe = sanitizeMetricName(baseName);
+    const bucket = grouped.get(safe) ?? [];
+    bucket.push({ key, value });
+    grouped.set(safe, bucket);
+  }
+  for (const [safeName, rows] of grouped) {
+    lines.push(`# TYPE ${safeName} ${type}`);
+    for (const row of rows) {
+      lines.push(`${toPrometheusKey(row.key)} ${row.value}`);
+    }
   }
 }
 

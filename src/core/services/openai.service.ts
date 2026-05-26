@@ -57,7 +57,9 @@ export class OpenAiService {
   };
 
   // Pricing per 1M tokens (as of 2026)
+  // gpt-5-nano is the standard model after the DGX retirement (2026-05-27).
   private readonly pricing = {
+    'gpt-5-nano': { input: 0.05, output: 0.20 },
     'gpt-5.4-nano': { input: 0.05, output: 0.20 },
     'gpt-5.4-mini': { input: 0.25, output: 1.0 },
     'text-embedding-3-small': { input: 0.02, output: 0 },
@@ -93,7 +95,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5-nano',
       instructions,
       temperature,
       max_output_tokens,
@@ -175,7 +177,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): Promise<Response> {
     const {
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5-nano',
       instructions,
       temperature = 0.7,
       max_output_tokens,
@@ -256,7 +258,7 @@ export class OpenAiService {
     options: ResponseOptions = {},
   ): AsyncIterable<ResponseStreamEvent> {
     const {
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5-nano',
       temperature = 0.7,
       max_output_tokens,
       top_p,
@@ -304,7 +306,7 @@ export class OpenAiService {
     options: ChatOptions = {},
   ): Promise<ChatCompletion> {
     const {
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5-nano',
       temperature = 0.7,
       max_tokens,
       top_p,
@@ -362,7 +364,7 @@ export class OpenAiService {
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {},
   ): AsyncIterable<ChatCompletionChunk> {
-    const { model = 'gpt-5.4-mini', temperature = 0.7, max_tokens, top_p } = options;
+    const { model = 'gpt-5-nano', temperature = 0.7, max_tokens, top_p } = options;
 
     try {
       const stream = await this.client.chat.completions.create({
@@ -507,7 +509,7 @@ export class OpenAiService {
     promptTokens: number,
     completionTokens: number,
   ): number {
-    const pricing = this.pricing[model] || this.pricing['gpt-5.4-mini'];
+    const pricing = this.pricing[model] || this.pricing['gpt-5-nano'];
     const inputCost = (promptTokens / 1_000_000) * pricing.input;
     const outputCost = (completionTokens / 1_000_000) * pricing.output;
     return inputCost + outputCost;

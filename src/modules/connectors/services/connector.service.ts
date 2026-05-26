@@ -3,8 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConnectorEntity } from '../entities/connector.entity';
 import { SyncLogEntity } from '../entities/sync-log.entity';
-import { ShopifyConnector } from './shopify.connector';
+import { ShopifyConfig, ShopifyConnector } from './shopify.connector';
 import { BrokerConnector } from './broker.connector';
+import {
+  EncryptedSecret,
+  EncryptedSecretService,
+} from '../../security/encrypted-secret.service';
 import {
   CreateConnectorDto,
   UpdateConnectorDto,
@@ -23,6 +27,7 @@ export class ConnectorService {
     private readonly syncLogRepo: Repository<SyncLogEntity>,
     private readonly shopifyConnector: ShopifyConnector,
     private readonly brokerConnector: BrokerConnector,
+    private readonly encryptedSecrets: EncryptedSecretService,
   ) {}
 
   private searchService: any = null;
@@ -63,7 +68,7 @@ export class ConnectorService {
       connectorType: dto.connectorType,
       name: dto.name,
       description: dto.description,
-      config: dto.config,
+      config: this.encryptConnectorConfig(dto.config),
       status: 'pending',
     });
 
@@ -85,7 +90,16 @@ export class ConnectorService {
 
     if (dto.name) connector.name = dto.name;
     if (dto.description !== undefined) connector.description = dto.description;
-    if (dto.config) connector.config = { ...connector.config, ...dto.config };
+    if (dto.config) {
+      // Treat redacted placeholders ("***") as "field omitted" so the
+      // UI can echo a redacted config back without overwriting the
+      // stored encrypted secret with the literal placeholder string.
+      const incoming = stripRedactedSecrets(dto.config);
+      connector.config = this.encryptConnectorConfig({
+        ...this.decryptConnectorConfig(connector.config),
+        ...incoming,
+      });
+    }
     if (dto.isActive !== undefined) connector.isActive = dto.isActive;
 
     return this.redactConfig(await this.connectorRepo.save(connector));
@@ -135,7 +149,11 @@ export class ConnectorService {
   ): Promise<{ success: boolean; message: string }> {
     try {
       if (connectorType === 'shopify') {
-        const success = await this.shopifyConnector.testConnection(config);
+        const shopifyConfig = this.requireShopifyConfig(
+          this.decryptConnectorConfig(config),
+        );
+        const success =
+          await this.shopifyConnector.testConnection(shopifyConfig);
         return {
           success,
           message: success ? 'Connection successful' : 'Connection failed',
@@ -188,6 +206,7 @@ export class ConnectorService {
 
     try {
       if (connector.connectorType === 'shopify') {
+        connector.config = this.decryptConnectorConfig(connector.config);
         await this.syncShopify(connector, dto, syncLog);
       } else {
         throw new Error('Connector type not implemented');
@@ -283,7 +302,10 @@ export class ConnectorService {
             // Fallback to autocomplete if hybrid search found nothing
             if (!htsNumber && this.searchService) {
               try {
-                const autoResults = await this.searchService.autocomplete(product.title, 3);
+                const autoResults = await this.searchService.autocomplete(
+                  product.title,
+                  3,
+                );
                 if (autoResults.length > 0 && autoResults[0].htsNumber) {
                   htsNumber = autoResults[0].htsNumber;
                 }
@@ -348,10 +370,7 @@ export class ConnectorService {
       syncLog.errors = errors.length > 0 ? errors : null;
       syncLog.summary = {
         productsImported: products.length,
-        variantsTotal: products.reduce(
-          (sum, p) => sum + p.variants.length,
-          0,
-        ),
+        variantsTotal: products.reduce((sum, p) => sum + p.variants.length, 0),
         classified: syncLog.itemsSucceeded,
         failed: syncLog.itemsFailed,
         classifiedWithoutSku: variantsWithoutSku,
@@ -371,6 +390,7 @@ export class ConnectorService {
       where: { id: connectorId, organizationId },
     });
     if (!connector || connector.connectorType !== 'shopify') return;
+    connector.config = this.decryptConnectorConfig(connector.config);
 
     const config = {
       shopUrl: connector.config.shopUrl!,
@@ -381,9 +401,14 @@ export class ConnectorService {
       const product = await this.shopifyConnector.getProduct(config, productId);
       for (const variant of product.variants) {
         const variantLabel = variant.sku ?? `variant ${variant.id}`;
-        const query = [product.title, product.description].filter(Boolean).join(' ').trim();
+        const query = [product.title, product.description]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
         if (!query) {
-          this.logger.warn(`Webhook sync: skipping ${variantLabel} — no title/description to classify`);
+          this.logger.warn(
+            `Webhook sync: skipping ${variantLabel} — no title/description to classify`,
+          );
           continue;
         }
 
@@ -396,21 +421,32 @@ export class ConnectorService {
               htsNumber = results[0].htsNumber;
             }
           } catch (searchError: any) {
-            this.logger.warn(`Webhook sync: hybrid search failed for ${variantLabel}: ${searchError.message}`);
+            this.logger.warn(
+              `Webhook sync: hybrid search failed for ${variantLabel}: ${searchError.message}`,
+            );
           }
 
           // Fallback to autocomplete if hybrid search found nothing
           if (!htsNumber) {
             try {
-              const autoResults = await this.searchService.autocomplete(product.title, 3);
+              const autoResults = await this.searchService.autocomplete(
+                product.title,
+                3,
+              );
               if (autoResults.length > 0 && autoResults[0].htsNumber) {
                 htsNumber = autoResults[0].htsNumber;
-                this.logger.log(`Webhook sync: fallback autocomplete matched ${variantLabel} → ${htsNumber}`);
+                this.logger.log(
+                  `Webhook sync: fallback autocomplete matched ${variantLabel} → ${htsNumber}`,
+                );
               } else {
-                this.logger.warn(`Webhook sync: no classification for ${variantLabel} (title: "${product.title.substring(0, 60)}")`);
+                this.logger.warn(
+                  `Webhook sync: no classification for ${variantLabel} (title: "${product.title.substring(0, 60)}")`,
+                );
               }
             } catch {
-              this.logger.warn(`Webhook sync: autocomplete also failed for ${variantLabel}`);
+              this.logger.warn(
+                `Webhook sync: autocomplete also failed for ${variantLabel}`,
+              );
             }
           }
         }
@@ -422,11 +458,15 @@ export class ConnectorService {
             htsNumber,
             variant.countryCodeOfOrigin,
           );
-          this.logger.log(`Webhook sync: classified ${variantLabel} → ${htsNumber}`);
+          this.logger.log(
+            `Webhook sync: classified ${variantLabel} → ${htsNumber}`,
+          );
         }
       }
     } catch (error: any) {
-      this.logger.warn(`Single product sync failed for ${productId}: ${error.message}`);
+      this.logger.warn(
+        `Single product sync failed for ${productId}: ${error.message}`,
+      );
     }
   }
 
@@ -445,7 +485,8 @@ export class ConnectorService {
 
     return (
       connectors.find((c) => {
-        const configHost = this.normalizeShopHost(c.config.shopUrl ?? '');
+        const config = this.decryptConnectorConfig(c.config);
+        const configHost = this.normalizeShopHost(config.shopUrl ?? '');
         return configHost === normalizedDomain;
       }) ?? null
     );
@@ -524,14 +565,83 @@ export class ConnectorService {
     return connector;
   }
 
+  private encryptConnectorConfig(config: ConnectorEntity['config']) {
+    const encrypted = { ...(config ?? {}) } as Record<string, unknown>;
+    for (const key of ['accessToken', 'apiSecret', 'apiKey']) {
+      const value = encrypted[key];
+      if (typeof value === 'string' && value && value !== '***') {
+        encrypted[key] = this.encryptedSecrets.encrypt(value);
+      }
+    }
+    return encrypted as ConnectorEntity['config'];
+  }
+
+  private decryptConnectorConfig(config: ConnectorEntity['config']) {
+    const decrypted = { ...(config ?? {}) } as Record<string, unknown>;
+    for (const key of ['accessToken', 'apiSecret', 'apiKey']) {
+      const value = decrypted[key];
+      if (this.isEncryptedSecret(value)) {
+        decrypted[key] = this.encryptedSecrets.decrypt(value);
+      }
+    }
+    return decrypted as ConnectorEntity['config'];
+  }
+
+  private requireShopifyConfig(
+    config: ConnectorEntity['config'],
+  ): ShopifyConfig {
+    const shopUrl = config?.shopUrl;
+    const accessToken = config?.accessToken;
+    if (typeof shopUrl !== 'string' || typeof accessToken !== 'string') {
+      throw new HttpException(
+        'Shopify connector requires shopUrl and accessToken',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const apiVersion =
+      typeof config.apiVersion === 'string' ? config.apiVersion : undefined;
+    return { shopUrl, accessToken, apiVersion };
+  }
+
+  private isEncryptedSecret(value: unknown): value is EncryptedSecret {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as EncryptedSecret).algorithm === 'aes-256-gcm' &&
+      typeof (value as EncryptedSecret).ciphertext === 'string' &&
+      typeof (value as EncryptedSecret).iv === 'string' &&
+      typeof (value as EncryptedSecret).authTag === 'string'
+    );
+  }
+
   private normalizeShopHost(input: string): string {
     const trimmed = (input ?? '').trim().toLowerCase();
     if (!trimmed) return '';
     try {
-      const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+      const url = trimmed.includes('://')
+        ? new URL(trimmed)
+        : new URL(`https://${trimmed}`);
       return url.host;
     } catch {
       return trimmed;
     }
   }
+}
+
+/**
+ * Strip redacted placeholder values (literal `***`) from an incoming
+ * connector config update. Without this, a UI that round-trips the
+ * redacted shape from GET → PUT would persist the literal `***` over a
+ * real secret, breaking every subsequent sync.
+ */
+export function stripRedactedSecrets<T extends Record<string, unknown> | undefined>(
+  config: T,
+): T {
+  if (!config) return config;
+  const REDACTED_KEYS = ['accessToken', 'apiSecret', 'apiKey'] as const;
+  const out: Record<string, unknown> = { ...config };
+  for (const key of REDACTED_KEYS) {
+    if (out[key] === '***') delete out[key];
+  }
+  return out as T;
 }

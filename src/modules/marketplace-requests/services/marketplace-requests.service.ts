@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditService } from '../../audit/services/audit.service';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
@@ -65,6 +65,7 @@ export class MarketplaceRequestsService {
     @Optional()
     @InjectRepository(MarketplaceBrokerProfileEntity)
     private readonly profiles: Repository<MarketplaceBrokerProfileEntity> | null = null,
+    @Optional() private readonly dataSource: DataSource | null = null,
   ) {}
 
   private readonly logger = new Logger(MarketplaceRequestsService.name);
@@ -72,6 +73,11 @@ export class MarketplaceRequestsService {
   async create(ctx: RequestContext, dto: CreateMarketplaceRequestDto) {
     this.assertAuthenticated(ctx);
     const preflight = await this.preflight.preflight(dto);
+    const visibilityMode = dto.visibilityMode ?? 'invited';
+    const invitedBrokerProfileIds = this.uniqueIds(dto.invitedBrokerProfileIds);
+    if (visibilityMode === 'invited' && invitedBrokerProfileIds.length) {
+      await this.validateInvitableBrokerProfiles(invitedBrokerProfileIds);
+    }
 
     const entity = this.requests.create({
       requestingOrganizationId: ctx.organizationId,
@@ -87,19 +93,37 @@ export class MarketplaceRequestsService {
       candidateHtsNumbers: preflight.candidateHtsNumbers,
       regulatoryFlags: preflight.regulatoryFlags,
       serviceCategories: dto.serviceCategories ?? [],
-      shipmentValue: dto.shipmentValue != null ? String(dto.shipmentValue) : null,
+      shipmentValue:
+        dto.shipmentValue != null ? String(dto.shipmentValue) : null,
       shipmentCurrency: dto.shipmentCurrency ?? null,
       shipmentVolume: dto.shipmentVolume ?? null,
       readinessScore: preflight.readinessScore,
       readinessBreakdown: preflight.readinessBreakdown,
-      visibilityMode: dto.visibilityMode ?? 'invited',
+      visibilityMode,
       deadline: dto.deadline ?? null,
       metadata: dto.metadata ?? null,
     });
 
     const saved = await this.requests.save(entity);
 
-    await this.matching.matchRequest(saved);
+    const createdMatches = await this.applyVisibilityDecision(
+      ctx,
+      saved,
+      invitedBrokerProfileIds,
+    );
+
+    saved.metadata = {
+      ...(saved.metadata ?? {}),
+      visibilityDecision: {
+        requestId: saved.id,
+        mode: saved.visibilityMode,
+        actorUserId: ctx.userId,
+        selectedBrokerProfileIds: invitedBrokerProfileIds,
+        createdMatchCount: createdMatches.length,
+        appliedAt: new Date().toISOString(),
+      },
+    };
+    await this.requests.save(saved);
 
     await this.audit.record({
       eventType: 'marketplace_request.created',
@@ -111,6 +135,22 @@ export class MarketplaceRequestsService {
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       metadata: { readinessScore: saved.readinessScore },
+    });
+
+    await this.audit.record({
+      eventType: 'marketplace.request.visibility.applied',
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      resourceType: 'marketplace_request',
+      resourceId: saved.id,
+      source: 'marketplace',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: {
+        mode: saved.visibilityMode,
+        selectedBrokerProfileIds: invitedBrokerProfileIds,
+        createdMatchCount: createdMatches.length,
+      },
     });
 
     return this.getDetail(ctx, saved.id);
@@ -128,7 +168,10 @@ export class MarketplaceRequestsService {
       });
 
     if (dto.status) {
-      const statuses = dto.status.split(',').map((s) => s.trim()).filter(Boolean);
+      const statuses = dto.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (statuses.length) {
         qb.andWhere('request.status IN (:...statuses)', { statuses });
       }
@@ -159,6 +202,11 @@ export class MarketplaceRequestsService {
 
   async recomputeMatches(ctx: RequestContext, id: string) {
     const request = await this.getOwnedRequest(ctx, id);
+    if (request.visibilityMode !== 'public') {
+      throw new BadRequestException(
+        'Only public marketplace requests can run broad broker matching',
+      );
+    }
     await this.matching.matchRequest(request);
     return this.getDetail(ctx, id);
   }
@@ -219,6 +267,148 @@ export class MarketplaceRequestsService {
     reason: string | null,
   ) {
     this.assertAuthenticated(ctx);
+    if (this.dataSource) {
+      return this.rescindQuoteTransactional(ctx, quoteId, reason);
+    }
+    return this.rescindQuoteWithRepositories(ctx, quoteId, reason);
+  }
+
+  /**
+   * Transactional rescind path. The status flip on quote + the request
+   * reopen + the audit row commit together under a pessimistic lock on
+   * both rows, so a competing acceptQuote (which also locks both rows)
+   * cannot interleave. The cross-service compensations (pausing the
+   * relationship + cancelling the handoff draft) run AFTER the
+   * transaction commits and are best-effort; their failure leaves
+   * recoverable state and emits its own audit trail via the underlying
+   * service.
+   */
+  private async rescindQuoteTransactional(
+    ctx: RequestContext,
+    quoteId: string,
+    reason: string | null,
+  ) {
+    const txResult = await this.dataSource!.transaction(
+      'READ COMMITTED',
+      async (manager) => {
+        const quoteRepo = manager.getRepository(MarketplaceQuoteEntity);
+        const requestRepo = manager.getRepository(MarketplaceRequestEntity);
+
+        const quote = await quoteRepo
+          .createQueryBuilder('quote')
+          .setLock('pessimistic_write')
+          .where('quote.id = :quoteId', { quoteId })
+          .getOne();
+        if (!quote) throw new NotFoundException('Quote not found');
+        if (quote.brokerOrganizationId !== ctx.organizationId) {
+          throw new ForbiddenException('Quote belongs to another tenant');
+        }
+        if (quote.status !== 'accepted' && quote.status !== 'submitted') {
+          throw new BadRequestException(
+            `Cannot rescind a quote in ${quote.status} state`,
+          );
+        }
+
+        const request = await requestRepo
+          .createQueryBuilder('request')
+          .setLock('pessimistic_write')
+          .where('request.id = :requestId', { requestId: quote.requestId })
+          .getOne();
+        if (!request) throw new NotFoundException('Request not found');
+
+        const windowHours = Number(
+          process.env.MARKETPLACE_QUOTE_RESCIND_WINDOW_HOURS || 48,
+        );
+        const acceptedAtMs = quote.acceptedAt?.getTime() ?? null;
+        const insideWindow =
+          acceptedAtMs !== null &&
+          Date.now() - acceptedAtMs <= windowHours * 60 * 60 * 1000;
+        const wasAccepted = quote.status === 'accepted';
+
+        quote.status = 'withdrawn';
+        quote.metadata = {
+          ...(quote.metadata ?? {}),
+          rescindedAt: new Date().toISOString(),
+          rescindReason: reason,
+          rescindInsideWindow: insideWindow,
+        };
+        await quoteRepo.save(quote);
+
+        if (wasAccepted && insideWindow) {
+          request.status = 'in_quotes';
+          request.selectedBrokerProfileId = null;
+          request.selectedQuoteId = null;
+          await requestRepo.save(request);
+        }
+
+        await this.audit.record(
+          {
+            eventType: 'marketplace_quote.rescinded',
+            organizationId: ctx.organizationId,
+            actorUserId: ctx.userId,
+            resourceType: 'marketplace_quote',
+            resourceId: quote.id,
+            source: 'marketplace',
+            ipAddress: ctx.ipAddress,
+            userAgent: ctx.userAgent,
+            metadata: {
+              reason,
+              wasAccepted,
+              insideWindow,
+            },
+          },
+          manager,
+        );
+
+        return { quote, wasAccepted, insideWindow };
+      },
+    );
+
+    // Post-commit compensations. These call separate services that own
+    // their own audit trails; their failure does not roll back the
+    // rescind itself but is logged for operator follow-up.
+    let relationshipPaused = false;
+    let draftEntryCancelled = false;
+    if (txResult.wasAccepted && txResult.insideWindow) {
+      try {
+        const relationship = await this.relationships.findByMarketplaceQuoteId(
+          txResult.quote.id,
+        );
+        if (relationship) {
+          await this.relationships.updateStatus(
+            relationship.id,
+            'paused',
+            ctx,
+            { reason: 'quote_rescinded', quoteId: txResult.quote.id },
+          );
+          relationshipPaused = true;
+          draftEntryCancelled = await this.entries.cancelHandoffDraft({
+            brokerOrganizationId: relationship.brokerOrganizationId,
+            marketplaceQuoteId: txResult.quote.id,
+            reason: 'quote_rescinded',
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `rescind compensation failed for quote ${txResult.quote.id}: ${e?.message ?? e}`,
+        );
+      }
+    }
+
+    return {
+      quote: txResult.quote,
+      wasAccepted: txResult.wasAccepted,
+      insideWindow: txResult.insideWindow,
+      relationshipPaused,
+      draftEntryCancelled,
+    };
+  }
+
+  private async rescindQuoteWithRepositories(
+    ctx: RequestContext,
+    quoteId: string,
+    reason: string | null,
+  ) {
     const quote = await this.quotes.findOne({ where: { id: quoteId } });
     if (!quote) throw new NotFoundException('Quote not found');
     if (quote.brokerOrganizationId !== ctx.organizationId) {
@@ -255,12 +445,10 @@ export class MarketplaceRequestsService {
         quote.id,
       );
       if (relationship) {
-        await this.relationships.updateStatus(
-          relationship.id,
-          'paused',
-          ctx,
-          { reason: 'quote_rescinded', quoteId: quote.id },
-        );
+        await this.relationships.updateStatus(relationship.id, 'paused', ctx, {
+          reason: 'quote_rescinded',
+          quoteId: quote.id,
+        });
         relationshipPaused = true;
         draftEntryCancelled = await this.entries.cancelHandoffDraft({
           brokerOrganizationId: relationship.brokerOrganizationId,
@@ -268,9 +456,6 @@ export class MarketplaceRequestsService {
           reason: 'quote_rescinded',
         });
       }
-      // Reopen the request and clear the broker selection so the business
-      // can pick a different quote (which may have already expired — we'll
-      // leave that to the UI/business to refresh).
       const request = await this.requests.findOne({
         where: { id: quote.requestId },
       });
@@ -366,7 +551,10 @@ export class MarketplaceRequestsService {
     });
     if (!request) throw new NotFoundException('Request not found');
     const quotes = await this.quotes.find({
-      where: { requestId: request.id, brokerOrganizationId: ctx.organizationId },
+      where: {
+        requestId: request.id,
+        brokerOrganizationId: ctx.organizationId,
+      },
     });
     const conversation = await this.conversations.findOne({
       where: {
@@ -408,19 +596,133 @@ export class MarketplaceRequestsService {
     if (!match || match.brokerOrganizationId !== ctx.organizationId) {
       throw new NotFoundException('Lead not found');
     }
+    if (['declined', 'expired', 'selected', 'quoted'].includes(match.status)) {
+      throw new BadRequestException(
+        `Cannot submit quote for a ${match.status} lead`,
+      );
+    }
+    const request = await this.requests.findOne({
+      where: { id: match.requestId },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+    if (!this.canAcceptQuotes(request)) {
+      throw new BadRequestException(
+        `Cannot submit quote while request is ${request.status}`,
+      );
+    }
+    if (request.deadline && request.deadline.getTime() < Date.now()) {
+      throw new BadRequestException(
+        'Cannot submit quote after request deadline',
+      );
+    }
+    const existingQuote = await this.quotes.findOne({
+      where: { matchId: match.id, brokerOrganizationId: ctx.organizationId },
+    });
+    if (
+      existingQuote &&
+      ['submitted', 'accepted'].includes(existingQuote.status)
+    ) {
+      throw new BadRequestException(
+        `A ${existingQuote.status} quote already exists for this lead`,
+      );
+    }
 
-    // R2-D-02 — consume one lead credit per quote submission. Pro brokers
-    // get a discounted cost (0 by default), free brokers pay full price.
-    // Disabled when credits service is unbound (e.g. in unit tests) or
-    // when MARKETPLACE_LEAD_CREDIT_COST=0.
-    await this.consumeLeadCreditForQuote(ctx, match);
+    if (this.dataSource) {
+      return this.submitQuoteTransactional(ctx, match, request, dto);
+    }
+    return this.submitQuoteWithRepositories(ctx, match, request, dto);
+  }
 
-    const conversation = await this.ensureConversation(
-      match.requestId,
-      match.brokerProfileId,
-      match.brokerOrganizationId,
-    );
+  /**
+   * Transactional quote submission path (the production path when a
+   * DataSource is bound). Persists the quote first, only consumes the
+   * lead credit after the quote write succeeds, and binds match / request
+   * status updates + audit record into the same transaction so a
+   * downstream failure rolls back the credit consumption.
+   */
+  private async submitQuoteTransactional(
+    ctx: RequestContext,
+    match: MarketplaceBrokerMatchEntity,
+    request: MarketplaceRequestEntity,
+    dto: CreateQuoteDto,
+  ) {
+    return this.dataSource!.transaction('READ COMMITTED', async (manager) => {
+      const quoteRepo = manager.getRepository(MarketplaceQuoteEntity);
+      const matchRepo = manager.getRepository(MarketplaceBrokerMatchEntity);
+      const requestRepo = manager.getRepository(MarketplaceRequestEntity);
 
+      const quote = quoteRepo.create({
+        requestId: match.requestId,
+        brokerProfileId: match.brokerProfileId,
+        brokerOrganizationId: ctx.organizationId,
+        matchId: match.id,
+        status: 'submitted',
+        serviceScope: dto.serviceScope ?? null,
+        feeModel: dto.feeModel ?? 'flat',
+        feeBreakdown: dto.feeBreakdown ?? null,
+        estimatedTotal:
+          dto.estimatedTotal != null ? String(dto.estimatedTotal) : null,
+        currency: dto.currency ?? 'USD',
+        estimatedTimeline: dto.estimatedTimeline ?? null,
+        requiredDocuments: dto.requiredDocuments ?? [],
+        brokerNotes: dto.brokerNotes ?? null,
+        brokerQuestions: dto.brokerQuestions ?? null,
+        submittedAt: new Date(),
+        expiresAt: dto.expiresAt ?? null,
+      });
+      const saved = await quoteRepo.save(quote);
+
+      // Consume the credit AFTER the quote row is durably written. A
+      // failure in the credit step will roll back the quote in the same
+      // transaction, leaving no half-state.
+      await this.consumeLeadCreditForQuote(ctx, match);
+
+      const conversation = await this.ensureConversation(
+        match.requestId,
+        match.brokerProfileId,
+        match.brokerOrganizationId,
+      );
+
+      match.status = 'quoted';
+      await matchRepo.save(match);
+
+      if (
+        request &&
+        (request.status === 'open' || request.status === 'matched')
+      ) {
+        request.status = 'in_quotes';
+        await requestRepo.save(request);
+      }
+
+      await this.audit.record(
+        {
+          eventType: 'marketplace_quote.submitted',
+          organizationId: ctx.organizationId,
+          actorUserId: ctx.userId,
+          resourceType: 'marketplace_quote',
+          resourceId: saved.id,
+          source: 'marketplace',
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          metadata: {
+            requestId: match.requestId,
+            conversationId: conversation.id,
+          },
+        },
+        manager,
+      );
+
+      return saved;
+    });
+  }
+
+  /** Repository-fallback path — kept for unit tests that don't bind a DataSource. */
+  private async submitQuoteWithRepositories(
+    ctx: RequestContext,
+    match: MarketplaceBrokerMatchEntity,
+    request: MarketplaceRequestEntity,
+    dto: CreateQuoteDto,
+  ) {
     const quote = this.quotes.create({
       requestId: match.requestId,
       brokerProfileId: match.brokerProfileId,
@@ -442,11 +744,21 @@ export class MarketplaceRequestsService {
     });
     const saved = await this.quotes.save(quote);
 
+    await this.consumeLeadCreditForQuote(ctx, match);
+
+    const conversation = await this.ensureConversation(
+      match.requestId,
+      match.brokerProfileId,
+      match.brokerOrganizationId,
+    );
+
     match.status = 'quoted';
     await this.matches.save(match);
 
-    const request = await this.requests.findOne({ where: { id: match.requestId } });
-    if (request && request.status === 'open') {
+    if (
+      request &&
+      (request.status === 'open' || request.status === 'matched')
+    ) {
       request.status = 'in_quotes';
       await this.requests.save(request);
     }
@@ -467,6 +779,174 @@ export class MarketplaceRequestsService {
   }
 
   async acceptQuote(ctx: RequestContext, quoteId: string, dto: AcceptQuoteDto) {
+    if (this.dataSource) {
+      return this.acceptQuoteTransactional(ctx, quoteId, dto);
+    }
+    return this.acceptQuoteWithRepositories(ctx, quoteId, dto);
+  }
+
+  private async acceptQuoteTransactional(
+    ctx: RequestContext,
+    quoteId: string,
+    dto: AcceptQuoteDto,
+  ) {
+    this.assertAuthenticated(ctx);
+    return this.dataSource!.transaction('READ COMMITTED', async (manager) => {
+      const quoteRepo = manager.getRepository(MarketplaceQuoteEntity);
+      const requestRepo = manager.getRepository(MarketplaceRequestEntity);
+      const matchRepo = manager.getRepository(MarketplaceBrokerMatchEntity);
+
+      const quoteSeed = await quoteRepo.findOne({ where: { id: quoteId } });
+      if (!quoteSeed) throw new NotFoundException('Quote not found');
+
+      const request = await requestRepo
+        .createQueryBuilder('request')
+        .setLock('pessimistic_write')
+        .where('request.id = :requestId', { requestId: quoteSeed.requestId })
+        .getOne();
+      if (!request) throw new NotFoundException('Request not found');
+
+      const quote = await quoteRepo
+        .createQueryBuilder('quote')
+        .setLock('pessimistic_write')
+        .where('quote.id = :quoteId', { quoteId })
+        .getOne();
+      if (!quote) throw new NotFoundException('Quote not found');
+      if (quote.requestId !== request.id) {
+        throw new BadRequestException(
+          'Quote request changed during acceptance',
+        );
+      }
+
+      if (request.requestingOrganizationId !== ctx.organizationId) {
+        throw new ForbiddenException('Quote belongs to another tenant');
+      }
+      if (
+        request.status === 'broker_selected' &&
+        request.selectedQuoteId === quote.id &&
+        quote.status === 'accepted'
+      ) {
+        return { quote, idempotent: true };
+      }
+      if (['broker_selected', 'closed', 'cancelled'].includes(request.status)) {
+        throw new BadRequestException(
+          `Cannot accept quote while request is ${request.status}`,
+        );
+      }
+      if (quote.status !== 'submitted') {
+        throw new BadRequestException(`Cannot accept a ${quote.status} quote`);
+      }
+
+      const acceptedQuotes = await quoteRepo
+        .createQueryBuilder('quote')
+        .setLock('pessimistic_write')
+        .where('quote.requestId = :requestId', { requestId: quote.requestId })
+        .andWhere('quote.status = :status', { status: 'accepted' })
+        .getMany();
+      if (acceptedQuotes.some((accepted) => accepted.id !== quote.id)) {
+        throw new BadRequestException('Another quote is already accepted');
+      }
+
+      quote.status = 'accepted';
+      quote.acceptedAt = new Date();
+      quote.acceptedByUserId = ctx.userId;
+      quote.metadata = {
+        ...(quote.metadata ?? {}),
+        acceptIdempotencyKey: dto.idempotencyKey ?? null,
+      };
+      await quoteRepo.save(quote);
+
+      request.status = 'broker_selected';
+      request.selectedBrokerProfileId = quote.brokerProfileId;
+      request.selectedQuoteId = quote.id;
+      await requestRepo.save(request);
+
+      await matchRepo.update(
+        { requestId: quote.requestId, brokerProfileId: quote.brokerProfileId },
+        { status: 'selected' },
+      );
+
+      const otherQuotes = await quoteRepo
+        .createQueryBuilder('quote')
+        .setLock('pessimistic_write')
+        .where('quote.requestId = :requestId', { requestId: quote.requestId })
+        .andWhere('quote.status = :status', { status: 'submitted' })
+        .getMany();
+      for (const other of otherQuotes) {
+        if (other.id !== quote.id) {
+          other.status = 'expired';
+          await quoteRepo.save(other);
+        }
+      }
+
+      const brokerClient = await this.findOrCreateBrokerClient(
+        quote.brokerOrganizationId,
+        ctx.organizationId,
+        manager,
+      );
+
+      const relationship = await this.relationships.create(
+        {
+          brokerOrganizationId: quote.brokerOrganizationId,
+          businessOrganizationId: ctx.organizationId,
+          clientId: brokerClient.id,
+          brokerProfileId: quote.brokerProfileId,
+          marketplaceRequestId: request.id,
+          marketplaceQuoteId: quote.id,
+        },
+        manager,
+      );
+
+      const draftEntry = await this.entries.draftFromHandoff(
+        {
+          brokerOrganizationId: quote.brokerOrganizationId,
+          clientId: brokerClient.id,
+          entryType: 'consumption',
+          metadata: {
+            marketplaceRequestId: request.id,
+            marketplaceQuoteId: quote.id,
+            relationshipId: relationship.id,
+            commoditySummary: request.commoditySummary,
+          },
+        },
+        manager,
+      );
+
+      await this.audit.record(
+        {
+          eventType: 'marketplace_quote.accepted',
+          organizationId: ctx.organizationId,
+          actorUserId: ctx.userId,
+          resourceType: 'marketplace_quote',
+          resourceId: quote.id,
+          source: 'marketplace',
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          metadata: {
+            note: dto.note ?? null,
+            idempotencyKey: dto.idempotencyKey ?? null,
+            relationshipId: relationship.id,
+            brokerClientId: brokerClient.id,
+            draftEntryId: draftEntry.id,
+          },
+        },
+        manager,
+      );
+
+      return {
+        quote,
+        relationship,
+        brokerClientId: brokerClient.id,
+        draftEntryId: draftEntry.id,
+      };
+    });
+  }
+
+  private async acceptQuoteWithRepositories(
+    ctx: RequestContext,
+    quoteId: string,
+    dto: AcceptQuoteDto,
+  ) {
     this.assertAuthenticated(ctx);
     const quote = await this.quotes.findOne({ where: { id: quoteId } });
     if (!quote) throw new NotFoundException('Quote not found');
@@ -478,13 +958,35 @@ export class MarketplaceRequestsService {
     if (request.requestingOrganizationId !== ctx.organizationId) {
       throw new ForbiddenException('Quote belongs to another tenant');
     }
+    if (
+      request.status === 'broker_selected' &&
+      request.selectedQuoteId === quote.id &&
+      quote.status === 'accepted'
+    ) {
+      return { quote, idempotent: true };
+    }
+    if (['broker_selected', 'closed', 'cancelled'].includes(request.status)) {
+      throw new BadRequestException(
+        `Cannot accept quote while request is ${request.status}`,
+      );
+    }
     if (quote.status !== 'submitted') {
       throw new BadRequestException(`Cannot accept a ${quote.status} quote`);
+    }
+    const acceptedQuotes = await this.quotes.find({
+      where: { requestId: quote.requestId, status: 'accepted' },
+    });
+    if (acceptedQuotes.some((accepted) => accepted.id !== quote.id)) {
+      throw new BadRequestException('Another quote is already accepted');
     }
 
     quote.status = 'accepted';
     quote.acceptedAt = new Date();
     quote.acceptedByUserId = ctx.userId;
+    quote.metadata = {
+      ...(quote.metadata ?? {}),
+      acceptIdempotencyKey: dto.idempotencyKey ?? null,
+    };
     await this.quotes.save(quote);
 
     request.status = 'broker_selected';
@@ -547,13 +1049,19 @@ export class MarketplaceRequestsService {
       userAgent: ctx.userAgent,
       metadata: {
         note: dto.note ?? null,
+        idempotencyKey: dto.idempotencyKey ?? null,
         relationshipId: relationship.id,
         brokerClientId: brokerClient.id,
         draftEntryId: draftEntry.id,
       },
     });
 
-    return { quote, relationship, brokerClientId: brokerClient.id, draftEntryId: draftEntry.id };
+    return {
+      quote,
+      relationship,
+      brokerClientId: brokerClient.id,
+      draftEntryId: draftEntry.id,
+    };
   }
 
   /**
@@ -569,8 +1077,14 @@ export class MarketplaceRequestsService {
   private async findOrCreateBrokerClient(
     brokerOrganizationId: string,
     businessOrganizationId: string,
+    manager?: EntityManager,
   ): Promise<BrokerClientEntity> {
-    const existing = await this.brokerClients.findOne({
+    const brokerClients =
+      manager?.getRepository(BrokerClientEntity) ?? this.brokerClients;
+    const organizations =
+      manager?.getRepository(OrganizationEntity) ?? this.organizations;
+
+    const existing = await brokerClients.findOne({
       where: {
         brokerOrganizationId,
         clientOrganizationId: businessOrganizationId,
@@ -578,26 +1092,25 @@ export class MarketplaceRequestsService {
     });
     if (existing) return existing;
 
-    const businessOrg = await this.organizations.findOne({
+    const businessOrg = await organizations.findOne({
       where: { id: businessOrganizationId },
     });
     const fallbackName =
-      businessOrg?.name ??
-      `Client ${businessOrganizationId.slice(0, 8)}`;
+      businessOrg?.name ?? `Client ${businessOrganizationId.slice(0, 8)}`;
 
-    const entity = this.brokerClients.create({
+    const entity = brokerClients.create({
       brokerOrganizationId,
       clientOrganizationId: businessOrganizationId,
       name: fallbackName,
       status: 'onboarding',
     });
     try {
-      return await this.brokerClients.save(entity);
+      return await brokerClients.save(entity);
     } catch (err) {
       // Unique violation (Postgres 23505) — another handoff won the race.
       const code = (err as { code?: string }).code;
       if (code === '23505') {
-        const winner = await this.brokerClients.findOne({
+        const winner = await brokerClients.findOne({
           where: {
             brokerOrganizationId,
             clientOrganizationId: businessOrganizationId,
@@ -632,13 +1145,27 @@ export class MarketplaceRequestsService {
     brokerProfileIds: string[],
   ) {
     const request = await this.getOwnedRequest(ctx, requestId);
-    if (!brokerProfileIds.length) {
+    const uniqueBrokerProfileIds = this.uniqueIds(brokerProfileIds);
+    if (!uniqueBrokerProfileIds.length) {
       throw new BadRequestException('brokerProfileIds is required');
     }
-    const created = await this.matching.inviteSpecificBrokers(
+    await this.validateInvitableBrokerProfiles(uniqueBrokerProfileIds);
+    const created = await this.createMatchesForInvitedBrokers(
       request,
-      brokerProfileIds,
+      uniqueBrokerProfileIds,
     );
+    request.metadata = {
+      ...(request.metadata ?? {}),
+      visibilityDecision: {
+        requestId: request.id,
+        mode: request.visibilityMode,
+        actorUserId: ctx.userId,
+        selectedBrokerProfileIds: uniqueBrokerProfileIds,
+        createdMatchCount: created.length,
+        appliedAt: new Date().toISOString(),
+      },
+    };
+    await this.requests.save(request);
     await this.audit.record({
       eventType: 'marketplace_request.brokers_invited',
       organizationId: ctx.organizationId,
@@ -648,7 +1175,10 @@ export class MarketplaceRequestsService {
       source: 'marketplace',
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      metadata: { brokerProfileIds, createdCount: created.length },
+      metadata: {
+        brokerProfileIds: uniqueBrokerProfileIds,
+        createdCount: created.length,
+      },
     });
     return created;
   }
@@ -667,31 +1197,18 @@ export class MarketplaceRequestsService {
     if (!body || body.trim().length === 0) {
       throw new BadRequestException('Message body is required');
     }
-    const request = await this.requests.findOne({ where: { id: requestId } });
-    if (!request) throw new NotFoundException('Request not found');
-    if (
-      request.requestingOrganizationId !== ctx.organizationId &&
-      // Allow the broker matched on this request to send too.
-      !(await this.isBrokerForRequest(requestId, ctx.organizationId))
-    ) {
-      throw new ForbiddenException('Not a participant on this request');
-    }
-    if (!brokerProfileId) {
+    const access = await this.resolveConversationAccess(
+      ctx,
+      requestId,
+      brokerProfileId,
+    );
+    if (access.role === 'business' && !access.brokerProfileId) {
       throw new BadRequestException('brokerProfileId is required');
-    }
-    // Find the broker organizationId via match record
-    const match = await this.matches.findOne({
-      where: { requestId, brokerProfileId },
-    });
-    if (!match) {
-      throw new NotFoundException(
-        'No matched broker thread for the given brokerProfileId',
-      );
     }
     const conversation = await this.ensureConversation(
       requestId,
-      brokerProfileId,
-      match.brokerOrganizationId,
+      access.brokerProfileId!,
+      access.brokerOrganizationId!,
     );
     return this.sendMessage(ctx, conversation.id, { body });
   }
@@ -701,19 +1218,16 @@ export class MarketplaceRequestsService {
     requestId: string,
     brokerProfileId?: string,
   ) {
-    const request = await this.requests.findOne({ where: { id: requestId } });
-    if (!request) throw new NotFoundException('Request not found');
-    const isBusiness =
-      request.requestingOrganizationId === ctx.organizationId;
-    const isBroker = await this.isBrokerForRequest(requestId, ctx.organizationId);
-    if (!isBusiness && !isBroker) {
-      throw new ForbiddenException('Not a participant on this request');
-    }
+    const access = await this.resolveConversationAccess(
+      ctx,
+      requestId,
+      brokerProfileId,
+    );
 
     const conversationsForRequest = await this.conversations.find({
-      where: brokerProfileId
-        ? { requestId, brokerProfileId }
-        : isBusiness
+      where: access.brokerProfileId
+        ? { requestId, brokerProfileId: access.brokerProfileId }
+        : access.role === 'business'
           ? { requestId }
           : { requestId, brokerOrganizationId: ctx.organizationId },
     });
@@ -735,10 +1249,17 @@ export class MarketplaceRequestsService {
    */
   async searchFacets() {
     const profiles = await this.matching.allPublishedProfiles();
-    const collect = (key: 'countries' | 'serviceCategories' | 'shipmentModes' | 'specialties' | 'ports') => {
+    const collect = (
+      key:
+        | 'countries'
+        | 'serviceCategories'
+        | 'shipmentModes'
+        | 'specialties'
+        | 'ports',
+    ) => {
       const set = new Set<string>();
       for (const p of profiles) {
-        const arr = ((p as unknown) as Record<string, string[]>)[key];
+        const arr = (p as unknown as Record<string, string[]>)[key];
         if (Array.isArray(arr)) for (const v of arr) if (v) set.add(v);
       }
       return Array.from(set).sort();
@@ -750,6 +1271,176 @@ export class MarketplaceRequestsService {
       specialties: collect('specialties'),
       ports: collect('ports'),
     };
+  }
+
+  async createMatchesForInvitedBrokers(
+    request: MarketplaceRequestEntity,
+    brokerProfileIds: string[],
+  ) {
+    const uniqueBrokerProfileIds = this.uniqueIds(brokerProfileIds);
+    if (!uniqueBrokerProfileIds.length) return [];
+    await this.validateInvitableBrokerProfiles(uniqueBrokerProfileIds);
+    return this.matching.inviteSpecificBrokers(request, uniqueBrokerProfileIds);
+  }
+
+  private async applyVisibilityDecision(
+    ctx: RequestContext,
+    request: MarketplaceRequestEntity,
+    invitedBrokerProfileIds: string[],
+  ): Promise<MarketplaceBrokerMatchEntity[]> {
+    if (request.visibilityMode === 'private') {
+      return [];
+    }
+    if (request.visibilityMode === 'invited') {
+      return this.createMatchesForInvitedBrokers(
+        request,
+        invitedBrokerProfileIds,
+      );
+    }
+    const matches = await this.matching.matchRequest(request);
+    if (request.status === 'open' && matches.length) {
+      request.status = 'matched';
+      await this.requests.save(request);
+    }
+    await this.audit.record({
+      eventType: 'marketplace_request.public_matching_started',
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      resourceType: 'marketplace_request',
+      resourceId: request.id,
+      source: 'marketplace',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: { createdMatchCount: matches.length },
+    });
+    return matches;
+  }
+
+  private async validateInvitableBrokerProfiles(
+    brokerProfileIds: string[],
+  ): Promise<void> {
+    const uniqueBrokerProfileIds = this.uniqueIds(brokerProfileIds);
+    if (!uniqueBrokerProfileIds.length || !this.profiles) return;
+
+    const profiles = await this.profiles.find({
+      where: uniqueBrokerProfileIds.map((id) => ({ id })),
+    });
+    const profileById = new Map(
+      profiles.map((profile) => [profile.id, profile]),
+    );
+    const invalid = uniqueBrokerProfileIds.filter((id) => {
+      const profile = profileById.get(id);
+      return (
+        !profile ||
+        profile.status !== 'published' ||
+        profile.verificationStatus !== 'verified'
+      );
+    });
+    if (invalid.length) {
+      throw new BadRequestException(
+        `Broker profile(s) are not published and verified: ${invalid.join(', ')}`,
+      );
+    }
+  }
+
+  private uniqueIds(ids?: string[] | null): string[] {
+    return Array.from(new Set((ids ?? []).filter(Boolean)));
+  }
+
+  private canAcceptQuotes(request: MarketplaceRequestEntity): boolean {
+    return ['open', 'matched', 'in_quotes'].includes(request.status);
+  }
+
+  private async resolveConversationAccess(
+    ctx: RequestContext,
+    requestId: string,
+    requestedBrokerProfileId?: string | null,
+  ): Promise<{
+    request: MarketplaceRequestEntity;
+    role: 'business' | 'broker';
+    brokerProfileId: string | null;
+    brokerOrganizationId: string | null;
+    match: MarketplaceBrokerMatchEntity | null;
+  }> {
+    this.assertAuthenticated(ctx);
+    const request = await this.requests.findOne({ where: { id: requestId } });
+    if (!request) throw new NotFoundException('Request not found');
+
+    if (request.requestingOrganizationId === ctx.organizationId) {
+      if (!requestedBrokerProfileId) {
+        return {
+          request,
+          role: 'business',
+          brokerProfileId: null,
+          brokerOrganizationId: null,
+          match: null,
+        };
+      }
+      const match = await this.matches.findOne({
+        where: { requestId, brokerProfileId: requestedBrokerProfileId },
+      });
+      if (!match) {
+        throw new NotFoundException(
+          'No matched broker thread for the given brokerProfileId',
+        );
+      }
+      return {
+        request,
+        role: 'business',
+        brokerProfileId: match.brokerProfileId,
+        brokerOrganizationId: match.brokerOrganizationId,
+        match,
+      };
+    }
+
+    const brokerMatch = await this.matches.findOne({
+      where: { requestId, brokerOrganizationId: ctx.organizationId },
+    });
+    if (!brokerMatch) {
+      await this.auditConversationDenied(ctx, requestId, {
+        reason: 'broker_not_matched',
+        requestedBrokerProfileId: requestedBrokerProfileId ?? null,
+      });
+      throw new ForbiddenException('Not a participant on this request');
+    }
+
+    if (
+      requestedBrokerProfileId &&
+      requestedBrokerProfileId !== brokerMatch.brokerProfileId
+    ) {
+      await this.auditConversationDenied(ctx, requestId, {
+        reason: 'broker_profile_mismatch',
+        requestedBrokerProfileId,
+        allowedBrokerProfileId: brokerMatch.brokerProfileId,
+      });
+      throw new ForbiddenException('Not a participant on this broker thread');
+    }
+
+    return {
+      request,
+      role: 'broker',
+      brokerProfileId: brokerMatch.brokerProfileId,
+      brokerOrganizationId: brokerMatch.brokerOrganizationId,
+      match: brokerMatch,
+    };
+  }
+
+  private async auditConversationDenied(
+    ctx: RequestContext,
+    requestId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    await this.audit.record({
+      eventType: 'marketplace_conversation.access_denied',
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      resourceType: 'marketplace_request',
+      resourceId: requestId,
+      source: 'marketplace',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata,
+    });
   }
 
   private async isBrokerForRequest(
@@ -791,16 +1482,10 @@ export class MarketplaceRequestsService {
     conversationId: string,
     dto: SendMessageDto,
   ) {
-    this.assertAuthenticated(ctx);
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-
-    const role = this.resolveSenderRole(ctx, conversation);
-    if (!role) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    const { conversation, role } = await this.resolveConversationParticipant(
+      ctx,
+      conversationId,
+    );
 
     // Refuse to attach files whose storage keys don't belong to the sender's
     // tenant — defends against attaching arbitrary keys from other orgs.
@@ -844,13 +1529,7 @@ export class MarketplaceRequestsService {
   }
 
   async listMessages(ctx: RequestContext, conversationId: string) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    if (!this.resolveSenderRole(ctx, conversation)) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    await this.resolveConversationParticipant(ctx, conversationId);
     const rows = await this.messages.find({
       where: { conversationId },
       order: { createdAt: 'ASC' },
@@ -869,14 +1548,10 @@ export class MarketplaceRequestsService {
     conversationId: string,
     at?: Date | null,
   ) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    const role = this.resolveSenderRole(ctx, conversation);
-    if (!role) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    const { conversation, role } = await this.resolveConversationParticipant(
+      ctx,
+      conversationId,
+    );
     const cursor = at ?? new Date();
     if (role === 'broker') {
       conversation.brokerLastReadAt = cursor;
@@ -897,13 +1572,10 @@ export class MarketplaceRequestsService {
    * "Consent granted by Jane Doe on 2026-05-25" entries inline.
    */
   async getConsentHistory(ctx: RequestContext, conversationId: string) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    if (!this.resolveSenderRole(ctx, conversation)) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    const { conversation } = await this.resolveConversationParticipant(
+      ctx,
+      conversationId,
+    );
     return {
       conversationId: conversation.id,
       current: conversation.fullPacketConsented,
@@ -937,9 +1609,7 @@ export class MarketplaceRequestsService {
       const role = this.resolveSenderRole(ctx, convo);
       if (!role) continue;
       const cursor =
-        role === 'broker'
-          ? convo.brokerLastReadAt
-          : convo.businessLastReadAt;
+        role === 'broker' ? convo.brokerLastReadAt : convo.businessLastReadAt;
       const qb = this.messages
         .createQueryBuilder('m')
         .where('m.conversationId = :id', { id: convo.id })
@@ -1193,8 +1863,7 @@ export class MarketplaceRequestsService {
         'Broker profile required before subscribing to Pro',
       );
     }
-    const baseUrl =
-      process.env.API_BASE_URL ?? 'http://localhost:3100';
+    const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:3100';
     const successUrl =
       process.env.MARKETPLACE_PRO_SUCCESS_URL ||
       `${baseUrl}/marketplace/pro/success`;
@@ -1256,7 +1925,12 @@ export class MarketplaceRequestsService {
     organizationId: string,
     days = 90,
   ): Promise<
-    Array<{ chapter: string; quotes: number; accepted: number; winRate: number }>
+    Array<{
+      chapter: string;
+      quotes: number;
+      accepted: number;
+      winRate: number;
+    }>
   > {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     // Pull quotes for this broker org + their request candidateHtsNumbers.
@@ -1313,11 +1987,11 @@ export class MarketplaceRequestsService {
     conversationId: string,
     dto: ConsentToFullPacketDto,
   ) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    if (conversation.businessOrganizationId !== ctx.organizationId) {
+    const { conversation, role } = await this.resolveConversationParticipant(
+      ctx,
+      conversationId,
+    );
+    if (role !== 'business') {
       throw new ForbiddenException('Only business can grant consent');
     }
     const now = new Date();
@@ -1355,6 +2029,46 @@ export class MarketplaceRequestsService {
     return request;
   }
 
+  private async resolveConversationParticipant(
+    ctx: RequestContext,
+    conversationId: string,
+  ): Promise<{
+    conversation: MarketplaceConversationEntity;
+    role: 'broker' | 'business';
+  }> {
+    const conversation = await this.conversations.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    const access = await this.resolveConversationAccess(
+      ctx,
+      conversation.requestId,
+      conversation.brokerProfileId,
+    );
+    if (
+      access.role === 'business' &&
+      access.request.requestingOrganizationId ===
+        conversation.businessOrganizationId
+    ) {
+      return { conversation, role: 'business' };
+    }
+    if (
+      access.role === 'broker' &&
+      access.brokerOrganizationId === conversation.brokerOrganizationId &&
+      access.brokerProfileId === conversation.brokerProfileId
+    ) {
+      return { conversation, role: 'broker' };
+    }
+
+    await this.auditConversationDenied(ctx, conversation.requestId, {
+      reason: 'conversation_participant_mismatch',
+      conversationId,
+      brokerProfileId: conversation.brokerProfileId,
+    });
+    throw new ForbiddenException('Not a participant of this conversation');
+  }
+
   private resolveSenderRole(
     ctx: RequestContext,
     conversation: MarketplaceConversationEntity,
@@ -1368,11 +2082,20 @@ export class MarketplaceRequestsService {
     return null;
   }
 
+  /** Exposed only for unit tests (data-minimization regression). */
+  brokerVisibleRequestForTest(
+    request: MarketplaceRequestEntity,
+    conversation?: MarketplaceConversationEntity | null,
+  ) {
+    return this.brokerVisibleRequest(request, conversation);
+  }
+
   private brokerVisibleRequest(
     request: MarketplaceRequestEntity,
     conversation?: MarketplaceConversationEntity | null,
   ) {
     const fullPacket = conversation?.fullPacketConsented === true;
+    const htsPreview = this.htsChapterPreview(request.candidateHtsNumbers);
     return {
       id: request.id,
       title: request.title,
@@ -1381,20 +2104,22 @@ export class MarketplaceRequestsService {
         : this.summaryTeaser(request.commoditySummary),
       originCountry: request.originCountry,
       destinationCountry: request.destinationCountry,
-      portOfEntry: request.portOfEntry,
+      portOfEntry: fullPacket ? request.portOfEntry : null,
       mode: request.mode,
       serviceCategories: request.serviceCategories,
-      regulatoryFlags: request.regulatoryFlags,
-      candidateHtsNumbers: request.candidateHtsNumbers,
+      regulatoryFlags: fullPacket ? request.regulatoryFlags : [],
+      candidateHtsNumbers: fullPacket ? request.candidateHtsNumbers : [],
+      candidateHtsChapters: fullPacket ? [] : htsPreview,
       readinessScore: request.readinessScore,
-      readinessBreakdown: request.readinessBreakdown,
+      readinessBreakdown: fullPacket ? request.readinessBreakdown : null,
       shipmentValue: fullPacket ? request.shipmentValue : null,
-      shipmentCurrency: request.shipmentCurrency,
-      shipmentVolume: request.shipmentVolume,
+      shipmentCurrency: fullPacket ? request.shipmentCurrency : null,
+      shipmentVolume: fullPacket ? request.shipmentVolume : null,
       deadline: request.deadline,
       status: request.status,
       visibilityMode: request.visibilityMode,
       fullPacketConsented: fullPacket,
+      detailLevel: fullPacket ? 'consented_detail' : 'matched_preview',
       createdAt: request.createdAt,
     };
   }
@@ -1402,6 +2127,15 @@ export class MarketplaceRequestsService {
   private summaryTeaser(summary: string | null): string {
     if (!summary) return '';
     return summary.length <= 200 ? summary : `${summary.slice(0, 200)}…`;
+  }
+
+  private htsChapterPreview(htsNumbers: string[]): string[] {
+    const chapters = new Set<string>();
+    for (const hts of htsNumbers ?? []) {
+      const chapter = hts.replace(/\D/g, '').slice(0, 2);
+      if (chapter) chapters.add(chapter);
+    }
+    return Array.from(chapters).sort();
   }
 
   private assertAuthenticated(ctx: RequestContext) {
@@ -1420,13 +2154,7 @@ export class MarketplaceRequestsService {
     conversationId: string,
     since?: Date | null,
   ) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    if (!this.resolveSenderRole(ctx, conversation)) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    await this.resolveConversationParticipant(ctx, conversationId);
     const qb = this.messages
       .createQueryBuilder('m')
       .where('m.conversationId = :id', { id: conversationId })
@@ -1458,14 +2186,10 @@ export class MarketplaceRequestsService {
     messageId: string,
     storageKey: string,
   ) {
-    const conversation = await this.conversations.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found');
-    const role = this.resolveSenderRole(ctx, conversation);
-    if (!role) {
-      throw new ForbiddenException('Not a participant of this conversation');
-    }
+    const { conversation } = await this.resolveConversationParticipant(
+      ctx,
+      conversationId,
+    );
     const message = await this.messages.findOne({
       where: { id: messageId, conversationId },
     });

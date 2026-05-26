@@ -7,6 +7,7 @@ import { OrgPermissionsGuard } from '../auth/guards/org-permissions.guard';
 import { BrokerCoreModule } from '../broker-core/broker-core.module';
 import { BrokerClientEntity } from '../broker-core/entities/broker-client.entity';
 import { BrokerEntriesModule } from '../broker-entries/broker-entries.module';
+import { BrokerShipmentEntity } from '../broker-entries/entities';
 import { DocumentsModule } from '../documents/documents.module';
 import { QueueModule } from '../queue/queue.module';
 import {
@@ -65,6 +66,7 @@ logger.log(
       BrokerDocumentEntity,
       BrokerExtractedFieldEntity,
       BrokerClientEntity,
+      BrokerShipmentEntity,
     ]),
     AuditModule,
     DocumentsModule,
@@ -101,14 +103,14 @@ logger.log(
       provide: FIELD_REASONER_ADAPTER,
       inject: [AnthropicFieldExtractorAdapter],
       useFactory: (anthropic: AnthropicFieldExtractorAdapter) => {
-        const enabled =
-          (process.env.BROKER_EXTRACTOR_REASONER || 'auto').toLowerCase();
+        const enabled = (
+          process.env.BROKER_EXTRACTOR_REASONER || 'auto'
+        ).toLowerCase();
         if (enabled === 'off') return null;
         if (enabled === 'on') return anthropic;
         // 'auto' (default): only enable reasoner when primary is the stub,
         // since running the same model twice rarely improves results.
-        return extractorProvider === 'stub' &&
-          process.env.ANTHROPIC_API_KEY
+        return extractorProvider === 'stub' && process.env.ANTHROPIC_API_KEY
           ? anthropic
           : null;
       },

@@ -68,10 +68,7 @@ export class BrokerPacketsController {
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const detail = await this.packets.getDetail(
-      resolveRequestContext(req),
-      id,
-    );
+    const detail = await this.packets.getDetail(resolveRequestContext(req), id);
     return {
       success: true,
       data: {
@@ -85,11 +82,8 @@ export class BrokerPacketsController {
 
   @Post('packets/:id/process')
   @OrgPermissions('broker:packets:write')
-  async reprocess(
-    @Req() _req: Request,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    await this.packets.process(id);
+  async reprocess(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    await this.packets.processForContext(resolveRequestContext(req), id);
     return { success: true };
   }
 
@@ -114,10 +108,7 @@ export class BrokerPacketsController {
 
   @Post('entries/draft-from-packet')
   @OrgPermissions('broker:entries:write', 'broker:packets:write')
-  async draftEntry(
-    @Req() req: Request,
-    @Body() dto: DraftEntryFromPacketDto,
-  ) {
+  async draftEntry(@Req() req: Request, @Body() dto: DraftEntryFromPacketDto) {
     return {
       success: true,
       data: await this.packets.draftEntryFromPacket(
@@ -137,7 +128,10 @@ export class BrokerPortalUploadsController {
   async upload(@Req() req: Request, @Body() dto: ClientPortalUploadDto) {
     return {
       success: true,
-      data: await this.packets.createFromPortal(resolveRequestContext(req), dto),
+      data: await this.packets.createFromPortal(
+        resolveRequestContext(req),
+        dto,
+      ),
     };
   }
 }

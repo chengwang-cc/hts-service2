@@ -79,7 +79,13 @@ export interface LandedCostLineInput {
   currency: string;
   weightKg?: number;
   quantity?: number;
-  additionalInputs?: Record<string, number>;
+  /**
+   * Broadened from `Record<string, number>` (Phase 2+) so exception
+   * rules can pass country ISO codes, exporter names, and qualifying
+   * flags through the adapter boundary. Adapters that only care about
+   * numeric variables can ignore the others.
+   */
+  additionalInputs?: Record<string, number | string | boolean>;
 }
 
 export interface ShipmentContext {

@@ -52,4 +52,26 @@ export class MarketplaceAdminController {
       ),
     };
   }
+
+  @Post(':id/contact-exposure')
+  @UseGuards(AdminPermissionsGuard)
+  @AdminPermissions('marketplace:verify')
+  async setContactExposure(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      exposure: 'platform_only' | 'email_only' | 'phone_only' | 'full';
+      reason: string;
+    },
+    @Req() request: Request,
+  ) {
+    return {
+      success: true,
+      data: await this.marketplace.setContactExposure(
+        id,
+        body,
+        resolveRequestContext(request),
+      ),
+    };
+  }
 }

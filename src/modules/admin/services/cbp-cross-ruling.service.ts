@@ -326,15 +326,13 @@ export class CbpCrossRulingService {
     try {
       const embedding =
         await this.embeddingService.generateEmbedding(searchText);
-      const provider = this.embeddingService.providerInfo.provider;
+      // DGX retired 2026-05-27 — always write the OpenAI column.
       await this.rulingRepo.save({
         ...ruling,
         embeddingSearchText: searchText,
-        embedding: provider === 'dgx' ? embedding : ruling.embedding,
-        embeddingOpenai:
-          provider === 'openai' ? embedding : ruling.embeddingOpenai,
-        embeddingModel:
-          provider === 'openai' ? 'text-embedding-3-small' : 'bge-m3',
+        embedding: ruling.embedding, // legacy column left untouched
+        embeddingOpenai: embedding,
+        embeddingModel: 'text-embedding-3-small',
         embeddingStatus: 'generated',
         embeddingGeneratedAt: new Date(),
       });

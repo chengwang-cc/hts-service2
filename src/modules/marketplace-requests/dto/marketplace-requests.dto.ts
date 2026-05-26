@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsIn,
@@ -80,6 +81,12 @@ export class CreateMarketplaceRequestDto {
   visibilityMode?: 'invited' | 'public' | 'private';
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  invitedBrokerProfileIds?: string[];
+
+  @IsOptional()
   @IsIn(['one_time', 'ongoing', 'project'])
   requestType?: 'one_time' | 'ongoing' | 'project';
 
@@ -113,6 +120,7 @@ export class ListMarketplaceRequestsDto {
 
 export class InviteBrokersDto {
   @IsArray()
+  @ArrayNotEmpty()
   @ArrayMaxSize(20)
   @IsUUID('4', { each: true })
   brokerProfileIds: string[];
@@ -216,4 +224,9 @@ export class AcceptQuoteDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  idempotencyKey?: string;
 }

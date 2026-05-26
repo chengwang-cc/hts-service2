@@ -5,6 +5,7 @@ import {
   AdapterDeliveryResult,
   BrokerExportAdapter,
 } from './adapter.contract';
+import { OutboundHttpPolicyService } from './outbound-http-policy.service';
 
 /**
  * R2-C-03 — WiseTech CargoWise eAdaptor adapter.
@@ -32,9 +33,14 @@ export class CargoWiseAdapter implements BrokerExportAdapter {
   readonly key = 'cargowise' as const;
   private readonly logger = new Logger(CargoWiseAdapter.name);
 
+  constructor(
+    private readonly outboundPolicy: OutboundHttpPolicyService = new OutboundHttpPolicyService(),
+  ) {}
+
   async build(ctx: AdapterContext): Promise<AdapterArtifact> {
     const clientCode = String(
-      (ctx.adapter.publicConfig as Record<string, unknown> | null)?.clientCode ?? 'HTS',
+      (ctx.adapter.publicConfig as Record<string, unknown> | null)
+        ?.clientCode ?? 'HTS',
     );
     const xml = buildUniversalShipmentXml(ctx, clientCode);
     return {
@@ -61,15 +67,25 @@ export class CargoWiseAdapter implements BrokerExportAdapter {
       };
     }
 
-    const timeoutMs = clampInt(config.timeoutMs as number | undefined, 1000, 60000, 20000);
-    const retryLimit = clampInt(config.retryLimit as number | undefined, 0, 5, 2);
+    const timeoutMs = clampInt(
+      config.timeoutMs as number | undefined,
+      1000,
+      60000,
+      20000,
+    );
+    const retryLimit = clampInt(
+      config.retryLimit as number | undefined,
+      0,
+      5,
+      2,
+    );
     const basic = Buffer.from(
       `${secrets.cargowiseUsername}:${secrets.cargowisePassword}`,
     ).toString('base64');
     const headers: Record<string, string> = {
       'content-type': 'application/xml',
       authorization: `Basic ${basic}`,
-      'soapaction': '""', // eAdaptor accepts an empty SOAPAction header
+      soapaction: '""', // eAdaptor accepts an empty SOAPAction header
     };
 
     let lastError: string | undefined;
@@ -77,12 +93,21 @@ export class CargoWiseAdapter implements BrokerExportAdapter {
     const attempts = retryLimit + 1;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: new Uint8Array(artifact.body),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        const response = await this.outboundPolicy.fetch(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: new Uint8Array(artifact.body),
+          },
+          {
+            tenantId: ctx.adapter.organizationId,
+            adapterId: ctx.adapter.id,
+            provider: this.key,
+            timeoutMs,
+            allowedHosts: asStringArray(config.allowedHosts),
+          },
+        );
         const responseText = await response.text().catch(() => '');
         lastResponseSummary = {
           status: response.status,
@@ -92,28 +117,43 @@ export class CargoWiseAdapter implements BrokerExportAdapter {
         };
         // eAdaptor returns 200 even on Fault payloads — we have to inspect
         // the body for a SOAP fault before declaring success.
-        const soapFault = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(responseText);
+        const soapFault = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(
+          responseText,
+        );
         if (response.ok && !soapFault) {
           return {
             delivered: true,
-            requestSummary: { url, attempt, byteSize: artifact.body.byteLength, provider: 'cargowise' },
+            requestSummary: {
+              url,
+              attempt,
+              byteSize: artifact.body.byteLength,
+              provider: 'cargowise',
+            },
             responseSummary: lastResponseSummary,
           };
         }
         lastError = soapFault
           ? `CargoWise fault: ${soapFault[1].slice(0, 200)}`
           : `CargoWise responded ${response.status}`;
-        if (!isRetryable(response.status) || soapFault || attempt === attempts) {
+        if (
+          !isRetryable(response.status) ||
+          soapFault ||
+          attempt === attempts
+        ) {
           break;
         }
       } catch (err) {
         lastError =
-          err instanceof Error ? `${err.name}: ${err.message}` : 'CargoWise delivery failed';
+          err instanceof Error
+            ? `${err.name}: ${err.message}`
+            : 'CargoWise delivery failed';
         if (attempt === attempts) break;
       }
       if (attempt < attempts) {
         await sleep(500 * attempt);
-        this.logger.warn(`CargoWise delivery retry ${attempt}/${retryLimit}: ${lastError}`);
+        this.logger.warn(
+          `CargoWise delivery retry ${attempt}/${retryLimit}: ${lastError}`,
+        );
       }
     }
 
@@ -150,8 +190,16 @@ function buildUniversalShipmentXml(
   clientCode: string,
 ): string {
   const safe = (s: any) =>
-    String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!,
+    String(s ?? '').replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&apos;',
+        })[c]!,
     );
   const lineXml = ctx.lines
     .map(
@@ -208,6 +256,14 @@ function clampInt(
 ): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(v)));
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return values.length ? values : undefined;
 }
 
 function sleep(ms: number): Promise<void> {

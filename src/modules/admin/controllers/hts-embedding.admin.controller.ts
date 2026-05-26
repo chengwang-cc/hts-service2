@@ -23,7 +23,6 @@ import {
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import { HtsEmbeddingGenerationService, EmbeddingService } from '@hts/core';
-import { DgxEmbeddingService } from '../../../core/dgx/dgx-embedding.service';
 
 @ApiTags('Admin - HTS Embeddings')
 @ApiBearerAuth()
@@ -33,12 +32,13 @@ export class HtsEmbeddingAdminController {
   constructor(
     private readonly embeddingGenerationService: HtsEmbeddingGenerationService,
     private readonly embeddingService: EmbeddingService,
-    @Optional() private readonly dgxEmbedding: DgxEmbeddingService,
   ) {}
 
   /**
    * GET /admin/hts-embeddings/statistics
-   * Returns counts for both the DGX and OpenAI embedding columns.
+   * Returns row counts for the OpenAI embedding column.
+   * (DGX embedding column dropped 2026-05-27; column still exists on the
+   * table but is dead data until a follow-up migration removes it.)
    */
   @Get('statistics')
   @ApiOperation({ summary: 'Get HTS embedding statistics for both providers' })
@@ -50,12 +50,12 @@ export class HtsEmbeddingAdminController {
 
   /**
    * POST /admin/hts-embeddings/generate
-   * Generate embeddings using the active SEARCH_EMBEDDING_PROVIDER.
+   * Generate embeddings via OpenAI text-embedding-3-small (1536-dim).
    * Body: { onlyMissing?: boolean }  (default true — skips already-indexed rows)
    */
   @Post('generate')
   @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperation({ summary: 'Generate embeddings using the active provider (DGX or OpenAI)' })
+  @ApiOperation({ summary: 'Generate HTS embeddings via OpenAI text-embedding-3-small' })
   @ApiResponse({ status: 202, description: 'Embedding generation started in background' })
   async generateAllEmbeddings(
     @Request() req,
@@ -64,7 +64,7 @@ export class HtsEmbeddingAdminController {
     const userId = req.user?.email || 'UNKNOWN';
     const { provider, column } = this.embeddingService.providerInfo;
     const onlyMissing = body.onlyMissing !== false; // default true
-    const model = provider === 'dgx' ? 'bge-m3' : 'text-embedding-3-small';
+    const model = 'text-embedding-3-small';
 
     this.embeddingGenerationService
       .generateAllEmbeddings(100, model, onlyMissing)
@@ -125,17 +125,22 @@ export class HtsEmbeddingAdminController {
 
   /**
    * POST /admin/hts-embeddings/flush-cache
-   * Flush the Redis DGX embedding cache (needed after switching DGX models).
+   * Deprecated — DGX cache was retired 2026-05-27 (replaced by OpenAI +
+   * shared Redis cache key `hts:emb:oai:*`). Kept as a no-op so existing
+   * runbooks don't 404.
    */
   @Post('flush-cache')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Flush DGX Redis embedding cache' })
-  @ApiResponse({ status: 200, description: 'Cache flushed' })
+  @ApiOperation({ summary: 'No-op (DGX cache retired)' })
+  @ApiResponse({ status: 200, description: 'No-op response' })
   async flushCache() {
-    if (!this.dgxEmbedding?.isEnabled) {
-      return { success: true, message: 'DGX embedding disabled — no cache to flush', flushed: 0 };
-    }
-    const flushed = await this.dgxEmbedding.flushEmbeddingCache();
-    return { success: true, message: `Flushed ${flushed} Redis cache entries`, flushed };
+    return {
+      success: true,
+      message:
+        'DGX embedding cache was retired 2026-05-27. ' +
+        'OpenAI embedding cache uses Redis key prefix "hts:emb:oai:*" — ' +
+        'flush via redis-cli DEL if needed.',
+      flushed: 0,
+    };
   }
 }

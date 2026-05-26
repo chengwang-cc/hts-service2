@@ -13,6 +13,10 @@ import {
 @Index(['brokerOrganizationId'])
 @Index(['status'])
 @Index(['expiresAt'])
+@Index('UQ_marketplace_quotes_one_accepted_per_request', ['requestId'], {
+  unique: true,
+  where: "status = 'accepted'",
+})
 export class MarketplaceQuoteEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

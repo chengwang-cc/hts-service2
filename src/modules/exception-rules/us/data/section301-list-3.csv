@@ -1,0 +1,11 @@
+htsCode,effectiveFrom,effectiveTo,rate,chapter99,source,description
+# Section 301 List 3 — 5,745 HTS codes covering ~$200B in CN imports.
+# Initially 10% effective 2018-09-24, raised to 25% on 2019-05-10.
+# Chapter 99: 9903.88.03
+# Source: USTR List 3 (FR 83 FR 47974, FR 84 FR 20459); CSMS 18-000554, 19-000236
+# NOTE: Scaffolded — populate from USTR official list (5.7k rows).
+3920.10.0000,2018-09-24,,0.25,9903.88.03,fr.notice.84-20459,Polymers of ethylene plates/sheets
+4811.10.1100,2018-09-24,,0.25,9903.88.03,fr.notice.84-20459,Paper coated/impregnated tar/bitumen
+7326.20.0020,2018-09-24,,0.25,9903.88.03,fr.notice.84-20459,Iron/steel articles of wire
+8302.49.6085,2018-09-24,,0.25,9903.88.03,fr.notice.84-20459,Base metal mountings/fittings (other)
+9403.20.0090,2018-09-24,,0.25,9903.88.03,fr.notice.84-20459,Metal furniture (other)

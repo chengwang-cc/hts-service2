@@ -6,6 +6,10 @@ import { ShopifySessionEntity } from '../entities/shopify-session.entity';
 import { ConnectorEntity } from '../../connectors/entities/connector.entity';
 import { SyncLogEntity } from '../../connectors/entities/sync-log.entity';
 import { CheckoutOrderEntity } from '../../widget/entities/checkout-order.entity';
+import {
+  EncryptedSecret,
+  EncryptedSecretService,
+} from '../../security/encrypted-secret.service';
 
 interface ShopifyTokenResponse {
   access_token: string;
@@ -18,8 +22,11 @@ export class ShopifyAuthService {
 
   private readonly apiKey = process.env.SHOPIFY_API_KEY ?? '';
   private readonly apiSecret = process.env.SHOPIFY_API_SECRET ?? '';
-  private readonly scopes = process.env.SHOPIFY_SCOPES ?? 'read_products,write_products,read_orders,write_orders,read_inventory,write_inventory';
-  private readonly appUrl = process.env.SHOPIFY_APP_URL ?? 'https://api.usahts.com/shopify/app';
+  private readonly scopes =
+    process.env.SHOPIFY_SCOPES ??
+    'read_products,write_products,read_orders,write_orders,read_inventory,write_inventory';
+  private readonly appUrl =
+    process.env.SHOPIFY_APP_URL ?? 'https://api.usahts.com/shopify/app';
 
   constructor(
     @InjectRepository(ShopifySessionEntity)
@@ -30,6 +37,7 @@ export class ShopifyAuthService {
     private readonly syncLogRepository: Repository<SyncLogEntity>,
     @InjectRepository(CheckoutOrderEntity)
     private readonly checkoutOrderRepository: Repository<CheckoutOrderEntity>,
+    private readonly encryptedSecrets: EncryptedSecretService,
   ) {}
 
   /**
@@ -44,7 +52,9 @@ export class ShopifyAuthService {
     const nonce = randomBytes(16).toString('hex');
 
     // Upsert session with nonce for later validation
-    let session = await this.sessionRepository.findOne({ where: { shop: sanitizedShop } });
+    let session = await this.sessionRepository.findOne({
+      where: { shop: sanitizedShop },
+    });
     if (session) {
       session.nonce = nonce;
       await this.sessionRepository.save(session);
@@ -91,7 +101,9 @@ export class ShopifyAuthService {
     }
 
     // Verify nonce
-    const session = await this.sessionRepository.findOne({ where: { shop: sanitizedShop } });
+    const session = await this.sessionRepository.findOne({
+      where: { shop: sanitizedShop },
+    });
     if (!session || session.nonce !== state) {
       throw new UnauthorizedException('Invalid state parameter');
     }
@@ -100,31 +112,39 @@ export class ShopifyAuthService {
     const tokenResponse = await this.exchangeToken(sanitizedShop, code);
 
     // Update session
-    session.accessToken = tokenResponse.access_token;
+    session.accessToken = this.encryptAccessToken(tokenResponse.access_token);
     session.scopes = tokenResponse.scope.split(',').map((s) => s.trim());
     session.nonce = null;
     session.isActive = true;
 
-    await this.sessionRepository.save(session);
+    const saved = await this.sessionRepository.save(session);
+    saved.accessToken = tokenResponse.access_token;
 
     this.logger.log(`Shopify app installed for shop: ${sanitizedShop}`);
-    return session;
+    return saved;
   }
 
   /**
    * Save session updates (e.g. after linking connector).
    */
   async saveSession(session: ShopifySessionEntity): Promise<void> {
+    const plaintext = this.decryptAccessToken(session.accessToken);
+    session.accessToken = this.encryptAccessToken(plaintext);
     await this.sessionRepository.save(session);
+    session.accessToken = plaintext;
   }
 
   /**
    * Find an active session for a shop.
    */
   async getSession(shop: string): Promise<ShopifySessionEntity | null> {
-    return this.sessionRepository.findOne({
+    const session = await this.sessionRepository.findOne({
       where: { shop: this.sanitizeShop(shop) || shop, isActive: true },
     });
+    if (session) {
+      session.accessToken = this.decryptAccessToken(session.accessToken);
+    }
+    return session;
   }
 
   /**
@@ -159,8 +179,13 @@ export class ShopifyAuthService {
     // Compare as raw bytes decoded from base64url
     const expectedBuf = Buffer.from(expectedSig, 'base64url');
     const actualBuf = Buffer.from(parts[2], 'base64url');
-    if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
-      this.logger.warn(`Session token signature mismatch for aud=${payload.aud}`);
+    if (
+      expectedBuf.length !== actualBuf.length ||
+      !timingSafeEqual(expectedBuf, actualBuf)
+    ) {
+      this.logger.warn(
+        `Session token signature mismatch for aud=${payload.aud}`,
+      );
       throw new UnauthorizedException('Invalid session token signature');
     }
 
@@ -211,13 +236,17 @@ export class ShopifyAuthService {
     if (!sanitizedShop) return;
 
     // Find session to get connector reference
-    const session = await this.sessionRepository.findOne({ where: { shop: sanitizedShop } });
+    const session = await this.sessionRepository.findOne({
+      where: { shop: sanitizedShop },
+    });
 
     // Delete connector data (sync logs, connector record)
     if (session?.connectorId) {
       await this.syncLogRepository.delete({ connectorId: session.connectorId });
       await this.connectorRepository.delete({ id: session.connectorId });
-      this.logger.log(`Deleted connector ${session.connectorId} and sync logs for shop: ${sanitizedShop}`);
+      this.logger.log(
+        `Deleted connector ${session.connectorId} and sync logs for shop: ${sanitizedShop}`,
+      );
     }
 
     // Delete any connectors matching this shop domain (in case of orphaned records)
@@ -233,7 +262,9 @@ export class ShopifyAuthService {
 
     // Delete checkout orders linked to this organization
     if (session?.organizationId) {
-      await this.checkoutOrderRepository.delete({ organizationId: session.organizationId });
+      await this.checkoutOrderRepository.delete({
+        organizationId: session.organizationId,
+      });
     }
 
     // Delete session
@@ -241,7 +272,10 @@ export class ShopifyAuthService {
     this.logger.log(`GDPR shop data fully deleted for: ${sanitizedShop}`);
   }
 
-  private async exchangeToken(shop: string, code: string): Promise<ShopifyTokenResponse> {
+  private async exchangeToken(
+    shop: string,
+    code: string,
+  ): Promise<ShopifyTokenResponse> {
     const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -288,12 +322,38 @@ export class ShopifyAuthService {
 
     // Try to extract from URL
     try {
-      const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+      const url = trimmed.includes('://')
+        ? new URL(trimmed)
+        : new URL(`https://${trimmed}`);
       if (url.host.endsWith('.myshopify.com')) return url.host;
     } catch {
       // not a URL
     }
 
     return '';
+  }
+
+  encryptAccessToken(token: string): string {
+    if (!token || this.isEncryptedTokenString(token)) return token;
+    return JSON.stringify(this.encryptedSecrets.encrypt(token));
+  }
+
+  decryptAccessToken(token: string): string {
+    if (!token || !this.isEncryptedTokenString(token)) return token;
+    return this.encryptedSecrets.decrypt(JSON.parse(token) as EncryptedSecret);
+  }
+
+  private isEncryptedTokenString(token: string): boolean {
+    try {
+      const parsed = JSON.parse(token) as Partial<EncryptedSecret>;
+      return (
+        parsed?.algorithm === 'aes-256-gcm' &&
+        typeof parsed.ciphertext === 'string' &&
+        typeof parsed.iv === 'string' &&
+        typeof parsed.authTag === 'string'
+      );
+    } catch {
+      return false;
+    }
   }
 }

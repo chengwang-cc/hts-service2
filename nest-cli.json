@@ -3,6 +3,11 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      { "include": "modules/**/data/**/*.json", "outDir": "dist", "watchAssets": true },
+      { "include": "modules/**/data/**/*.csv",  "outDir": "dist", "watchAssets": true }
+    ],
+    "watchAssets": true
   }
 }

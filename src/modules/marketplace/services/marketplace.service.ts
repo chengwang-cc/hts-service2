@@ -126,7 +126,7 @@ export class MarketplaceService {
       publishedAt:
         requestedStatus === 'published'
           ? (existing?.publishedAt ?? now)
-          : existing?.publishedAt ?? null,
+          : (existing?.publishedAt ?? null),
     });
 
     const saved = await this.profiles.save(profile);
@@ -223,7 +223,12 @@ export class MarketplaceService {
     qb.orderBy('profile.updatedAt', 'DESC').take(limit).skip(offset);
 
     const [rows, total] = await qb.getManyAndCount();
-    return { rows: rows.map((row) => this.toAdminProfile(row)), total, limit, offset };
+    return {
+      rows: rows.map((row) => this.toAdminProfile(row)),
+      total,
+      limit,
+      offset,
+    };
   }
 
   async adminReview(
@@ -263,8 +268,48 @@ export class MarketplaceService {
     return this.toAdminProfile(saved);
   }
 
+  /**
+   * Admin-controlled toggle for the public contact exposure level on a
+   * broker profile. Every change is audited (reason is required so the
+   * audit trail explains the operator decision).
+   */
+  async setContactExposure(
+    id: string,
+    input: {
+      exposure: 'platform_only' | 'email_only' | 'phone_only' | 'full';
+      reason: string;
+    },
+    ctx: RequestContext,
+  ) {
+    const profile = await this.profiles.findOne({ where: { id } });
+    if (!profile) {
+      throw new NotFoundException('Broker profile not found');
+    }
+    const previousExposure = profile.publicContactExposure;
+    profile.publicContactExposure = input.exposure;
+    const saved = await this.profiles.save(profile);
+    await this.audit.record({
+      eventType: 'marketplace_profile.contact_exposure_set',
+      organizationId: saved.organizationId,
+      actorUserId: ctx.userId,
+      resourceType: 'marketplace_broker_profile',
+      resourceId: saved.id,
+      source: 'admin',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: {
+        previousExposure,
+        exposure: input.exposure,
+        reason: input.reason,
+      },
+    });
+    return this.toAdminProfile(saved);
+  }
+
   private applySearchFilters(
-    qb: ReturnType<Repository<MarketplaceBrokerProfileEntity>['createQueryBuilder']>,
+    qb: ReturnType<
+      Repository<MarketplaceBrokerProfileEntity>['createQueryBuilder']
+    >,
     dto: SearchMarketplaceBrokersDto,
   ) {
     if (dto.q?.trim()) {
@@ -322,10 +367,10 @@ export class MarketplaceService {
 
     return Boolean(
       companyName &&
-        description &&
-        contactEmail &&
-        countries.length > 0 &&
-        serviceCategories.length > 0,
+      description &&
+      contactEmail &&
+      countries.length > 0 &&
+      serviceCategories.length > 0,
     );
   }
 
@@ -381,6 +426,10 @@ export class MarketplaceService {
   }
 
   private toPublicProfile(profile: MarketplaceBrokerProfileEntity) {
+    const exposure = profile.publicContactExposure ?? 'platform_only';
+    const exposeEmail = exposure === 'email_only' || exposure === 'full';
+    const exposePhone = exposure === 'phone_only' || exposure === 'full';
+    const exposeAddress = exposure === 'full';
     return {
       id: profile.id,
       companyName: profile.companyName,
@@ -398,9 +447,16 @@ export class MarketplaceService {
       aiCapabilities: profile.aiCapabilities,
       metrics: profile.metrics,
       websiteUrl: profile.websiteUrl,
-      contactEmail: profile.contactEmail,
-      contactPhone: profile.contactPhone,
-      officeAddress: profile.officeAddress,
+      contactCta: {
+        mode: 'platform_lead',
+        label: 'Contact through marketplace',
+        brokerProfileId: profile.id,
+      },
+      publicContactEnabled: exposure !== 'platform_only',
+      publicContactExposure: exposure,
+      publicContactEmail: exposeEmail ? profile.contactEmail : null,
+      publicContactPhone: exposePhone ? profile.contactPhone : null,
+      publicOfficeAddress: exposeAddress ? profile.officeAddress : null,
       minimumEngagement: profile.minimumEngagement,
       publishedAt: profile.publishedAt,
     };
@@ -409,6 +465,9 @@ export class MarketplaceService {
   private toPrivateProfile(profile: MarketplaceBrokerProfileEntity) {
     return {
       ...this.toPublicProfile(profile),
+      contactEmail: profile.contactEmail,
+      contactPhone: profile.contactPhone,
+      officeAddress: profile.officeAddress,
       status: profile.status,
       submittedForVerificationAt: profile.submittedForVerificationAt,
       verifiedAt: profile.verifiedAt,

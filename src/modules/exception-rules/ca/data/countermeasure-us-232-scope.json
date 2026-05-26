@@ -1,0 +1,20 @@
+{
+  "$schema": "./countermeasure-us-232-scope.schema.json",
+  "version": "2026-05-26.1",
+  "description": "Scaffolded subset of the Canada Customs Tariff §53 Countermeasure Order against US §232 (re-imposed March 2025). OPS populates the full Annex list.",
+  "effectiveFrom": "2025-03-13",
+  "sourceDocuments": [
+    "ca.canada-gazette.countermeasure-us-232-2025",
+    "ca.dept-finance.us-countermeasure-list"
+  ],
+  "entries": [
+    { "htsCode": "7208.10.0000", "rate": 0.25, "category": "steel", "source": "ca.dept-finance.us-countermeasure-list" },
+    { "htsCode": "7326.20.0000", "rate": 0.25, "category": "steel articles", "source": "ca.dept-finance.us-countermeasure-list" },
+    { "htsCode": "7601.10.0000", "rate": 0.25, "category": "aluminum", "source": "ca.dept-finance.us-countermeasure-list" },
+    { "htsCode": "7616.99.0000", "rate": 0.25, "category": "aluminum articles", "source": "ca.dept-finance.us-countermeasure-list" },
+
+    { "htsCode": "2208.30.0000", "rate": 0.25, "category": "whisky", "source": "ca.dept-finance.us-countermeasure-list" },
+    { "htsCode": "2106.90.0090", "rate": 0.10, "category": "food preparations", "source": "ca.dept-finance.us-countermeasure-list" },
+    { "htsCode": "0810.30.0000", "rate": 0.10, "category": "fresh berries", "source": "ca.dept-finance.us-countermeasure-list" }
+  ]
+}

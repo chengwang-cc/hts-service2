@@ -43,9 +43,11 @@ const baseLines: Partial<BrokerEntryLineEntity>[] = [
   },
 ];
 
-function ctx(
-  adapter: Partial<BrokerAdapterEntity> = {},
-): AdapterContext {
+const testOutboundPolicy = {
+  fetch: (url: string, init: RequestInit) => fetch(url, init),
+};
+
+function ctx(adapter: Partial<BrokerAdapterEntity> = {}): AdapterContext {
   return {
     adapter: {
       id: 'a1',
@@ -82,7 +84,7 @@ describe('GenericCsvAdapter', () => {
 });
 
 describe('JsonWebhookAdapter', () => {
-  const adapter = new JsonWebhookAdapter();
+  const adapter = new JsonWebhookAdapter(testOutboundPolicy as any);
 
   it('builds a JSON payload with entry + lines', async () => {
     const artifact = await adapter.build(ctx());
@@ -99,14 +101,14 @@ describe('JsonWebhookAdapter', () => {
   });
 
   it('returns delivered=true on 2xx, with response summary', async () => {
-    const artifact = await adapter.build(ctx({ publicConfig: { url: 'https://example.test/x' } }));
-    const fetchMock = jest
-      .spyOn(globalThis as any, 'fetch')
-      .mockResolvedValue({
-        ok: true,
-        status: 202,
-        text: async () => 'queued',
-      } as any);
+    const artifact = await adapter.build(
+      ctx({ publicConfig: { url: 'https://example.test/x' } }),
+    );
+    const fetchMock = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 202,
+      text: async () => 'queued',
+    } as any);
     try {
       const r = await adapter.deliver(
         ctx({ publicConfig: { url: 'https://example.test/x' } }),

@@ -1,0 +1,8 @@
+htsCode,effectiveFrom,effectiveTo,exclusionCode,source,description
+# Section 301 exclusions — USTR-granted product carve-outs.
+# When matched, emits a NEGATIVE component zeroing out the corresponding
+# List 1/2/3/4A rate. Chapter 99 9903.88.xx exclusion codes are USTR-
+# assigned per granted exclusion.
+# Source: USTR Section 301 exclusions database.
+# NOTE: Scaffolded — populate from current active exclusions list.
+8479.89.9499,2020-01-01,2025-12-31,9903.88.45,fr.notice.85-1500,List 1/3 machine exclusion (specific product)
