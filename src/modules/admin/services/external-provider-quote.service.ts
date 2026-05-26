@@ -165,14 +165,17 @@ export class ExternalProviderQuoteService {
         card.countryCode === 'ALL' ? 'CN' : card.countryCode;
       const declaredValue = options.declaredValue ?? 1000;
       const [local] = await this.withCardPrimaryMode(() =>
-        this.tariffRateBatch.batchCalculate([
-          {
-            htsCode: card.htsNumber,
-            country: originCountry,
-            entryDate: options.entryDate,
-            inputs: { value: declaredValue },
-          },
-        ]),
+        this.tariffRateBatch.batchCalculate(
+          [
+            {
+              htsCode: card.htsNumber,
+              country: originCountry,
+              entryDate: options.entryDate,
+              inputs: { value: declaredValue },
+            },
+          ],
+          { failOnComponentError: true },
+        ),
       );
 
       for (const provider of activeProviders) {

@@ -45,11 +45,19 @@ const JURISDICTIONS: SeedJurisdiction[] = [
   { code: 'IE', displayName: 'Ireland', type: 'member_state', parentCode: 'EU', currencyCode: 'EUR', defaultLocale: 'en-IE', tariffSchema: 'TARIC_10' },
   { code: 'ES', displayName: 'Spain', type: 'member_state', parentCode: 'EU', currencyCode: 'EUR', defaultLocale: 'es-ES', tariffSchema: 'TARIC_10' },
   { code: 'IT', displayName: 'Italy', type: 'member_state', parentCode: 'EU', currencyCode: 'EUR', defaultLocale: 'it-IT', tariffSchema: 'TARIC_10' },
-  { code: 'AU', displayName: 'Australia', type: 'country', currencyCode: 'AUD', defaultLocale: 'en-AU', tariffSchema: 'HS_10' },
-  { code: 'NZ', displayName: 'New Zealand', type: 'country', currencyCode: 'NZD', defaultLocale: 'en-NZ', tariffSchema: 'HS_10' },
+  // Asia-Pacific destinations supported by calculator-v2 Phase B+ adapters.
+  // Tariff schemas reflect each customs authority's working schema:
+  //   AU  — AHECC 8-digit working tariff (importers use Schedule 3)
+  //   NZ  — Working Tariff Document, 10-digit
+  //   KR  — HSK (Korea HS Code), 10-digit
+  //   SG  — AHTN (ASEAN Harmonized Tariff Nomenclature), 8-digit
+  //   TW  — CCC (Commodity Classification Code of ROC), 11-digit
+  { code: 'AU', displayName: 'Australia', type: 'country', currencyCode: 'AUD', defaultLocale: 'en-AU', tariffSchema: 'AHECC_8' },
+  { code: 'NZ', displayName: 'New Zealand', type: 'country', currencyCode: 'NZD', defaultLocale: 'en-NZ', tariffSchema: 'NZ_WT_10' },
   { code: 'JP', displayName: 'Japan', type: 'country', currencyCode: 'JPY', defaultLocale: 'ja-JP', tariffSchema: 'JP_9' },
-  { code: 'KR', displayName: 'South Korea', type: 'country', currencyCode: 'KRW', defaultLocale: 'ko-KR', tariffSchema: 'KR_10' },
-  { code: 'TW', displayName: 'Taiwan', type: 'country', currencyCode: 'TWD', defaultLocale: 'zh-TW', tariffSchema: 'TW_11' },
+  { code: 'KR', displayName: 'South Korea', type: 'country', currencyCode: 'KRW', defaultLocale: 'ko-KR', tariffSchema: 'HSK_10' },
+  { code: 'SG', displayName: 'Singapore', type: 'country', currencyCode: 'SGD', defaultLocale: 'en-SG', tariffSchema: 'AHTN_8' },
+  { code: 'TW', displayName: 'Taiwan', type: 'country', currencyCode: 'TWD', defaultLocale: 'zh-TW', tariffSchema: 'TW_CCC_11' },
 ];
 
 async function main() {

@@ -1,4 +1,6 @@
+import { FormulaSemanticsService } from '../../calculator/services/formula-semantics.service';
 import { FormulaSourcePackService } from './formula-source-pack.service';
+import { FormulaValidationArtifactService } from './formula-validation-artifact.service';
 
 function oneResultQueryBuilder<T>(result: T | null) {
   return {
@@ -24,7 +26,21 @@ function manyResultQueryBuilder<T>(result: T[]) {
 }
 
 describe('FormulaSourcePackService', () => {
+  function buildService() {
+    const semantics = new FormulaSemanticsService();
+    return new FormulaSourcePackService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      new FormulaValidationArtifactService(semantics),
+    );
+  }
+
   it('builds a deterministic source pack from staged and active rows', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-25T12:00:00Z'));
     const staged = {
       id: 'stage-1',
       importId: 'import-1',
@@ -77,12 +93,74 @@ describe('FormulaSourcePackService', () => {
       updateFormulaComment: null,
     };
 
-    const service = new FormulaSourcePackService(
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    const brokerCase = {
+      id: 'broker-1',
+      brokerName: 'Broker',
+      brokerReference: 'entry-1',
+      htsNumber: '9903.88.03',
+      originCountry: 'CN',
+      destinationCountry: 'US',
+      entryDate: '2026-05-22',
+      declaredValue: 10000,
+      currency: 'USD',
+      inputs: { value: 10000 },
+      expectedTotalDuty: 2500,
+      expectedComponents: [
+        {
+          componentType: 'additionalDuty',
+          chapter99HtsCode: '9903.88.03',
+          formulaText: 'value * 0.25',
+          amount: 2500,
+        },
+      ],
+      citations: [{ source: 'broker-entry' }],
+      status: 'active',
+      lastValidatedAt: new Date('2026-05-23T00:00:00Z'),
+      brokerConfidence: 0.95,
+      metadata: null,
+      createdAt: new Date('2026-05-22T00:00:00Z'),
+      updatedAt: new Date('2026-05-22T00:00:00Z'),
+    };
+    const providerQuote = {
+      id: 'quote-1',
+      provider: 'FLEXPORT',
+      queryHash: 'quote-hash',
+      htsNumber: '9903.88.03',
+      originCountry: 'CN',
+      destinationCountry: 'US',
+      declaredValue: 10000,
+      currency: 'USD',
+      entryDate: '2026-05-22',
+      query: { value: 10000 },
+      providerTotalDuty: 2500,
+      providerComponents: [
+        {
+          componentType: 'additionalDuty',
+          chapter99HtsCode: '9903.88.03',
+          formulaText: '0.25 * value',
+          amount: 2500,
+        },
+      ],
+      localTotalDuty: 2500,
+      localComponents: [
+        {
+          componentType: 'additionalDuty',
+          chapter99HtsCode: '9903.88.03',
+          formulaText: 'value * 0.25',
+          amount: 2500,
+        },
+      ],
+      delta: 0,
+      agreementStatus: 'matched',
+      rawResponseUri: 's3://quote',
+      rawResponse: null,
+      fetchedAt: new Date('2026-05-23T00:00:00Z'),
+      metadata: null,
+      createdAt: new Date('2026-05-23T00:00:00Z'),
+      updatedAt: new Date('2026-05-23T00:00:00Z'),
+    };
+
+    const service = buildService();
     (service as any).stageRepo = {
       createQueryBuilder: jest.fn(() => oneResultQueryBuilder(staged)),
     };
@@ -95,58 +173,112 @@ describe('FormulaSourcePackService', () => {
     (service as any).evidenceRepo = {
       createQueryBuilder: jest.fn(() => manyResultQueryBuilder([])),
     };
+    (service as any).brokerCaseRepo = {
+      createQueryBuilder: jest.fn(() => manyResultQueryBuilder([brokerCase])),
+    };
+    (service as any).providerQuoteRepo = {
+      createQueryBuilder: jest.fn(() =>
+        manyResultQueryBuilder([providerQuote]),
+      ),
+    };
 
-    const pack = await service.build({
-      htsNumber: '9903.88.03',
-      sourceVersion: '2026 Revision 8',
-      originCountry: 'CN',
-    });
+    try {
+      const pack = await service.build({
+        htsNumber: '9903.88.03',
+        sourceVersion: '2026 Revision 8',
+        originCountry: 'CN',
+      });
 
-    expect(pack.sourcePackId).toHaveLength(64);
-    expect(pack.sourceVersion).toBe('2026 Revision 8');
-    expect(pack.articleDescription).toBe(
-      'Articles subject to additional duties',
-    );
-    expect(pack.currentFormulaArtifact.general).toEqual(
-      expect.objectContaining({ formulaText: 'value * 0.25' }),
-    );
-    expect(pack.chapter99Candidates[0]).toEqual(
-      expect.objectContaining({
-        htsNumber: '9903.88.15',
-        isChapter99: true,
-        chapter99Heading: '9903.88.15',
-        programFamily: 'section_301',
-        programAuthority: 'Section 301',
-        programBasis: expect.arrayContaining([
-          'heading:9903.88.15',
-          'section_301_heading_pattern',
-        ]),
-      }),
-    );
-    expect(pack.chapter99Candidates).toEqual(
-      expect.arrayContaining([
+      jest.setSystemTime(new Date('2026-05-25T13:00:00Z'));
+      const rebuiltPack = await service.build({
+        htsNumber: '9903.88.03',
+        sourceVersion: '2026 Revision 8',
+        originCountry: 'CN',
+      });
+
+      expect(pack.sourcePackId).toHaveLength(64);
+      expect(rebuiltPack.sourcePackId).toBe(pack.sourcePackId);
+      expect(pack.sourceVersion).toBe('2026 Revision 8');
+      expect(pack.articleDescription).toBe(
+        'Articles subject to additional duties',
+      );
+      expect(pack.currentFormulaArtifact.general).toEqual(
+        expect.objectContaining({ formulaText: 'value * 0.25' }),
+      );
+      expect(pack.knownParserOutput.active).toEqual(
         expect.objectContaining({
-          htsNumber: '9903.88.03',
-          source: 'active-hts.self',
+          formulaText: 'value * 0.25',
+          chapter99FormulaText: 'value * 0.25',
+        }),
+      );
+      expect((pack.knownParserOutput.active as any).components).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            componentType: 'base',
+            formulaText: 'value * 0.25',
+          }),
+        ]),
+      );
+      expect(pack.knownBrokerCases[0]).toEqual(
+        expect.objectContaining({
+          id: 'broker-1',
+          validationArtifact: expect.objectContaining({
+            artifactVersion: 'formula-validation-artifact-v1',
+            source: 'BROKER_GOLDEN_SET',
+            totals: expect.objectContaining({ duty: 2500 }),
+          }),
+        }),
+      );
+      expect(pack.knownProviderQuotes[0]).toEqual(
+        expect.objectContaining({
+          id: 'quote-1',
+          providerArtifact: expect.objectContaining({
+            artifactVersion: 'formula-validation-artifact-v1',
+            source: 'FLEXPORT',
+            totals: expect.objectContaining({ duty: 2500 }),
+          }),
+          localArtifact: expect.objectContaining({
+            artifactVersion: 'formula-validation-artifact-v1',
+            source: 'LOCAL_CALCULATOR',
+            totals: expect.objectContaining({ duty: 2500 }),
+          }),
+        }),
+      );
+      expect(pack.chapter99Candidates[0]).toEqual(
+        expect.objectContaining({
+          htsNumber: '9903.88.15',
+          isChapter99: true,
+          chapter99Heading: '9903.88.15',
           programFamily: 'section_301',
           programAuthority: 'Section 301',
+          programBasis: expect.arrayContaining([
+            'heading:9903.88.15',
+            'section_301_heading_pattern',
+          ]),
         }),
-      ]),
-    );
-    expect(pack.metadata).toEqual(
-      expect.objectContaining({
-        chapter99ProgramFamilies: ['section_301'],
-      }),
-    );
+      );
+      expect(pack.chapter99Candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            htsNumber: '9903.88.03',
+            source: 'active-hts.self',
+            programFamily: 'section_301',
+            programAuthority: 'Section 301',
+          }),
+        ]),
+      );
+      expect(pack.metadata).toEqual(
+        expect.objectContaining({
+          chapter99ProgramFamilies: ['section_301'],
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('classifies non-301 Chapter 99 program families deterministically', () => {
-    const service = new FormulaSourcePackService(
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    const service = buildService();
     const classify = (service as any).classifyChapter99Program.bind(service);
 
     expect(classify({ htsNumber: '9903.85.01', context: [] })).toEqual(

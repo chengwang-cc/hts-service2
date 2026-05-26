@@ -31,6 +31,22 @@ import { EuTaricIngestionService } from './adapters/eu/services/eu-taric-ingesti
 import { EuVatRuleResolverService } from './adapters/eu/services/eu-vat-rule-resolver.service';
 import { EuIossResolverService } from './adapters/eu/services/eu-ioss-resolver.service';
 import { ViesValidationService } from './adapters/eu/services/vies-validation.service';
+// Phase B+ Asia-Pacific adapters.
+import { KrCustomsAdapter } from './adapters/kr/kr-customs.adapter';
+import { KrTariffLookupService } from './adapters/kr/services/kr-tariff-lookup.service';
+import { KrVatResolverService } from './adapters/kr/services/kr-vat-resolver.service';
+import { SgCustomsAdapter } from './adapters/sg/sg-customs.adapter';
+import { SgTariffLookupService } from './adapters/sg/services/sg-tariff-lookup.service';
+import { SgGstResolverService } from './adapters/sg/services/sg-gst-resolver.service';
+import { AuBorderForceAdapter } from './adapters/au/au-border-force.adapter';
+import { AuTariffLookupService } from './adapters/au/services/au-tariff-lookup.service';
+import { AuGstResolverService } from './adapters/au/services/au-gst-resolver.service';
+import { NzCustomsAdapter } from './adapters/nz/nz-customs.adapter';
+import { NzTariffLookupService } from './adapters/nz/services/nz-tariff-lookup.service';
+import { NzGstResolverService } from './adapters/nz/services/nz-gst-resolver.service';
+import { TwCustomsAdapter } from './adapters/tw/tw-customs.adapter';
+import { TwTariffLookupService } from './adapters/tw/services/tw-tariff-lookup.service';
+import { TwBusinessTaxResolverService } from './adapters/tw/services/tw-business-tax-resolver.service';
 import { TARIFF_ADAPTERS } from './interfaces/tariff-jurisdiction-adapter.interface';
 import { CalculatorModule } from '../calculator/calculator.module';
 
@@ -42,13 +58,23 @@ const tariffAdaptersProvider: Provider = {
     gb: GbTradeTariffAdapter,
     ca: CaCustomsAdapter,
     eu: EuTaricAdapter,
-  ) => [us, hk, gb, ca, eu],
+    kr: KrCustomsAdapter,
+    sg: SgCustomsAdapter,
+    au: AuBorderForceAdapter,
+    nz: NzCustomsAdapter,
+    tw: TwCustomsAdapter,
+  ) => [us, hk, gb, ca, eu, kr, sg, au, nz, tw],
   inject: [
     UsHtsAdapter,
     HkFreePortAdapter,
     GbTradeTariffAdapter,
     CaCustomsAdapter,
     EuTaricAdapter,
+    KrCustomsAdapter,
+    SgCustomsAdapter,
+    AuBorderForceAdapter,
+    NzCustomsAdapter,
+    TwCustomsAdapter,
   ],
 };
 
@@ -91,6 +117,22 @@ const tariffAdaptersProvider: Provider = {
     EuIossResolverService,
     ViesValidationService,
     EuTaricAdapter,
+    // Phase B+ Asia-Pacific destinations.
+    KrTariffLookupService,
+    KrVatResolverService,
+    KrCustomsAdapter,
+    SgTariffLookupService,
+    SgGstResolverService,
+    SgCustomsAdapter,
+    AuTariffLookupService,
+    AuGstResolverService,
+    AuBorderForceAdapter,
+    NzTariffLookupService,
+    NzGstResolverService,
+    NzCustomsAdapter,
+    TwTariffLookupService,
+    TwBusinessTaxResolverService,
+    TwCustomsAdapter,
     tariffAdaptersProvider,
     AdapterRegistry,
   ],
@@ -102,6 +144,11 @@ const tariffAdaptersProvider: Provider = {
     GbTradeTariffAdapter,
     CaCustomsAdapter,
     EuTaricAdapter,
+    KrCustomsAdapter,
+    SgCustomsAdapter,
+    AuBorderForceAdapter,
+    NzCustomsAdapter,
+    TwCustomsAdapter,
     TypeOrmModule,
   ],
 })

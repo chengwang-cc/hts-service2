@@ -240,6 +240,21 @@ export class CompareExternalProviderFormulaDto {
   @IsOptional()
   @IsString()
   modeOfTransport?: string;
+
+  @ApiPropertyOptional({
+    description: 'Provider validation mode',
+    enum: ['formula', 'quote', 'quote_plus_formula'],
+  })
+  @IsOptional()
+  @IsIn(['formula', 'quote', 'quote_plus_formula'])
+  validationMode?: 'formula' | 'quote' | 'quote_plus_formula';
+
+  @ApiPropertyOptional({
+    description: 'Canonical provider input context for exact snapshot lookup',
+  })
+  @IsOptional()
+  @IsObject()
+  inputContext?: Record<string, any>;
 }
 
 export class ValidateExternalProviderFormulaDto {
@@ -277,6 +292,64 @@ export class ValidateExternalProviderFormulaDto {
   @IsNumber()
   @Min(0)
   value?: number;
+
+  @ApiPropertyOptional({
+    description: 'Flexport aluminum content percentage',
+    example: 30,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  aluminumWeightPercentage?: number;
+
+  @ApiPropertyOptional({
+    description: 'Flexport aluminum smelt/cast country',
+    example: 'CA',
+  })
+  @IsOptional()
+  @IsString()
+  aluminumCountryOfSmelt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Flexport steel content percentage',
+    example: 50,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  steelWeightPercentage?: number;
+
+  @ApiPropertyOptional({
+    description: 'Flexport steel melt/pour country',
+    example: 'CA',
+  })
+  @IsOptional()
+  @IsString()
+  steelCountryOfMeltPour?: string;
+
+  @ApiPropertyOptional({
+    description: 'Flexport copper content percentage',
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  copperWeightPercentage?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Validation mode. Flexport defaults to quote mode unless formula extraction is explicitly required.',
+    enum: ['formula', 'quote', 'quote_plus_formula'],
+  })
+  @IsOptional()
+  @IsIn(['formula', 'quote', 'quote_plus_formula'])
+  validationMode?: 'formula' | 'quote' | 'quote_plus_formula';
 
   @ApiPropertyOptional({
     description: 'Product name hint for provider UI',
@@ -317,7 +390,7 @@ export class ValidateExternalProviderFormulaDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  requireFormulaExtraction?: boolean = true;
+  requireFormulaExtraction?: boolean;
 
   @ApiPropertyOptional({
     description:
@@ -370,6 +443,21 @@ export class AnalyzeExternalProviderDiscrepancyDto {
   @IsOptional()
   @IsString()
   modeOfTransport?: string;
+
+  @ApiPropertyOptional({
+    description: 'Provider validation mode',
+    enum: ['formula', 'quote', 'quote_plus_formula'],
+  })
+  @IsOptional()
+  @IsIn(['formula', 'quote', 'quote_plus_formula'])
+  validationMode?: 'formula' | 'quote' | 'quote_plus_formula';
+
+  @ApiPropertyOptional({
+    description: 'Canonical provider input context for exact snapshot lookup',
+  })
+  @IsOptional()
+  @IsObject()
+  inputContext?: Record<string, any>;
 }
 
 export class ManualReviewExternalProviderFormulaDto {

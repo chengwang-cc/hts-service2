@@ -187,6 +187,7 @@ import { FormulaAiSkillRegistryService } from './services/formula-ai-skill-regis
 import { FormulaAiRunArtifactService } from './services/formula-ai-run-artifact.service';
 import { FormulaAiRolloutService } from './services/formula-ai-rollout.service';
 import { FormulaAiHoldoutEvaluationJobHandler } from './jobs/formula-ai-holdout-evaluation.job-handler';
+import { FormulaValidationArtifactService } from './services/formula-validation-artifact.service';
 
 @Module({
   imports: [
@@ -339,6 +340,7 @@ import { FormulaAiHoldoutEvaluationJobHandler } from './jobs/formula-ai-holdout-
     FormulaAiSkillRegistryService,
     FormulaAiRunArtifactService,
     FormulaAiRolloutService,
+    FormulaValidationArtifactService,
     PolicyChangeMonitorJobHandler,
     TariffKnowledgeCardRecomputeJobHandler,
     BrokerGoldenSetValidationJobHandler,
@@ -381,6 +383,7 @@ import { FormulaAiHoldoutEvaluationJobHandler } from './jobs/formula-ai-holdout-
     FormulaAiSkillRegistryService,
     FormulaAiRunArtifactService,
     FormulaAiRolloutService,
+    FormulaValidationArtifactService,
   ],
 })
 export class AdminModule implements OnModuleInit {
@@ -503,8 +506,9 @@ export class AdminModule implements OnModuleInit {
       this.formulaMaintenanceHandler.execute(job),
     );
 
-    await this.queueService.registerHandler('formula-ai-holdout-evaluation', (job) =>
-      this.formulaAiHoldoutEvaluationHandler.execute(job),
+    await this.queueService.registerHandler(
+      'formula-ai-holdout-evaluation',
+      (job) => this.formulaAiHoldoutEvaluationHandler.execute(job),
     );
 
     this.logger.log('Job handlers registered successfully (22 handlers)');
@@ -526,7 +530,8 @@ export class AdminModule implements OnModuleInit {
   }
 
   private async configureFormulaAiHoldoutEvaluationSchedule(): Promise<void> {
-    const enabled = process.env.FORMULA_AI_HOLDOUT_EVALUATION_ENABLED === 'true';
+    const enabled =
+      process.env.FORMULA_AI_HOLDOUT_EVALUATION_ENABLED === 'true';
     if (!enabled) {
       this.logger.log(
         'Formula AI holdout evaluation disabled (FORMULA_AI_HOLDOUT_EVALUATION_ENABLED != true).',

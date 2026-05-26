@@ -257,7 +257,11 @@ describe('TariffRateBatchService', () => {
           identifier: 'MPF',
           sourceCitation: { source: 'CBP 19 CFR 24.23', rowIdentifier: 'MPF' },
           confidence: 0.99,
-          constraints: { minAmount: 33.58, maxAmount: 651.5, rounding: 'component_2dp' },
+          constraints: {
+            minAmount: 33.58,
+            maxAmount: 651.5,
+            rounding: 'component_2dp',
+          },
         },
       ]);
 
@@ -271,6 +275,29 @@ describe('TariffRateBatchService', () => {
         'CBP 19 CFR 24.23',
         'USITC HTS',
       ]);
+    });
+
+    it('fails closed in validation mode when any component evaluation fails', async () => {
+      const service = build([
+        {
+          componentType: 'base',
+          formula: 'missing_value * 0.10',
+          requiredVariables: [{ name: 'value', type: 'number' }],
+          appliesWhen: { kind: 'always' },
+          identifier: '6109.10.00.04',
+          sourceCitation: { source: 'USITC HTS' },
+          confidence: 0.98,
+        },
+      ]);
+
+      const [row] = await service.batchCalculate(
+        [{ htsCode: '6109.10.00.04', country: 'CN', inputs: { value: 1000 } }],
+        { failOnComponentError: true },
+      );
+
+      expect(row.blocked).toBe(true);
+      expect(row.blockReason).toMatch(/COMPONENT_EVALUATION_ERROR/);
+      expect(row.breakdown[0].error).toBeTruthy();
     });
   });
 });

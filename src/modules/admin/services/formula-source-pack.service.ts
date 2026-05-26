@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HtsEntity } from '../../../core/entities/hts.entity';
 import { HtsStageEntryEntity } from '../../../core/entities/hts-stage-entry.entity';
 import { TariffEvidenceEntity } from '../../calculator/entities/tariff-evidence.entity';
 import { TariffKnowledgeCardEntity } from '../../calculator/entities/tariff-knowledge-card.entity';
+import { BrokerGoldenSetCaseEntity } from '../entities/broker-golden-set-case.entity';
+import { ExternalProviderQuoteEntity } from '../entities/external-provider-quote.entity';
 import {
   FormulaSourcePack,
   FormulaSourcePackSchema,
@@ -16,6 +18,7 @@ import {
   toJsonRecord,
   toJsonValue,
 } from './formula-ai-validation.util';
+import { FormulaValidationArtifactService } from './formula-validation-artifact.service';
 
 export interface BuildFormulaSourcePackInput {
   htsNumber: string;
@@ -37,6 +40,14 @@ export class FormulaSourcePackService {
     private readonly evidenceRepo: Repository<TariffEvidenceEntity>,
     @InjectRepository(TariffKnowledgeCardEntity)
     private readonly cardRepo: Repository<TariffKnowledgeCardEntity>,
+    @Optional()
+    @InjectRepository(BrokerGoldenSetCaseEntity)
+    private readonly brokerCaseRepo?: Repository<BrokerGoldenSetCaseEntity>,
+    @Optional()
+    @InjectRepository(ExternalProviderQuoteEntity)
+    private readonly providerQuoteRepo?: Repository<ExternalProviderQuoteEntity>,
+    @Optional()
+    private readonly validationArtifacts?: FormulaValidationArtifactService,
   ) {}
 
   async build(input: BuildFormulaSourcePackInput): Promise<FormulaSourcePack> {
@@ -57,12 +68,19 @@ export class FormulaSourcePackService {
       active?.version ||
       'unknown';
     const includeEvidence = input.includeEvidence !== false;
-    const [knownCards, knownEvidence] = includeEvidence
-      ? await Promise.all([
-          this.loadCards(htsNumber, originCountry, destinationCountry),
-          this.loadEvidence(htsNumber, originCountry, destinationCountry),
-        ])
-      : [[], []];
+    const [knownCards, knownEvidence, knownBrokerCases, knownProviderQuotes] =
+      includeEvidence
+        ? await Promise.all([
+            this.loadCards(htsNumber, originCountry, destinationCountry),
+            this.loadEvidence(htsNumber, originCountry, destinationCountry),
+            this.loadBrokerCases(htsNumber, originCountry, destinationCountry),
+            this.loadProviderQuotes(
+              htsNumber,
+              originCountry,
+              destinationCountry,
+            ),
+          ])
+        : [[], [], [], []];
 
     const chapter99Candidates = this.buildChapter99Candidates(active);
     const sourceWithoutId = {
@@ -86,8 +104,8 @@ export class FormulaSourcePackService {
       chapter99Candidates,
       currentFormulaArtifact: this.buildCurrentFormulaArtifact(active),
       knownParserOutput: this.buildKnownParserOutput(active, staged),
-      knownBrokerCases: [],
-      knownProviderQuotes: [],
+      knownBrokerCases,
+      knownProviderQuotes,
       knownEvidence,
       knownCards,
       requiredOutputSchemaVersion: 'formula-artifact-v1' as const,
@@ -101,7 +119,9 @@ export class FormulaSourcePackService {
         generatedAt: new Date().toISOString(),
       },
     };
-    const sourcePackId = sha256Hex(stableStringify(sourceWithoutId));
+    const sourcePackId = sha256Hex(
+      stableStringify(this.sourcePackFingerprint(sourceWithoutId)),
+    );
     return FormulaSourcePackSchema.parse({
       sourcePackId,
       ...sourceWithoutId,
@@ -237,6 +257,131 @@ export class FormulaSourcePackService {
         validationStatus: item.validationStatus,
         validationErrors: item.validationErrors,
         status: item.status,
+      }),
+    );
+  }
+
+  private async loadBrokerCases(
+    htsNumber: string,
+    originCountry: string,
+    destinationCountry: string,
+  ): Promise<JsonRecord[]> {
+    if (!this.brokerCaseRepo) {
+      return [];
+    }
+    const cases = await this.brokerCaseRepo
+      .createQueryBuilder('brokerCase')
+      .where('brokerCase.htsNumber = :htsNumber', { htsNumber })
+      .andWhere('brokerCase.destinationCountry = :destinationCountry', {
+        destinationCountry,
+      })
+      .andWhere(
+        '(brokerCase.originCountry = :originCountry OR brokerCase.originCountry = :all)',
+        {
+          originCountry,
+          all: 'ALL',
+        },
+      )
+      .andWhere('brokerCase.status = :status', { status: 'active' })
+      .orderBy('brokerCase.lastValidatedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('brokerCase.createdAt', 'DESC')
+      .limit(10)
+      .getMany();
+
+    return cases.map((brokerCase) =>
+      toJsonRecord({
+        id: brokerCase.id,
+        brokerName: brokerCase.brokerName,
+        brokerReference: brokerCase.brokerReference,
+        htsNumber: brokerCase.htsNumber,
+        originCountry: brokerCase.originCountry,
+        destinationCountry: brokerCase.destinationCountry,
+        entryDate: brokerCase.entryDate,
+        declaredValue: Number(brokerCase.declaredValue),
+        currency: brokerCase.currency,
+        inputs: brokerCase.inputs,
+        expectedTotalDuty: Number(brokerCase.expectedTotalDuty),
+        expectedComponents: brokerCase.expectedComponents,
+        citations: brokerCase.citations || [],
+        brokerConfidence:
+          brokerCase.brokerConfidence === null ||
+          brokerCase.brokerConfidence === undefined
+            ? null
+            : Number(brokerCase.brokerConfidence),
+        lastValidatedAt: brokerCase.lastValidatedAt,
+        validationArtifact: this.validationArtifacts
+          ? this.validationArtifacts.fromBrokerGoldenSetCase(brokerCase)
+          : null,
+      }),
+    );
+  }
+
+  private async loadProviderQuotes(
+    htsNumber: string,
+    originCountry: string,
+    destinationCountry: string,
+  ): Promise<JsonRecord[]> {
+    if (!this.providerQuoteRepo) {
+      return [];
+    }
+    const quotes = await this.providerQuoteRepo
+      .createQueryBuilder('quote')
+      .where('quote.htsNumber = :htsNumber', { htsNumber })
+      .andWhere('quote.destinationCountry = :destinationCountry', {
+        destinationCountry,
+      })
+      .andWhere(
+        '(quote.originCountry = :originCountry OR quote.originCountry = :all)',
+        {
+          originCountry,
+          all: 'ALL',
+        },
+      )
+      .orderBy('quote.fetchedAt', 'DESC')
+      .addOrderBy('quote.createdAt', 'DESC')
+      .limit(10)
+      .getMany();
+
+    return quotes.map((quote) =>
+      toJsonRecord({
+        id: quote.id,
+        provider: quote.provider,
+        queryHash: quote.queryHash,
+        htsNumber: quote.htsNumber,
+        originCountry: quote.originCountry,
+        destinationCountry: quote.destinationCountry,
+        entryDate: quote.entryDate,
+        declaredValue: Number(quote.declaredValue),
+        currency: quote.currency,
+        query: quote.query,
+        providerTotalDuty:
+          quote.providerTotalDuty === null ||
+          quote.providerTotalDuty === undefined
+            ? null
+            : Number(quote.providerTotalDuty),
+        providerComponents: quote.providerComponents || [],
+        localTotalDuty:
+          quote.localTotalDuty === null || quote.localTotalDuty === undefined
+            ? null
+            : Number(quote.localTotalDuty),
+        localComponents: quote.localComponents || [],
+        delta:
+          quote.delta === null || quote.delta === undefined
+            ? null
+            : Number(quote.delta),
+        agreementStatus: quote.agreementStatus,
+        rawResponseUri: quote.rawResponseUri,
+        fetchedAt: quote.fetchedAt,
+        metadata: quote.metadata,
+        providerArtifact: this.validationArtifacts
+          ? this.validationArtifacts.fromExternalProviderQuote(
+              quote,
+              'provider',
+            )
+          : null,
+        localArtifact: this.validationArtifacts
+          ? this.validationArtifacts.fromExternalProviderQuote(quote, 'local')
+          : null,
       }),
     );
   }
@@ -521,6 +666,21 @@ export class FormulaSourcePackService {
     return null;
   }
 
+  private sourcePackFingerprint(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sourcePackFingerprint(item));
+    }
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(record)
+          .filter(([key]) => key !== 'generatedAt')
+          .map(([key, item]) => [key, this.sourcePackFingerprint(item)]),
+      );
+    }
+    return value;
+  }
+
   private buildCurrentFormulaArtifact(active: HtsEntity | null): JsonRecord {
     if (!active) {
       return {};
@@ -560,6 +720,19 @@ export class FormulaSourcePackService {
       active: active
         ? {
             rateTextHash: active.rateTextHash,
+            generalRateText: active.generalRate || active.general || null,
+            formulaText: active.rateFormula,
+            formulaVariables: active.rateVariables,
+            otherRateText: active.otherRate || active.other || null,
+            otherFormulaText: active.otherRateFormula,
+            otherFormulaVariables: active.otherRateVariables,
+            chapter99RateText: active.chapter99,
+            chapter99FormulaText: active.adjustedFormula,
+            chapter99FormulaVariables: active.adjustedFormulaVariables,
+            chapter99Links: active.chapter99Links || [],
+            chapter99ApplicableCountries:
+              active.chapter99ApplicableCountries || [],
+            components: this.buildParserFormulaComponents(active),
             formulaConfidence:
               active.formulaConfidence === null ||
               active.formulaConfidence === undefined
@@ -579,6 +752,50 @@ export class FormulaSourcePackService {
           }
         : null,
     });
+  }
+
+  private buildParserFormulaComponents(active: HtsEntity): JsonRecord[] {
+    const components: JsonRecord[] = [];
+    if (active.rateFormula || active.generalRate || active.general) {
+      components.push(
+        toJsonRecord({
+          componentType: 'base',
+          rateClass: 'general',
+          rateText: active.generalRate || active.general || null,
+          formulaText: active.rateFormula,
+          variables: active.rateVariables || [],
+          isGenerated: active.isFormulaGenerated,
+        }),
+      );
+    }
+    if (active.otherRateFormula || active.otherRate || active.other) {
+      components.push(
+        toJsonRecord({
+          componentType: 'base',
+          rateClass: 'other',
+          rateText: active.otherRate || active.other || null,
+          formulaText: active.otherRateFormula,
+          variables: active.otherRateVariables || [],
+          isGenerated: active.isOtherFormulaGenerated,
+        }),
+      );
+    }
+    if (active.adjustedFormula || active.chapter99) {
+      components.push(
+        toJsonRecord({
+          componentType: 'chapter_99',
+          rateClass: 'additional',
+          rateText: active.chapter99,
+          formulaText: active.adjustedFormula,
+          variables: active.adjustedFormulaVariables || [],
+          isGenerated: active.isAdjustedFormulaGenerated,
+          chapter99Links: active.chapter99Links || [],
+          chapter99ApplicableCountries:
+            active.chapter99ApplicableCountries || [],
+        }),
+      );
+    }
+    return components;
   }
 
   private formatDate(value: Date | string | null | undefined): string | null {

@@ -693,6 +693,7 @@ Examples:
       rateText: string;
       unitOfQuantity?: string;
     }> = [];
+    const manualReviewRates: string[] = [];
 
     // First pass: try pattern matching for all entries
     rates.forEach((rate, index) => {
@@ -713,6 +714,8 @@ Examples:
       );
       if (patternResult) {
         results[index] = { ...patternResult, method: 'pattern' };
+      } else if (this.requiresManualReview(normalized)) {
+        manualReviewRates.push(rate.rateText);
       } else {
         aiCandidates.push({
           index,
@@ -721,6 +724,14 @@ Examples:
         });
       }
     });
+
+    if (manualReviewRates.length > 0) {
+      throw new Error(
+        `Ambiguous rate text requires manual review: ${manualReviewRates
+          .slice(0, 5)
+          .join('; ')}`,
+      );
+    }
 
     // Second pass: batch AI for unresolved entries (100 per batch)
     const batchSize = 100;

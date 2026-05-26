@@ -24,31 +24,58 @@ export class CalculationHistoryService {
   ) {}
 
   async write(args: {
-    apiKey: ApiKeyEntity;
+    /** API-key caller (public path). When omitted, `organizationId` + `userId` must be supplied. */
+    apiKey?: ApiKeyEntity;
+    /** JWT-path caller context (browser / app routes). */
+    organizationId?: string;
+    userId?: string | null;
     input: Record<string, any>;
     result: Record<string, any>;
-    source: 'ai_service_proxy_v1' | 'hts_native_v2';
+    source: 'ai_service_proxy_v1' | 'hts_native_v2' | 'hts_native_v2_quote';
+    /**
+     * Phase F1 audit snapshot from CalculatorV2AuditService. Optional —
+     * v1 callers don't produce one; v2 quote callers always do.
+     */
+    audit?: Record<string, unknown> | null;
   }): Promise<CalculationHistoryEntity> {
     const calculationId =
       args.result?.calculationId ||
+      args.result?.quoteId ||
       args.result?.id ||
       this.generateCalculationId();
 
+    const organizationId =
+      args.organizationId ?? args.apiKey?.organizationId ?? null;
+    if (!organizationId) {
+      // No tenant scope — silently skip. CalculationHistory is per-org;
+      // a write without an org would be unreadable later.
+      this.logger.debug(
+        `CalculationHistory write skipped (${args.source}): no organizationId`,
+      );
+      return null as unknown as CalculationHistoryEntity;
+    }
+
     const row = this.repo.create({
       calculationId,
-      organizationId: args.apiKey.organizationId,
-      userId: null,
+      organizationId,
+      userId: args.userId ?? null,
       scenarioId: null,
       inputs: args.input,
-      baseDuty: this.coerceNumber(args.result?.baseDuty ?? args.result?.totals?.baseDuty),
+      baseDuty: this.coerceNumber(
+        args.result?.baseDuty ?? args.result?.totals?.baseDuty,
+      ),
       additionalTariffs: this.coerceNumber(
         args.result?.additionalTariffs ?? args.result?.totals?.additionalTariffs,
       ),
       totalTaxes: this.coerceNumber(
         args.result?.totalTaxes ?? args.result?.totals?.taxes,
       ),
-      totalDuty: this.coerceNumber(args.result?.totalDuty ?? args.result?.totals?.totalDuty),
-      landedCost: this.coerceNumber(args.result?.landedCost ?? args.result?.totals?.landedCost),
+      totalDuty: this.coerceNumber(
+        args.result?.totalDuty ?? args.result?.totals?.totalCustomsDuty ?? args.result?.totals?.totalDuty,
+      ),
+      landedCost: this.coerceNumber(
+        args.result?.landedCost ?? args.result?.totals?.landedCost,
+      ),
       breakdown: args.result?.breakdown ?? null,
       tradeAgreementInfo: args.result?.tradeAgreementInfo ?? null,
       complianceWarnings: args.result?.warnings ?? null,
@@ -56,6 +83,7 @@ export class CalculationHistoryService {
       ruleVersion: null,
       engineVersion: args.source,
       formulaUsed: args.result?.formulaUsed ?? null,
+      audit: args.audit ?? null,
     });
 
     try {

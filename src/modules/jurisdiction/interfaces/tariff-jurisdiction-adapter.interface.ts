@@ -144,6 +144,99 @@ export interface LineLandedCostResult {
   citations: SourceCitationRef[];
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Phase A — Unified rich calculation contract
+//
+// Every adapter ultimately produces the same shape so the calculator-v2
+// UI can render identical panels for every destination. Adapters that
+// haven't migrated their `calculate()` method to the new shape can be
+// adapted via `lineLandedCostResultToRich()` in calculator-v2-quote.types.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface CalculatorTotals {
+  /** Sum of declared values (goods only), in destination currency. */
+  goodsValue: number;
+  /** Customs value used for duty calculation. For most jurisdictions this equals goodsValue. */
+  customsValue: number;
+  /** Sum of base-duty components. */
+  baseDuty: number;
+  /** Sum of additional-duty components (Chapter 99 / 301 / 232 / IEEPA / etc.). */
+  additionalDuties: number;
+  /** baseDuty + additionalDuties. No fees, no taxes. */
+  totalCustomsDuty: number;
+  /** MPF / HMF / declaration-style fees. */
+  fees: number;
+  /** True taxes (VAT / GST / HST / Business Tax / IOSS). */
+  taxes: number;
+  /** totalCustomsDuty + fees + taxes. The amount remitted at clearance. */
+  borderPayable: number;
+  /** Freight cost allocated to this line/quote. */
+  shipping: number;
+  /** Insurance allocated to this line/quote. */
+  insurance: number;
+  /** goodsValue + shipping + insurance + borderPayable. */
+  landedCost: number;
+}
+
+export interface JurisdictionFacts {
+  /** Human label for the tariff schedule used (e.g. "USITC HTS 2026 Rev 8"). */
+  schemaName: string;
+  /** ISO date of the schema snapshot's effective date. */
+  schemaEffectiveDate: string;
+  /** Country currency code (USD, EUR, KRW, …). */
+  currency: string;
+  /** Free-text per-destination caveats / informational notes. */
+  notes?: string[];
+  /** De minimis / low-value-shipment treatment for this destination. */
+  deMinimis?: {
+    appliesTo: 'duty' | 'duty_and_tax' | 'tax_only';
+    threshold: number;
+    currency: string;
+    qualified: boolean;
+    note: string;
+  };
+  /** Consumption tax (VAT / GST / HST / Business Tax) rules. */
+  vatRules?: {
+    appliesAt: 'border' | 'reverse_charge' | 'ioss' | 'lvig_ovr' | 'exempt';
+    standardRate: number;
+    reducedRate?: number;
+    note: string;
+  };
+  /** Documentation likely required for the chosen origin × trade agreement. */
+  documentationRequirements?: Array<{
+    code: string;
+    label: string;
+    requiredFor: 'preferential_rate' | 'duty_free' | 'low_value' | 'compliance';
+  }>;
+  /** Trade agreements eligible for the (origin, destination) pair. */
+  tradeAgreements?: Array<{
+    code: string;
+    label: string;
+    requiresCertificate: boolean;
+    eligible: boolean;
+    eligibilityReason?: string;
+  }>;
+}
+
+export interface RichCalculationResult {
+  classification: {
+    hs6: string;
+    effectiveCode: string;
+    source: string;
+  };
+  components: TariffFormulaComponent[];
+  totals: CalculatorTotals;
+  sources: SourceCitationRef[];
+  confidence: {
+    score: number;
+    label: 'high' | 'medium' | 'low' | 'review';
+    reasons: string[];
+  };
+  warnings: string[];
+  assumptions: string[];
+  jurisdictionFacts: JurisdictionFacts;
+}
+
 export interface TariffJurisdictionAdapter {
   readonly jurisdictionCode: string;
 
@@ -169,6 +262,19 @@ export interface TariffJurisdictionAdapter {
    * Convenience for code paths that pre-date the adapter interface.
    */
   resolveFormula?(input: MeasureLookupInput): Promise<ResolveFormulaResult>;
+
+  /**
+   * Optional rich calculation entry point. Adapters that opt in return the
+   * full `RichCalculationResult` directly; adapters that don't get adapted
+   * via `lineLandedCostResultToRich()` in CalculatorV2QuoteService.
+   *
+   * Phase A introduces this as optional so all 10 existing adapters can be
+   * driven through CalculatorV2QuoteService without per-adapter migration.
+   */
+  calculateRich?(
+    line: LandedCostLineInput,
+    context: ShipmentContext,
+  ): Promise<RichCalculationResult>;
 }
 
 export const TARIFF_ADAPTERS = Symbol('TARIFF_ADAPTERS');

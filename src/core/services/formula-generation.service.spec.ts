@@ -66,6 +66,15 @@ describe('FormulaGenerationService deterministic construction', () => {
     expect(result).toBeNull();
   });
 
+  it('blocks manual-review rates from batch AI fallback', async () => {
+    await expect(
+      service.generateFormulaBatch([
+        { rateText: '5%' },
+        { rateText: 'See note 2 to this chapter' },
+      ]),
+    ).rejects.toThrow(/requires manual review/i);
+  });
+
   it.each(FORMULA_PARSER_FIXTURES)(
     'matches parser fixture: $name',
     (fixture) => {

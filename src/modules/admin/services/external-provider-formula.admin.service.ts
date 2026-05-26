@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,10 +15,9 @@ import {
   HtsFormulaUpdateService,
   OpenAiService,
 } from '@hts/core';
-import {
-  FormulaSemanticsService,
-  TariffFormulaResolverService,
-} from '@hts/calculator';
+import { FormulaSemanticsService } from '../../calculator/services/formula-semantics.service';
+import { TariffFormulaResolverService } from '../../calculator/services/tariff-formula-resolver.service';
+import { TariffRateBatchService } from '../../calculator/services/tariff-rate-batch.service';
 import {
   AnalyzeExternalProviderDiscrepancyDto,
   CompareExternalProviderFormulaDto,
@@ -52,11 +52,25 @@ type LiveComparisonResult = {
     isMatch: boolean;
     providerNormalized: string | null;
     liveNormalized: string | null;
+    validationMode?: 'formula' | 'quote' | 'quote_plus_formula';
+    quoteComparison?: {
+      providerTotalDuty: number | null;
+      localTotalDuty: number | null;
+      delta: number | null;
+      tolerance: number;
+      providerComponents: Array<Record<string, any>>;
+      localComponents: Array<Record<string, any>>;
+      localBlocked: boolean;
+      localBlockReason: string | null;
+    } | null;
     mismatchReason:
       | 'NO_PROVIDER_SNAPSHOT'
       | 'NO_PROVIDER_FORMULA'
+      | 'NO_PROVIDER_QUOTE'
       | 'NO_LIVE_FORMULA'
+      | 'NO_LIVE_QUOTE'
       | 'FORMULA_MISMATCH'
+      | 'QUOTE_MISMATCH'
       | 'MATCH';
   };
 };
@@ -94,6 +108,8 @@ export class ExternalProviderFormulaAdminService {
     private readonly formulaGenerationService: FormulaGenerationService,
     private readonly formulaSemantics: FormulaSemanticsService,
     private readonly tariffFormulaResolver: TariffFormulaResolverService,
+    @Optional()
+    private readonly tariffRateBatch?: TariffRateBatchService,
   ) {}
 
   async upsertSnapshot(
@@ -111,10 +127,14 @@ export class ExternalProviderFormulaAdminService {
       .trim()
       .toUpperCase();
     const normalizedInputContext = this.normalizeJson(dto.inputContext || {});
-    const contextHash = this.hashContext(
-      normalizedProvider,
-      normalizedInputContext,
-    );
+    const contextHash = this.hashContext({
+      provider: normalizedProvider,
+      htsNumber: (dto.htsNumber || '').trim(),
+      countryCode: normalizedCountry,
+      entryDate: dto.entryDate,
+      modeOfTransport: normalizedMode,
+      inputContext: normalizedInputContext,
+    });
     const observedAt = dto.observedAt ? new Date(dto.observedAt) : new Date();
 
     const basePayload = {
@@ -307,20 +327,42 @@ export class ExternalProviderFormulaAdminService {
     const normalizedMode = (dto.modeOfTransport || 'OCEAN')
       .trim()
       .toUpperCase();
+    const validationMode = dto.validationMode || 'formula';
+    const normalizedInputContext = dto.inputContext
+      ? this.normalizeJson(dto.inputContext)
+      : null;
+    const contextHash = normalizedInputContext
+      ? this.hashContext({
+          provider: normalizedProvider,
+          htsNumber: (dto.htsNumber || '').trim(),
+          countryCode: normalizedCountry,
+          entryDate: dto.entryDate,
+          modeOfTransport: normalizedMode,
+          inputContext: normalizedInputContext,
+        })
+      : null;
 
-    const providerSnapshot = await this.externalFormulaRepo.findOne({
-      where: {
-        provider: normalizedProvider,
+    const providerSnapshotQuery = this.externalFormulaRepo
+      .createQueryBuilder('formula')
+      .where('formula.provider = :provider', { provider: normalizedProvider })
+      .andWhere('formula.htsNumber = :htsNumber', {
         htsNumber: (dto.htsNumber || '').trim(),
+      })
+      .andWhere('formula.countryCode = :countryCode', {
         countryCode: normalizedCountry,
-        entryDate: dto.entryDate,
+      })
+      .andWhere('formula.entryDate = :entryDate', { entryDate: dto.entryDate })
+      .andWhere('formula.modeOfTransport = :modeOfTransport', {
         modeOfTransport: normalizedMode,
-        isLatest: true,
-      },
-      order: {
-        observedAt: 'DESC',
-      },
-    });
+      })
+      .andWhere('formula.isLatest = :isLatest', { isLatest: true })
+      .orderBy('formula.observedAt', 'DESC');
+    if (contextHash) {
+      providerSnapshotQuery.andWhere('formula.contextHash = :contextHash', {
+        contextHash,
+      });
+    }
+    const providerSnapshot = await providerSnapshotQuery.getOne();
 
     const liveHtsEntity = await this.htsRepo.findOne({
       where: {
@@ -362,9 +404,114 @@ export class ExternalProviderFormulaAdminService {
           isMatch: false,
           providerNormalized: null,
           liveNormalized: liveFormulaNormalized,
+          validationMode,
+          quoteComparison: null,
           mismatchReason: 'NO_PROVIDER_SNAPSHOT',
         },
       };
+    }
+
+    const quoteComparison =
+      validationMode === 'quote' || validationMode === 'quote_plus_formula'
+        ? await this.compareProviderQuoteWithLocal(providerSnapshot)
+        : null;
+    if (validationMode === 'quote' && quoteComparison) {
+      if (quoteComparison.providerTotalDuty === null) {
+        return {
+          providerSnapshot,
+          liveHts: liveProjection,
+          comparison: {
+            isMatch: false,
+            providerNormalized: providerFormulaNormalized,
+            liveNormalized: liveFormulaNormalized,
+            validationMode,
+            quoteComparison,
+            mismatchReason: 'NO_PROVIDER_QUOTE',
+          },
+        };
+      }
+      if (
+        quoteComparison.localTotalDuty === null ||
+        quoteComparison.localBlocked
+      ) {
+        return {
+          providerSnapshot,
+          liveHts: liveProjection,
+          comparison: {
+            isMatch: false,
+            providerNormalized: providerFormulaNormalized,
+            liveNormalized: liveFormulaNormalized,
+            validationMode,
+            quoteComparison,
+            mismatchReason: 'NO_LIVE_QUOTE',
+          },
+        };
+      }
+      const isQuoteMatch =
+        quoteComparison.delta !== null &&
+        Math.abs(quoteComparison.delta) <= quoteComparison.tolerance;
+      return {
+        providerSnapshot,
+        liveHts: liveProjection,
+        comparison: {
+          isMatch: isQuoteMatch,
+          providerNormalized: providerFormulaNormalized,
+          liveNormalized: liveFormulaNormalized,
+          validationMode,
+          quoteComparison,
+          mismatchReason: isQuoteMatch ? 'MATCH' : 'QUOTE_MISMATCH',
+        },
+      };
+    }
+    if (validationMode === 'quote_plus_formula' && quoteComparison) {
+      if (quoteComparison.providerTotalDuty === null) {
+        return {
+          providerSnapshot,
+          liveHts: liveProjection,
+          comparison: {
+            isMatch: false,
+            providerNormalized: providerFormulaNormalized,
+            liveNormalized: liveFormulaNormalized,
+            validationMode,
+            quoteComparison,
+            mismatchReason: 'NO_PROVIDER_QUOTE',
+          },
+        };
+      }
+      if (
+        quoteComparison.localTotalDuty === null ||
+        quoteComparison.localBlocked
+      ) {
+        return {
+          providerSnapshot,
+          liveHts: liveProjection,
+          comparison: {
+            isMatch: false,
+            providerNormalized: providerFormulaNormalized,
+            liveNormalized: liveFormulaNormalized,
+            validationMode,
+            quoteComparison,
+            mismatchReason: 'NO_LIVE_QUOTE',
+          },
+        };
+      }
+      if (
+        quoteComparison.delta !== null &&
+        Math.abs(quoteComparison.delta) > quoteComparison.tolerance
+      ) {
+        return {
+          providerSnapshot,
+          liveHts: liveProjection,
+          comparison: {
+            isMatch: false,
+            providerNormalized: providerFormulaNormalized,
+            liveNormalized: liveFormulaNormalized,
+            validationMode,
+            quoteComparison,
+            mismatchReason: 'QUOTE_MISMATCH',
+          },
+        };
+      }
     }
 
     if (!providerFormulaNormalized) {
@@ -375,6 +522,8 @@ export class ExternalProviderFormulaAdminService {
           isMatch: false,
           providerNormalized: null,
           liveNormalized: liveFormulaNormalized,
+          validationMode,
+          quoteComparison,
           mismatchReason: 'NO_PROVIDER_FORMULA',
         },
       };
@@ -388,6 +537,8 @@ export class ExternalProviderFormulaAdminService {
           isMatch: false,
           providerNormalized: providerFormulaNormalized,
           liveNormalized: null,
+          validationMode,
+          quoteComparison,
           mismatchReason: 'NO_LIVE_FORMULA',
         },
       };
@@ -405,6 +556,8 @@ export class ExternalProviderFormulaAdminService {
         isMatch,
         providerNormalized: providerFormulaNormalized,
         liveNormalized: liveFormulaNormalized,
+        validationMode,
+        quoteComparison,
         mismatchReason: isMatch ? 'MATCH' : 'FORMULA_MISMATCH',
       },
     };
@@ -425,6 +578,7 @@ export class ExternalProviderFormulaAdminService {
       extractionMethod: string;
       extractionConfidence: number;
       formulaExtracted: boolean;
+      validationMode: 'formula' | 'quote' | 'quote_plus_formula';
       usedMock: boolean;
     };
     analysis: {
@@ -447,7 +601,15 @@ export class ExternalProviderFormulaAdminService {
     const providerFormulaExtracted = !!(
       fetchResult.formulaNormalized || fetchResult.formulaRaw
     );
-    const requireFormulaExtraction = dto.requireFormulaExtraction !== false;
+    const validationMode =
+      dto.validationMode ||
+      (dto.requireFormulaExtraction === true
+        ? 'formula'
+        : provider === 'FLEXPORT'
+          ? 'quote'
+          : 'formula');
+    const requireFormulaExtraction =
+      dto.requireFormulaExtraction ?? validationMode === 'formula';
     if (requireFormulaExtraction && !providerFormulaExtracted) {
       throw new BadRequestException(
         this.buildProviderExtractionFailureMessage(fetchResult),
@@ -482,6 +644,8 @@ export class ExternalProviderFormulaAdminService {
       countryCode: fetchResult.countryCode,
       entryDate: fetchResult.entryDate,
       modeOfTransport: fetchResult.modeOfTransport,
+      inputContext: fetchResult.inputContext,
+      validationMode,
     });
 
     let analysis: {
@@ -499,6 +663,8 @@ export class ExternalProviderFormulaAdminService {
         countryCode: fetchResult.countryCode,
         entryDate: fetchResult.entryDate,
         modeOfTransport: fetchResult.modeOfTransport,
+        inputContext: fetchResult.inputContext,
+        validationMode,
       });
       analysis = analysisResult.analysis;
     }
@@ -515,6 +681,7 @@ export class ExternalProviderFormulaAdminService {
         extractionMethod: fetchResult.extractionMethod,
         extractionConfidence: fetchResult.extractionConfidence,
         formulaExtracted: providerFormulaExtracted,
+        validationMode,
         usedMock,
       },
       analysis,
@@ -578,6 +745,7 @@ export class ExternalProviderFormulaAdminService {
       countryCode: dto.countryCode,
       entryDate: dto.entryDate,
       modeOfTransport: dto.modeOfTransport || 'OCEAN',
+      inputContext: dto.inputContext || {},
     });
 
     const analysis =
@@ -589,6 +757,7 @@ export class ExternalProviderFormulaAdminService {
               countryCode: dto.countryCode,
               entryDate: dto.entryDate,
               modeOfTransport: dto.modeOfTransport || 'OCEAN',
+              inputContext: dto.inputContext || {},
             })
           ).analysis
         : null;
@@ -755,6 +924,8 @@ export class ExternalProviderFormulaAdminService {
       countryCode: dto.countryCode,
       entryDate: dto.entryDate,
       modeOfTransport: dto.modeOfTransport,
+      inputContext: dto.inputContext,
+      validationMode: dto.validationMode,
     });
 
     const fallback = this.buildRuleBasedAnalysis(comparison);
@@ -861,14 +1032,25 @@ export class ExternalProviderFormulaAdminService {
     }
   }
 
-  private hashContext(
-    provider: string,
-    inputContext: Record<string, any>,
-  ): string {
-    const canonicalInput = JSON.stringify(this.normalizeJson(inputContext));
-    return createHash('sha256')
-      .update(`${provider}:${canonicalInput}`)
-      .digest('hex');
+  private hashContext(input: {
+    provider: string;
+    htsNumber: string;
+    countryCode: string;
+    entryDate: string;
+    modeOfTransport: string;
+    inputContext: Record<string, any>;
+  }): string {
+    const canonicalInput = JSON.stringify(
+      this.normalizeJson({
+        provider: input.provider,
+        htsNumber: input.htsNumber,
+        countryCode: input.countryCode,
+        entryDate: input.entryDate,
+        modeOfTransport: input.modeOfTransport,
+        inputContext: input.inputContext,
+      }),
+    );
+    return createHash('sha256').update(canonicalInput).digest('hex');
   }
 
   private normalizeFormula(value: string | null): string | null {
@@ -938,6 +1120,230 @@ export class ExternalProviderFormulaAdminService {
       }
     }
     return Array.from(out);
+  }
+
+  private async compareProviderQuoteWithLocal(
+    providerSnapshot: ExternalProviderFormulaEntity,
+  ): Promise<
+    NonNullable<LiveComparisonResult['comparison']['quoteComparison']>
+  > {
+    const providerQuote = this.extractProviderQuote(providerSnapshot);
+    if (!this.tariffRateBatch) {
+      return {
+        providerTotalDuty: providerQuote.totalDuty,
+        localTotalDuty: null,
+        delta: null,
+        tolerance: 0.01,
+        providerComponents: providerQuote.components,
+        localComponents: [],
+        localBlocked: true,
+        localBlockReason: 'LOCAL_BATCH_SERVICE_UNAVAILABLE',
+      };
+    }
+
+    const [local] = await this.tariffRateBatch.batchCalculate(
+      [
+        {
+          htsCode: providerSnapshot.htsNumber,
+          country: providerSnapshot.countryCode,
+          entryDate: providerSnapshot.entryDate,
+          inputs: this.buildLocalCalculatorInputs(
+            providerSnapshot.inputContext,
+          ),
+          selectedChapter99Headings: this.extractProviderChapter99Headings(
+            providerSnapshot.inputContext || {},
+          ),
+        },
+      ],
+      { failOnComponentError: true },
+    );
+    const localTotalDuty = local.blocked ? null : local.totalDuty;
+    return {
+      providerTotalDuty: providerQuote.totalDuty,
+      localTotalDuty,
+      delta:
+        providerQuote.totalDuty !== null && localTotalDuty !== null
+          ? localTotalDuty - providerQuote.totalDuty
+          : null,
+      tolerance: 0.01,
+      providerComponents: providerQuote.components,
+      localComponents: local.breakdown.map((component) => ({
+        componentType: component.componentType,
+        tariffType: component.tariffType,
+        programFamily: component.programFamily || null,
+        chapter99HtsCode: component.chapter99HtsCode || null,
+        amount: component.amount,
+        formula: component.formula,
+        error: component.error,
+      })),
+      localBlocked: local.blocked,
+      localBlockReason: local.blockReason,
+    };
+  }
+
+  private extractProviderQuote(
+    providerSnapshot: ExternalProviderFormulaEntity,
+  ): {
+    totalDuty: number | null;
+    components: Array<Record<string, any>>;
+  } {
+    const breakdown = providerSnapshot.outputBreakdown || {};
+    return {
+      totalDuty: this.findFirstNumberByKey(breakdown, [
+        'providerTotalDuty',
+        'totalDuty',
+        'totalDutyUsd',
+        'total_duty',
+        'total_duty_usd',
+        'dutyTotal',
+        'importDuty',
+        'totalImportDuty',
+      ]),
+      components: this.findFirstArrayByKey(breakdown, [
+        'components',
+        'breakdown',
+        'charges',
+        'duties',
+        'tariffs',
+        'lineItems',
+      ]),
+    };
+  }
+
+  private buildLocalCalculatorInputs(
+    inputContext: Record<string, any> | null | undefined,
+  ): Record<string, number> {
+    const context = inputContext || {};
+    const out: Record<string, number> = {};
+    const copyNumber = (sourceKey: string, targetKey = sourceKey) => {
+      const value = this.coerceNumber(context[sourceKey]);
+      if (value !== null) {
+        out[targetKey] = value;
+      }
+    };
+
+    copyNumber('value');
+    copyNumber('enteredValue', 'value');
+    copyNumber('declaredValue', 'value');
+    copyNumber('weight');
+    copyNumber('weightKg', 'weight');
+    copyNumber('quantity');
+    copyNumber('aluminumWeightPercentage');
+    copyNumber('aluminumWeightPercentage', 'aluminum_weight_percentage');
+    copyNumber('steelWeightPercentage');
+    copyNumber('steelWeightPercentage', 'steel_weight_percentage');
+    copyNumber('copperWeightPercentage');
+    copyNumber('copperWeightPercentage', 'copper_weight_percentage');
+
+    const materialInputs = context.materialInputs;
+    if (materialInputs && typeof materialInputs === 'object') {
+      for (const [key, value] of Object.entries(materialInputs)) {
+        const numeric = this.coerceNumber(value);
+        if (numeric !== null) {
+          out[key] = numeric;
+        }
+      }
+    }
+
+    for (const [key, value] of Object.entries(context)) {
+      if (!/^FIELD_[A-Z0-9_]+$/.test(key)) continue;
+      const numeric = this.coerceNumber(value);
+      if (numeric !== null) {
+        out[key] = numeric;
+      }
+    }
+
+    return out;
+  }
+
+  private findFirstNumberByKey(
+    value: unknown,
+    keys: string[],
+    depth = 0,
+  ): number | null {
+    if (depth > 6 || value === null || value === undefined) {
+      return null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = this.findFirstNumberByKey(item, keys, depth + 1);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+    if (typeof value !== 'object') {
+      return null;
+    }
+    const record = value as Record<string, unknown>;
+    const lowerKeyMap = new Map(
+      Object.keys(record).map((key) => [key.toLowerCase(), key]),
+    );
+    for (const key of keys) {
+      const actualKey = lowerKeyMap.get(key.toLowerCase());
+      if (!actualKey) continue;
+      const numeric = this.coerceNumber(record[actualKey]);
+      if (numeric !== null) return numeric;
+    }
+    for (const item of Object.values(record)) {
+      const found = this.findFirstNumberByKey(item, keys, depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+
+  private findFirstArrayByKey(
+    value: unknown,
+    keys: string[],
+    depth = 0,
+  ): Array<Record<string, any>> {
+    if (depth > 6 || value === null || value === undefined) {
+      return [];
+    }
+    if (Array.isArray(value)) {
+      const objectItems = value.filter(
+        (item): item is Record<string, any> =>
+          !!item && typeof item === 'object' && !Array.isArray(item),
+      );
+      if (objectItems.length > 0) {
+        return objectItems;
+      }
+      for (const item of value) {
+        const found = this.findFirstArrayByKey(item, keys, depth + 1);
+        if (found.length > 0) return found;
+      }
+      return [];
+    }
+    if (typeof value !== 'object') {
+      return [];
+    }
+    const record = value as Record<string, unknown>;
+    const lowerKeyMap = new Map(
+      Object.keys(record).map((key) => [key.toLowerCase(), key]),
+    );
+    for (const key of keys) {
+      const actualKey = lowerKeyMap.get(key.toLowerCase());
+      if (!actualKey) continue;
+      const found = this.findFirstArrayByKey(
+        record[actualKey],
+        keys,
+        depth + 1,
+      );
+      if (found.length > 0) return found;
+    }
+    for (const item of Object.values(record)) {
+      const found = this.findFirstArrayByKey(item, keys, depth + 1);
+      if (found.length > 0) return found;
+    }
+    return [];
+  }
+
+  private coerceNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value.replace(/[$,%\s,]/g, ''));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
   }
 
   private buildFormulaVariable(name: string): {
@@ -1155,11 +1561,37 @@ export class ExternalProviderFormulaAdminService {
       .trim()
       .toUpperCase();
 
+    const rawInputContext = dto.inputContext || {};
     const inputContext = this.normalizeJson({
-      value: dto.value ?? null,
-      productName: dto.productName || null,
+      ...rawInputContext,
+      value: dto.value ?? rawInputContext.value ?? null,
+      productName: dto.productName || rawInputContext.productName || null,
       modeOfTransport,
-      ...(dto.inputContext || {}),
+      aluminumWeightPercentage:
+        dto.aluminumWeightPercentage ??
+        rawInputContext.aluminumWeightPercentage ??
+        rawInputContext.FIELD_ALUMINUM_WEIGHT_PERCENTAGE ??
+        null,
+      aluminumCountryOfSmelt:
+        dto.aluminumCountryOfSmelt ??
+        rawInputContext.aluminumCountryOfSmelt ??
+        rawInputContext.FIELD_ALUMINUM_COUNTRY_OF_SMELT ??
+        null,
+      steelWeightPercentage:
+        dto.steelWeightPercentage ??
+        rawInputContext.steelWeightPercentage ??
+        rawInputContext.FIELD_STEEL_WEIGHT_PERCENTAGE ??
+        null,
+      steelCountryOfMeltPour:
+        dto.steelCountryOfMeltPour ??
+        rawInputContext.steelCountryOfMeltPour ??
+        rawInputContext.FIELD_STEEL_COUNTRY_OF_MELT_POUR ??
+        null,
+      copperWeightPercentage:
+        dto.copperWeightPercentage ??
+        rawInputContext.copperWeightPercentage ??
+        rawInputContext.FIELD_COPPER_WEIGHT_PERCENTAGE ??
+        null,
     });
 
     const sourceUrl = this.buildFlexportUrl({
@@ -1177,7 +1609,9 @@ export class ExternalProviderFormulaAdminService {
       process.env.EXTERNAL_PROVIDER_FLEXPORT_MOCK === 'true';
 
     if (useMock) {
+      const mockRate = countryCode === 'CN' ? 0.125 : 0.05;
       const formulaRaw = this.buildMockFlexportFormula(countryCode);
+      const value = this.coerceNumber(inputContext.value) ?? 0;
       return {
         provider,
         htsNumber,
@@ -1195,6 +1629,14 @@ export class ExternalProviderFormulaAdminService {
           mode: 'mock',
           value: dto.value ?? null,
           country: countryCode,
+          totalDuty: Number((value * mockRate).toFixed(2)),
+          components: [
+            {
+              componentType: 'provider_total_duty',
+              amount: Number((value * mockRate).toFixed(2)),
+              rate: mockRate,
+            },
+          ],
         },
         extractionMethod: 'API',
         extractionConfidence: 1,
@@ -1537,6 +1979,51 @@ export class ExternalProviderFormulaAdminService {
         'FIELD_DATE_OF_LOADING',
         JSON.stringify(String(dateOfLoading)),
       );
+    }
+
+    const setField = (fieldName: string, value: unknown) => {
+      if (value === null || value === undefined || value === '') return;
+      if (typeof value === 'string') {
+        params.set(fieldName, JSON.stringify(value));
+        return;
+      }
+      if (typeof value === 'number' || typeof value === 'boolean') {
+        params.set(fieldName, String(value));
+        return;
+      }
+      params.set(fieldName, JSON.stringify(value));
+    };
+
+    setField(
+      'FIELD_ALUMINUM_WEIGHT_PERCENTAGE',
+      input.inputContext?.aluminumWeightPercentage ??
+        input.inputContext?.FIELD_ALUMINUM_WEIGHT_PERCENTAGE,
+    );
+    setField(
+      'FIELD_ALUMINUM_COUNTRY_OF_SMELT',
+      input.inputContext?.aluminumCountryOfSmelt ??
+        input.inputContext?.FIELD_ALUMINUM_COUNTRY_OF_SMELT,
+    );
+    setField(
+      'FIELD_STEEL_WEIGHT_PERCENTAGE',
+      input.inputContext?.steelWeightPercentage ??
+        input.inputContext?.FIELD_STEEL_WEIGHT_PERCENTAGE,
+    );
+    setField(
+      'FIELD_STEEL_COUNTRY_OF_MELT_POUR',
+      input.inputContext?.steelCountryOfMeltPour ??
+        input.inputContext?.FIELD_STEEL_COUNTRY_OF_MELT_POUR,
+    );
+    setField(
+      'FIELD_COPPER_WEIGHT_PERCENTAGE',
+      input.inputContext?.copperWeightPercentage ??
+        input.inputContext?.FIELD_COPPER_WEIGHT_PERCENTAGE,
+    );
+
+    for (const [key, value] of Object.entries(input.inputContext || {})) {
+      if (!/^FIELD_[A-Z0-9_]+$/.test(key)) continue;
+      if (params.has(key)) continue;
+      setField(key, value);
     }
 
     return `https://tariffs.flexport.com/?${params.toString()}`;
@@ -1987,7 +2474,8 @@ export class ExternalProviderFormulaAdminService {
 
     if (mismatchReason === 'MATCH') {
       return {
-        summary: 'External provider formula and live HTS formula are aligned.',
+        summary:
+          'External provider result and live HTS calculation are aligned for the selected validation mode.',
         probableCauses: ['No discrepancy detected for the selected context.'],
         recommendedActions: [
           'Keep periodic validation enabled for new entry dates and policy updates.',
@@ -2030,6 +2518,23 @@ export class ExternalProviderFormulaAdminService {
       };
     }
 
+    if (mismatchReason === 'NO_PROVIDER_QUOTE') {
+      return {
+        summary:
+          'Provider snapshot exists, but quote total extraction is empty.',
+        probableCauses: [
+          'Provider returned an unexpected breakdown shape.',
+          'The extraction parser captured formula text but not computed duty totals.',
+        ],
+        recommendedActions: [
+          'Inspect provider raw JSON and update quote total/component extraction keys.',
+          'Attach a screenshot or raw response sample to the parser gap.',
+        ],
+        confidence: 0.82,
+        provider: 'rules',
+      };
+    }
+
     if (mismatchReason === 'NO_LIVE_FORMULA') {
       return {
         summary:
@@ -2043,6 +2548,42 @@ export class ExternalProviderFormulaAdminService {
           'Check chapter99 and non-NTR applicability columns for country mapping.',
         ],
         confidence: 0.88,
+        provider: 'rules',
+      };
+    }
+
+    if (mismatchReason === 'NO_LIVE_QUOTE') {
+      return {
+        summary:
+          'Internal calculator could not produce a valid local quote for provider comparison.',
+        probableCauses: [
+          'A formula component failed runtime evaluation.',
+          'The provider context requires inputs not currently mapped into the local calculator request.',
+        ],
+        recommendedActions: [
+          'Inspect quoteComparison.localBlockReason and local component errors.',
+          'Add missing input mappings or formula variables before using this provider case as coverage.',
+        ],
+        confidence: 0.88,
+        provider: 'rules',
+      };
+    }
+
+    if (mismatchReason === 'QUOTE_MISMATCH') {
+      return {
+        summary:
+          'External provider quote total differs from live HTS calculation.',
+        probableCauses: [
+          'Provider and local calculator selected different duty components.',
+          'Material, Chapter 99, SPI, or loading-date context differs between systems.',
+          'One side is missing a current policy update or provider-specific assumption.',
+        ],
+        recommendedActions: [
+          'Compare component breakdowns by program family and Chapter 99 code.',
+          'Verify Flexport/provider context fields exactly match local calculator inputs.',
+          'Create a reconciliation packet if official-source review confirms the local calculation is wrong.',
+        ],
+        confidence: 0.86,
         provider: 'rules',
       };
     }

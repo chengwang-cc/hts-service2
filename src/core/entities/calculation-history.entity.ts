@@ -101,6 +101,16 @@ export class CalculationHistoryEntity {
   @Column('varchar', { length: 1000, nullable: true })
   formulaUsed: string | null;
 
+  /**
+   * Calculator-v2 audit snapshot (Phase F1). Captures source citations,
+   * confidence detail per line, distinct Chapter 99 codes used, per-
+   * component formula semantic hashes, and an optional FX record id.
+   * Stored as JSONB so the schema can evolve without a migration when
+   * audit team adds fields.
+   */
+  @Column('jsonb', { nullable: true })
+  audit: Record<string, unknown> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

@@ -12,6 +12,7 @@ import { CoreWrapperModule } from './modules/core/core.module';
 import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.module';
 import { LookupModule } from './modules/lookup/lookup.module';
 import { CalculatorModule } from './modules/calculator/calculator.module';
+import { CalculatorV2QuoteModule } from './modules/calculator-v2-quote/calculator-v2-quote.module';
 import { JurisdictionModule } from './modules/jurisdiction/jurisdiction.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ClassificationModule } from './modules/classification/classification.module';
@@ -143,6 +144,9 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Landed-cost module (P3 — POST /landed-cost/quotes + quote lifecycle)
     LandedCostModule,
+
+    // Calculator V2 quote module (Phase A — unified multi-country calculator)
+    CalculatorV2QuoteModule,
 
     // Public API module (versioned external APIs)
     PublicApiModule,

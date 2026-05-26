@@ -45,10 +45,11 @@ export class TariffRateBatchService {
 
   async batchCalculate(
     requests: BatchRateRequest[],
+    options: { failOnComponentError?: boolean } = {},
   ): Promise<BatchRateLineResult[]> {
     const out: BatchRateLineResult[] = [];
     for (const req of requests) {
-      out.push(await this.calculateOne(req));
+      out.push(await this.calculateOne(req, options));
     }
     return out;
   }
@@ -131,6 +132,7 @@ export class TariffRateBatchService {
 
   private async calculateOne(
     req: BatchRateRequest,
+    options: { failOnComponentError?: boolean } = {},
   ): Promise<BatchRateLineResult> {
     const policySelection =
       this.policyApplicability.applySystemChapter99Selections({
@@ -331,14 +333,23 @@ export class TariffRateBatchService {
         error: e.error,
       };
     });
+    const evaluationErrors = evaluated
+      .filter((entry) => entry.error)
+      .map((entry) => entry.error as string);
+    const blockedByEvaluationError =
+      !!options.failOnComponentError && evaluationErrors.length > 0;
 
     return {
       htsCode: req.htsCode,
       country: req.country,
       effectiveHtsCode: resolved.effectiveHtsCode,
-      blocked: false,
-      blockReason: null,
-      message: resolved.message,
+      blocked: blockedByEvaluationError,
+      blockReason: blockedByEvaluationError
+        ? `COMPONENT_EVALUATION_ERROR: ${evaluationErrors[0]}`
+        : null,
+      message: blockedByEvaluationError
+        ? 'One or more tariff components failed formula evaluation.'
+        : resolved.message,
       systemSelectedChapter99Headings:
         policySelection.systemSelectedChapter99Headings,
       totalDuty: this.round2(totalDuty),
@@ -369,7 +380,10 @@ export class TariffRateBatchService {
    */
   private resolveChapter99Code(c: TariffFormulaComponent): string | null {
     if (c.chapter99HtsCode) return c.chapter99HtsCode;
-    if (c.identifier && /^99\d{2}\.\d{2}\.\d{2}(\.\d{2})?$/.test(c.identifier)) {
+    if (
+      c.identifier &&
+      /^99\d{2}\.\d{2}\.\d{2}(\.\d{2})?$/.test(c.identifier)
+    ) {
       return c.identifier;
     }
     return extractChapter99FromConditions(c.conditions);
@@ -497,7 +511,11 @@ export class TariffRateBatchService {
     componentType: TariffComponentType | string,
   ): string {
     const cleaned = (rawDescription ?? '').trim();
-    if (!cleaned || /\bauto-imported\b/i.test(cleaned) || /\bai-service\b/i.test(cleaned)) {
+    if (
+      !cleaned ||
+      /\bauto-imported\b/i.test(cleaned) ||
+      /\bai-service\b/i.test(cleaned)
+    ) {
       return this.humanizeComponentType(componentType);
     }
     return cleaned;

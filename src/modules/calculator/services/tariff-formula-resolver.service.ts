@@ -20,6 +20,10 @@ import {
   classifyProgramFamily,
   extractChapter99FromConditions,
 } from './program-family.helper';
+import {
+  explodeMetalComponent,
+  shouldAttemptMetalSplit,
+} from './metal-tariff-splitter.helper';
 
 /**
  * TariffFormulaResolver
@@ -68,12 +72,27 @@ export class TariffFormulaResolverService {
     }
 
     if (destinationCountry !== 'US') {
-      // P0 ships US-only. Multi-jurisdiction resolution lands in P1+.
-      return this.blocked(
-        input,
-        'UNSUPPORTED_DESTINATION',
-        `Destination ${destinationCountry} is not supported in this version`,
-      );
+      // Calculator-v2 Phase A: non-US destinations are routed through the
+      // per-jurisdiction adapters (CaCustomsAdapter, GbTradeTariffAdapter,
+      // EuTaricAdapter, HkFreePortAdapter, KrCustomsAdapter, SgCustomsAdapter,
+      // AuBorderForceAdapter, NzCustomsAdapter, TwCustomsAdapter) by
+      // CalculatorV2QuoteService. This resolver only owns US HTS measures;
+      // for non-US callers we return an empty-but-non-blocked shape so
+      // legacy `getRequiredVariables()` consumers stay compatible while the
+      // adapter path drives the real calculation.
+      return {
+        htsNumber,
+        effectiveHtsCode: htsNumber,
+        components: [],
+        allRequiredVariables: this.defaultInternationalVariables(),
+        warnings: [
+          `Destination ${destinationCountry} resolves via jurisdiction adapter; use POST /v2/quote for the rich result.`,
+        ],
+        citations: [],
+        systemSelectedChapter99Headings: [],
+        blocked: false,
+        message: '',
+      };
     }
 
     const warnings: string[] = [];
@@ -180,6 +199,25 @@ export class TariffFormulaResolverService {
           });
     components.push(...extraComponents.components);
     warnings.push(...extraComponents.warnings);
+
+    // Phase E: split additive Section 232 metal formulas into per-metal rows
+    // so the breakdown surfaces each material's contribution. Non-additive
+    // formulas pass through unchanged.
+    const splitComponents: TariffFormulaComponent[] = [];
+    for (const c of components) {
+      const eligible = shouldAttemptMetalSplit({
+        htsNumber,
+        formula: c.formula,
+      });
+      if (!eligible) {
+        splitComponents.push(c);
+        continue;
+      }
+      const exploded = explodeMetalComponent(c);
+      splitComponents.push(...exploded);
+    }
+    components.length = 0;
+    components.push(...splitComponents);
 
     const allRequiredVariables = this.aggregateVariables(components);
 
@@ -915,6 +953,26 @@ export class TariffFormulaResolverService {
   private formatDate(d: Date | string): string {
     const day = this.toDayUtc(d);
     return (day || new Date()).toISOString().slice(0, 10);
+  }
+
+  /**
+   * The variable set every jurisdiction adapter currently needs: declared
+   * value (in local currency), optional weight + quantity. Surfaced from
+   * the resolver for non-US destinations so existing `getRequiredVariables()`
+   * callers keep working while the new CalculatorV2QuoteService drives the
+   * real adapter-backed calculation.
+   */
+  private defaultInternationalVariables(): FormulaVariable[] {
+    return [
+      {
+        name: 'value',
+        type: 'number',
+        dimension: 'money',
+        description: 'Declared value in destination-local currency',
+      },
+      { name: 'weight', type: 'number', dimension: 'weight', unit: 'kg', description: 'Weight in kilograms' },
+      { name: 'quantity', type: 'integer', dimension: 'quantity', description: 'Quantity of units' },
+    ];
   }
 
   private blocked(

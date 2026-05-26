@@ -139,14 +139,17 @@ export class BrokerGoldenSetService {
 
     for (const brokerCase of cases) {
       try {
-        const [calculated] = await this.tariffRateBatch.batchCalculate([
-          {
-            htsCode: brokerCase.htsNumber,
-            country: brokerCase.originCountry,
-            entryDate: brokerCase.entryDate,
-            inputs: this.buildNumericInputs(brokerCase),
-          },
-        ]);
+        const [calculated] = await this.tariffRateBatch.batchCalculate(
+          [
+            {
+              htsCode: brokerCase.htsNumber,
+              country: brokerCase.originCountry,
+              entryDate: brokerCase.entryDate,
+              inputs: this.buildNumericInputs(brokerCase),
+            },
+          ],
+          { failOnComponentError: true },
+        );
         const delta =
           calculated.totalDuty - Number(brokerCase.expectedTotalDuty);
         const matched = !calculated.blocked && Math.abs(delta) <= tolerance;
@@ -177,17 +180,14 @@ export class BrokerGoldenSetService {
           });
           await this.updateBrokerCardMetadata(brokerCase, matched);
           if (!matched) {
-            await this.createReconciliationPacketForBrokerMismatch(
-              brokerCase,
-              {
-                calculatedTotalDuty: calculated.totalDuty,
-                expectedTotalDuty: Number(brokerCase.expectedTotalDuty),
-                delta,
-                blocked: calculated.blocked,
-                blockReason: calculated.blockReason,
-                componentCount: calculated.breakdown.length,
-              },
-            );
+            await this.createReconciliationPacketForBrokerMismatch(brokerCase, {
+              calculatedTotalDuty: calculated.totalDuty,
+              expectedTotalDuty: Number(brokerCase.expectedTotalDuty),
+              delta,
+              blocked: calculated.blocked,
+              blockReason: calculated.blockReason,
+              componentCount: calculated.breakdown.length,
+            });
           }
         }
       } catch (error) {
@@ -325,8 +325,10 @@ export class BrokerGoldenSetService {
           parserConfidence: brokerCase.brokerConfidence ?? 0.95,
           aiModel: null,
           aiPromptVersion: null,
-          validationStatus: validationErrors.length === 0 ? 'valid' : 'needs_review',
-          validationErrors: validationErrors.length > 0 ? validationErrors : null,
+          validationStatus:
+            validationErrors.length === 0 ? 'valid' : 'needs_review',
+          validationErrors:
+            validationErrors.length > 0 ? validationErrors : null,
           testVectors,
           reviewerConfidence: null,
           reviewer: null,
