@@ -72,6 +72,13 @@ export interface FormulaVariable {
   origin?: 'resolver' | 'exception_rule';
   /** When `origin === 'exception_rule'`, the rule id that declared this input. */
   ruleId?: string;
+  /**
+   * 2026-05-27: pre-fill value the FE should seed when first rendering
+   * the form. Used to default FTA-qualifying flags (USMCA, CUSMA,
+   * KORUS, CPTPP, RCEP, etc.) to true when the user's origin is in
+   * the agreement's partner set. User can override.
+   */
+  defaultValue?: boolean | number | string;
 }
 
 export interface SourceCitationRef {

@@ -47,13 +47,31 @@ export class UsmcaQualifyingRule implements ExceptionRule {
     'cbp.publication.usmca-cbp',
   ];
 
-  isApplicable(ctx: ExceptionRuleContext): boolean {
+  /**
+   * 2026-05-27: scope-only check — destination US + origin in MX/CA.
+   * Independent of the user-set `usmca_qualifying` flag, so the
+   * formula endpoint can surface this rule's input even before the
+   * user has touched anything (otherwise the flag input never renders
+   * for new users — see `tariff-rate-batch.collectRuleInputs`).
+   */
+  isInScope(ctx: ExceptionRuleContext): boolean {
     if (ctx.destination !== 'US') return false;
-    if (ctx.origin !== 'MX' && ctx.origin !== 'CA') return false;
+    return ctx.origin === 'MX' || ctx.origin === 'CA';
+  }
+
+  isApplicable(ctx: ExceptionRuleContext): boolean {
+    if (!this.isInScope(ctx)) return false;
     return Boolean(ctx.additionalInputs['usmca_qualifying']);
   }
 
-  declaredInputs(): ExceptionRuleInputSpec[] {
+  declaredInputs(ctx?: ExceptionRuleContext): ExceptionRuleInputSpec[] {
+    // Pre-check the flag when origin is MX or CA — most shipments
+    // from those countries to the US legitimately qualify under
+    // USMCA. User can uncheck if their goods don't meet rules of
+    // origin (e.g. CN-yarn apparel finished in MX).
+    const originQualifies = ctx?.origin
+      ? ctx.origin === 'MX' || ctx.origin === 'CA'
+      : undefined;
     return [
       {
         name: 'usmca_qualifying',
@@ -61,6 +79,7 @@ export class UsmcaQualifyingRule implements ExceptionRule {
         required: false,
         label: 'USMCA-qualifying (certificate of origin on file)?',
         helpRef: 'knowledge:cbp.publication.usmca-cbp',
+        defaultValue: originQualifies,
       },
     ];
   }

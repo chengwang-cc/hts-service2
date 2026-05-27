@@ -39,14 +39,31 @@ export abstract class FtaQualifyingRuleBase implements ExceptionRule {
   readonly priority = 6000;
   readonly authority: ProgramFamily = 'special';
 
-  isApplicable(ctx: ExceptionRuleContext): boolean {
+  /**
+   * 2026-05-27: scope-only check — destination + origin in partner set.
+   * Independent of the user's flag, so the formula endpoint can surface
+   * this rule's input even when the flag hasn't been set yet (avoiding
+   * the catch-22 where the input never renders because the flag is
+   * unset). `isApplicable` adds the flag check on top.
+   */
+  isInScope(ctx: ExceptionRuleContext): boolean {
     if (ctx.destination.toUpperCase() !== this.destination) return false;
-    if (!this.qualifyingOrigins.has(ctx.origin.toUpperCase())) return false;
-    const flagName = this.qualifyingFlag();
-    return Boolean(ctx.additionalInputs[flagName]);
+    return this.qualifyingOrigins.has(ctx.origin.toUpperCase());
   }
 
-  declaredInputs(): ExceptionRuleInputSpec[] {
+  isApplicable(ctx: ExceptionRuleContext): boolean {
+    if (!this.isInScope(ctx)) return false;
+    return Boolean(ctx.additionalInputs[this.qualifyingFlag()]);
+  }
+
+  declaredInputs(ctx?: ExceptionRuleContext): ExceptionRuleInputSpec[] {
+    // Pre-check the flag when the user's origin is in the partner set —
+    // shipments from MX/CA to the US (or any FTA partner pair) default
+    // to the preferential treatment without forcing the user to opt-in.
+    // User can uncheck to override if the goods don't meet rules of origin.
+    const originQualifies = ctx?.origin
+      ? this.qualifyingOrigins.has(ctx.origin.toUpperCase())
+      : undefined;
     return [
       {
         name: this.qualifyingFlag(),
@@ -56,6 +73,7 @@ export abstract class FtaQualifyingRuleBase implements ExceptionRule {
         helpRef: this.knowledgeCardKeys[0]
           ? `knowledge:${this.knowledgeCardKeys[0]}`
           : undefined,
+        defaultValue: originQualifies,
       },
     ];
   }

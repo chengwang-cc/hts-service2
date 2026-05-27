@@ -178,14 +178,33 @@ export class TariffRateBatchService {
     };
     const merged = new Map<string, FormulaVariable>();
     for (const rule of rules) {
+      // 2026-05-27: use isInScope (when implemented) to decide whether
+      // to surface this rule's inputs. Falls back to isApplicable for
+      // rules that don't implement isInScope. This escapes the
+      // catch-22 where an FTA-qualifying rule's flag input never
+      // renders because the flag is unset → rule not applicable →
+      // input not declared.
       try {
-        if (!rule.isApplicable(ctx)) continue;
+        const inScope = rule.isInScope
+          ? rule.isInScope(ctx)
+          : rule.isApplicable(ctx);
+        if (!inScope) continue;
       } catch {
         continue; // a misbehaving rule does not block the formula response
       }
-      for (const spec of rule.declaredInputs()) {
-        if (merged.has(spec.name)) continue;
-        merged.set(spec.name, {
+      // Pass ctx so declaredInputs can compute context-aware defaults
+      // (e.g. usmca_qualifying = true when origin is MX/CA).
+      for (const spec of rule.declaredInputs(ctx)) {
+        const existing = merged.get(spec.name);
+        if (existing && existing.defaultValue !== undefined) {
+          // Existing entry already carries a context-aware default
+          // (e.g. FtaQualifyingRuleBase's `usmca_qualifying = true`
+          // because origin is in the USMCA partner set). Keep it; do
+          // not let a later rule's bare declaration overwrite the
+          // better metadata.
+          continue;
+        }
+        const newEntry: FormulaVariable = {
           name: spec.name,
           type: spec.type,
           required: spec.required,
@@ -194,7 +213,15 @@ export class TariffRateBatchService {
           allowedValues: spec.allowedValues,
           origin: 'exception_rule',
           ruleId: rule.id,
-        });
+          defaultValue: spec.defaultValue,
+        };
+        if (existing) {
+          // Existing has no defaultValue; this one might. Replace only
+          // if the new spec carries new information.
+          if (spec.defaultValue !== undefined) merged.set(spec.name, newEntry);
+        } else {
+          merged.set(spec.name, newEntry);
+        }
       }
     }
     return Array.from(merged.values());

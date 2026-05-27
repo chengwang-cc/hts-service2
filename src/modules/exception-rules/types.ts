@@ -130,6 +130,16 @@ export interface ExceptionRuleInputSpec {
    * Carries no closure / state — must be pure and stateless.
    */
   visibleWhen?: (inputs: Record<string, unknown>) => boolean;
+  /**
+   * 2026-05-27: pre-fill value the FE should seed into the form before
+   * the user touches anything. Optional — when omitted the FE shows
+   * the input empty / unchecked. Derived per-call by `declaredInputs(ctx)`
+   * so it can reflect the user's already-chosen destination + origin
+   * (e.g. FTA-qualifying flags default to `true` when origin is in the
+   * partner set; user can uncheck to override). Computed at the time
+   * `/v2/formula` builds its `additionalInputs` response.
+   */
+  defaultValue?: boolean | number | string;
 }
 
 /**
@@ -162,12 +172,30 @@ export interface ExceptionRule {
 
   isApplicable(ctx: ExceptionRuleContext): boolean;
   /**
+   * 2026-05-27: scope-only applicability check, independent of
+   * user-provided flags in `ctx.additionalInputs`. Used by the formula
+   * endpoint to decide which rules' inputs to surface BEFORE the user
+   * has provided any input — escapes the catch-22 where an FTA flag
+   * is needed to make the rule applicable, but the input never renders
+   * because the rule isn't applicable.
+   *
+   * Default implementation falls back to `isApplicable(ctx)`, so rules
+   * whose applicability does not depend on user input get the right
+   * behaviour for free.
+   */
+  isInScope?(ctx: ExceptionRuleContext): boolean;
+  /**
    * Sync or async — the runner awaits either. Sync is the common case
    * (data-driven rules with in-memory lookups); async exists for rules
    * that hit the DB (AD/CVD, Phase 9) or external services.
    */
   evaluate(ctx: ExceptionRuleContext): ExceptionRuleDecision | Promise<ExceptionRuleDecision>;
-  declaredInputs(): ExceptionRuleInputSpec[];
+  /**
+   * 2026-05-27: optional ctx so context-aware defaults can be computed
+   * per request (e.g. FTA-qualifying flags pre-checked when origin is
+   * a partner country). Implementations that don't need ctx may ignore it.
+   */
+  declaredInputs(ctx?: ExceptionRuleContext): ExceptionRuleInputSpec[];
 }
 
 /**
