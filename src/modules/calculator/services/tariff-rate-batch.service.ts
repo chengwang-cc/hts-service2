@@ -64,6 +64,7 @@ export class TariffRateBatchService {
     requests: Array<{
       htsCode: string;
       country: string;
+      destination?: string;
       entryDate?: string;
       htsVersion?: string;
       selectedChapter99Headings?: string[];
@@ -134,7 +135,10 @@ export class TariffRateBatchService {
         additionalInputs: this.collectRuleInputs({
           htsCode: r.htsCode,
           country: r.country,
-          destination: 'US',
+          // 2026-05-27: honour caller-supplied destination so non-US
+          // destinations (CA, KR, AU, NZ, EU, …) surface their own
+          // FTA-qualifying flags. Falls back to 'US' for legacy callers.
+          destination: (r.destination || 'US').toUpperCase(),
           asOfDate: this.parseCalculationDate(r.entryDate) ?? new Date(),
         }),
       });

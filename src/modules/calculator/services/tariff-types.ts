@@ -209,6 +209,14 @@ export interface FormulaEvaluationVariables {
 export interface BatchRateRequest {
   htsCode: string;
   country: string;
+  /**
+   * 2026-05-27: optional destination override. When omitted the
+   * formula service defaults to 'US' for back-compat (the legacy
+   * call sites never set this). Set explicitly so rule-declared
+   * inputs (CUSMA flag for CA, KORUS for KR, CPTPP for AU/NZ/...
+   * etc.) surface on the FE form for non-US destinations too.
+   */
+  destination?: string;
   inputs?: Record<string, number>;
   entryDate?: string;
   htsVersion?: string;

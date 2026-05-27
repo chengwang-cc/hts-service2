@@ -136,6 +136,7 @@ export class CalculatorController {
   async getFormulaV2(
     @Query('htsCode') htsCode: string,
     @Query('country') country: string,
+    @Query('destination') destination?: string,
     @Query('entryDate') entryDate?: string,
     @Query('htsVersion') htsVersion?: string,
     @Query('selectedChapter99Headings') selectedChapter99Headings?: string,
@@ -155,6 +156,7 @@ export class CalculatorController {
       {
         htsCode,
         country,
+        destination,
         entryDate,
         htsVersion,
         selectedChapter99Headings: headings,
