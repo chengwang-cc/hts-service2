@@ -54,6 +54,7 @@ import {
   StubJurisdictionAdapter,
   STUB_PROFILES,
 } from './adapters/stub/stub-jurisdiction.adapter';
+import { JurisdictionsAdminController } from './controllers/jurisdictions-admin.controller';
 
 /**
  * One stub adapter per new destination. Production adapters under
@@ -103,6 +104,7 @@ const tariffAdaptersProvider: Provider = {
       ControlEntity,
     ]),
   ],
+  controllers: [JurisdictionsAdminController],
   providers: [
     JurisdictionService,
     UsHtsAdapter,

@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { EmbeddingService } from '@hts/core';
 import { DocumentExtractorService } from './document-extractor.service';
 import { DocumentChunkerService } from './document-chunker.service';
@@ -89,7 +89,9 @@ export class KnowledgeCardIngestionService {
     try {
       const res = await fetch(input.url, { signal: controller.signal });
       if (!res.ok) {
-        throw new Error(`fetch ${input.url} returned HTTP ${res.status}`);
+        throw new BadRequestException(
+          `fetch ${input.url} returned HTTP ${res.status}`,
+        );
       }
       const ab = await res.arrayBuffer();
       const buffer = Buffer.from(ab);
@@ -114,7 +116,7 @@ export class KnowledgeCardIngestionService {
       sourceUrl: input.storageRef ?? null,
     });
     if (extracted.text.length < 32) {
-      throw new Error(
+      throw new BadRequestException(
         `extraction produced ${extracted.text.length} chars; likely a parse failure`,
       );
     }

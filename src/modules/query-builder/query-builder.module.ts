@@ -5,6 +5,7 @@ import { KnowledgebaseCardsModule } from '../knowledgebase-cards/knowledgebase-c
 import { QueryBuilderController } from './controllers/query-builder.controller';
 import { QueryBuilderTemplateEntity } from './entities/query-builder-template.entity';
 import { QueryBuilderService } from './services/query-builder.service';
+import { QueryBuilderSynthesizerService } from './services/query-builder-synthesizer.service';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { QueryBuilderService } from './services/query-builder.service';
     KnowledgebaseCardsModule,
   ],
   controllers: [QueryBuilderController],
-  providers: [QueryBuilderService],
+  providers: [QueryBuilderService, QueryBuilderSynthesizerService],
   exports: [QueryBuilderService],
 })
 export class QueryBuilderModule {}

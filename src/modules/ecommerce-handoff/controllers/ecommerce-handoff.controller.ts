@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,6 +8,7 @@ import {
   Post,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -69,7 +71,7 @@ export class EcommerceHandoffController {
     @Body() body: { state: EcomHandoffState; notes?: string | null },
   ) {
     if (!ECOM_HANDOFF_STATES.includes(body.state as any)) {
-      throw new Error(`unknown target state: ${body.state}`);
+      throw new BadRequestException(`unknown target state: ${body.state}`);
     }
     return this.service.transition(
       orgId(req),
@@ -114,7 +116,7 @@ export class EcommerceHandoffController {
 
 function orgId(req: any): string {
   const id = req?.user?.organizationId;
-  if (!id) throw new Error('authentication context required');
+  if (!id) throw new UnauthorizedException('authentication context required');
   return id;
 }
 

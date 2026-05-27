@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { RuleReviewAlertEntity } from '../entities/rule-review-alert.entity';
@@ -83,7 +83,7 @@ export class RuleReviewAlertService {
     prUrl?: string | null;
   }): Promise<RuleReviewAlertEntity> {
     const row = await this.repo.findOne({ where: { id: args.id } });
-    if (!row) throw new Error(`alert not found: ${args.id}`);
+    if (!row) throw new NotFoundException(`alert not found: ${args.id}`);
     row.status = args.status;
     row.resolvedBy = args.actor;
     row.resolutionNote = args.note ?? null;
@@ -102,7 +102,7 @@ export class RuleReviewAlertService {
   ): Promise<RuleReviewAlertEntity> {
     await this.repo.update({ id }, { aiAdvisoryJson: advisory } as any);
     const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new Error(`alert not found: ${id}`);
+    if (!row) throw new NotFoundException(`alert not found: ${id}`);
     return row;
   }
 }

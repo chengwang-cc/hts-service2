@@ -141,21 +141,51 @@ export class KnowledgeQueryService {
         ? Math.round((now - row.lastSuccessAt.getTime()) / 3_600_000)
         : null,
     }));
+    const sourceUrls = new Map(sourceRows.map((row) => [row.id, row.url]));
 
     return {
-      cards: cardRows.map((c) => this.toCitation(c, sources)),
+      cards: cardRows.map((c) => this.toCitation(c, sources, sourceUrls)),
       sources,
       generatedAt: new Date().toISOString(),
     };
   }
 
+  /**
+   * Match a card's source URL against the registered sources. The
+   * previous implementation compared `card.sourceUrl.startsWith(source.name)`
+   * which never matched (name is human-readable, not a URL). We now
+   * prefer the source whose `url` is the longest prefix of the card's
+   * sourceUrl; if no prefix matches we fall back to the source whose
+   * hostname (origin) matches the card's hostname.
+   */
+  private findSource(
+    cardSourceUrl: string | null,
+    sources: KnowledgeQueryResult['sources'],
+    sourceUrls: Map<string, string>,
+  ): KnowledgeQueryResult['sources'][number] | undefined {
+    if (!cardSourceUrl) return undefined;
+    let bestPrefix: { source: KnowledgeQueryResult['sources'][number]; length: number } | null = null;
+    let hostMatch: KnowledgeQueryResult['sources'][number] | undefined;
+    const cardHost = safeHost(cardSourceUrl);
+    for (const source of sources) {
+      const url = sourceUrls.get(source.id);
+      if (!url) continue;
+      if (cardSourceUrl.startsWith(url) && (!bestPrefix || url.length > bestPrefix.length)) {
+        bestPrefix = { source, length: url.length };
+      }
+      if (!hostMatch && cardHost && safeHost(url) === cardHost) {
+        hostMatch = source;
+      }
+    }
+    return bestPrefix?.source ?? hostMatch;
+  }
+
   private toCitation(
     card: KnowledgeCardEntity,
     sources: KnowledgeQueryResult['sources'],
+    sourceUrls: Map<string, string>,
   ): KnowledgeQueryCitation {
-    const source = card.sourceUrl
-      ? sources.find((s) => card.sourceUrl?.startsWith(s.name) || false)
-      : undefined;
+    const source = this.findSource(card.sourceUrl, sources, sourceUrls);
     const text = ((card.payload as any)?.text ?? '') as string;
     const excerpt = text.length <= 240 ? text : `${text.slice(0, 240)}…`;
     return {
@@ -170,5 +200,13 @@ export class KnowledgeQueryService {
       sourceFreshnessHours: source?.freshnessHours ?? null,
       excerpt,
     };
+  }
+}
+
+function safeHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
   }
 }

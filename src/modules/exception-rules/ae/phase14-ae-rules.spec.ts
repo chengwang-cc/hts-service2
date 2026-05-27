@@ -28,10 +28,12 @@ describe('AeVatRule', () => {
     expect(d.data?.rate).toBe(0.05);
   });
 
-  it('warns when input is missing', () => {
+  it('falls back to declaredValue silently when base input is missing', () => {
+    // The AE rule uses `defaultIfMissing: declaredValue` so no warning
+    // is emitted when input is absent — the implicit fallback is fine.
     const d = rule.evaluate(ctx());
-    // base falls back to declaredValue, no missing warning
-    expect(d.notes?.some((n) => /base=5000/i.test(n) || n.length > 0)).toBe(true);
+    expect(d.data?.base).toBe(5_000);
+    expect(d.data?.amount as number).toBeCloseTo(250, 3); // 5000 * 0.05
   });
 });
 

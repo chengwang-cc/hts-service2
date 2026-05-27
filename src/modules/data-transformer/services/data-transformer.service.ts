@@ -4,8 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, type Repository } from 'typeorm';
 import {
   DataTransformerMappingEntity,
   DataTransformerProfileEntity,
@@ -71,6 +71,7 @@ export class DataTransformerService {
     private readonly runs: Repository<DataTransformerRunEntity>,
     @InjectRepository(DataTransformerRunIssueEntity)
     private readonly issues: Repository<DataTransformerRunIssueEntity>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -168,21 +169,24 @@ export class DataTransformerService {
     if (!Array.isArray(inputs) || inputs.length === 0) {
       throw new BadRequestException('saveMappings requires at least one mapping');
     }
-    // Replace-all semantics keeps the mapping editor simple — fewer
-    // partial-state foot-guns. The whole save is wrapped in a transaction
-    // via repository chain (single profile scope).
-    await this.mappings.delete({ profileId });
-    const rows = inputs.map((input) =>
-      this.mappings.create({
-        profileId,
-        sourceField: input.sourceField.trim(),
-        targetField: input.targetField.trim(),
-        transform: input.transform ?? null,
-        required: input.required ?? false,
-        notes: input.notes ?? null,
-      }),
-    );
-    return this.mappings.save(rows);
+    // Replace-all semantics: delete + insert inside one transaction so
+    // concurrent readers never see a half-empty mapping set, and a save
+    // that fails halfway never leaves the profile with no mappings.
+    return this.dataSource.transaction(async (manager) => {
+      const txMappings = manager.getRepository(DataTransformerMappingEntity);
+      await txMappings.delete({ profileId });
+      const rows = inputs.map((input) =>
+        txMappings.create({
+          profileId,
+          sourceField: input.sourceField.trim(),
+          targetField: input.targetField.trim(),
+          transform: input.transform ?? null,
+          required: input.required ?? false,
+          notes: input.notes ?? null,
+        }),
+      );
+      return txMappings.save(rows);
+    });
   }
 
   /**

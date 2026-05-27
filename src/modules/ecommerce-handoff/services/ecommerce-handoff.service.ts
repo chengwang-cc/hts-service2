@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -173,7 +174,7 @@ export class EcommerceHandoffService {
     const row = await this.getById(organizationId, id);
     const allowed = nextAllowedStates(row.state as EcomHandoffState);
     if (!allowed.includes(target)) {
-      throw new Error(
+      throw new BadRequestException(
         `cannot transition handoff from ${row.state} to ${target}`,
       );
     }

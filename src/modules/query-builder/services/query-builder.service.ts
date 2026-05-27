@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import {
@@ -10,6 +16,7 @@ import {
   QUERY_OUTPUTS,
 } from '../dto/query-builder.dto';
 import { QueryBuilderTemplateEntity } from '../entities/query-builder-template.entity';
+import { QueryBuilderSynthesizerService } from './query-builder-synthesizer.service';
 
 /**
  * Planner output — what sources will be queried + an explanation an
@@ -29,6 +36,7 @@ export interface QueryBuilderPlan {
 export interface QueryBuilderRunResult {
   plan: QueryBuilderPlan;
   answer: string;
+  answerSource: 'ai' | 'deterministic';
   citations: KnowledgeQueryCitation[];
   missingInformation: string[];
   nextActions: string[];
@@ -55,6 +63,7 @@ export class QueryBuilderService {
     @InjectRepository(QueryBuilderTemplateEntity)
     private readonly templates: Repository<QueryBuilderTemplateEntity>,
     private readonly knowledge: KnowledgeQueryService,
+    @Optional() private readonly synthesizer: QueryBuilderSynthesizerService | null = null,
   ) {}
 
   async plan(input: QueryBuilderInputDto): Promise<QueryBuilderPlan> {
@@ -127,9 +136,20 @@ export class QueryBuilderService {
     const top = citations.slice(0, plan.estimatedCitations);
     const outputs = new Set(input.outputs ?? QUERY_OUTPUTS);
 
-    const answer = outputs.has('answer')
-      ? this.deterministicAnswer(input, top)
-      : '';
+    let answer = '';
+    let answerSource: QueryBuilderRunResult['answerSource'] = 'deterministic';
+    if (outputs.has('answer')) {
+      const aiAnswer = this.synthesizer?.isAvailable()
+        ? await this.synthesizer.synthesize(input, top)
+        : null;
+      if (aiAnswer) {
+        answer = aiAnswer;
+        answerSource = 'ai';
+      } else {
+        answer = this.deterministicAnswer(input, top);
+      }
+    }
+
     const missingInformation = outputs.has('missing_information')
       ? this.detectMissingInformation(input)
       : [];
@@ -140,6 +160,7 @@ export class QueryBuilderService {
     return {
       plan,
       answer,
+      answerSource,
       citations: outputs.has('citations') ? top : [],
       missingInformation,
       nextActions,

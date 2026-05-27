@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PdfParserService } from '../../knowledgebase/services/pdf-parser.service';
 
 /**
@@ -42,7 +42,7 @@ export class DocumentExtractorService {
       return this.extractText(input);
     }
     if (ct.includes('officedocument.wordprocessingml')) {
-      throw new Error(
+      throw new BadRequestException(
         'DOCX extraction not yet wired (requires `mammoth` dependency). Convert to PDF or HTML for now.',
       );
     }

@@ -173,6 +173,15 @@ export class CalculatorV2QuoteService {
           lineRequest.selectedChapter99Headings.length > 0
             ? [...lineRequest.selectedChapter99Headings]
             : undefined,
+        // 2026-05-26: surface the runner's per-line manifest so callers
+        // can correlate which rules mutated the line without parsing
+        // component identifiers. Always populated (even when empty) so
+        // consumers can distinguish "runner ran with no fires" from
+        // "runner was bypassed".
+        exceptionRules: {
+          firedRules: ruleRun.firedRules.slice(),
+          skippedByConflict: (ruleRun.skippedByConflict ?? []).slice(),
+        },
       });
     }
 
@@ -217,6 +226,9 @@ export class CalculatorV2QuoteService {
     const firstFacts = lines[0]?.result.jurisdictionFacts;
     const score = this.averageConfidence(lines);
 
+    const aggregatedFiredRules = Array.from(
+      new Set(exceptionRuns.flatMap((r) => r?.firedRules ?? [])),
+    );
     const quote: CalculatorV2QuoteResult = {
       quoteId: `quote_${randomUUID()}`,
       engineVersion: CalculatorV2QuoteService.ENGINE_VERSION,
@@ -238,6 +250,7 @@ export class CalculatorV2QuoteService {
         score,
         label: scoreToLabel(score),
       },
+      exceptionRules: { firedRules: aggregatedFiredRules },
     };
 
     // Phase F: record FX (when cross-currency) + audit snapshot. Both are

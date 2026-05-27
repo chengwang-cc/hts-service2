@@ -75,6 +75,7 @@ import { BrokerOutreachModule } from './modules/broker-outreach/broker-outreach.
 import { QueryBuilderModule } from './modules/query-builder/query-builder.module';
 import { DataTransformerModule } from './modules/data-transformer/data-transformer.module';
 import { EcommerceHandoffModule } from './modules/ecommerce-handoff/ecommerce-handoff.module';
+import { E2eTeardownModule } from './modules/e2e-teardown/e2e-teardown.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { ObservabilityGaugesModule } from './modules/observability/observability-gauges.module';
 import { DataSource } from 'typeorm';
@@ -299,6 +300,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     QueryBuilderModule,
     DataTransformerModule,
     EcommerceHandoffModule,
+    E2eTeardownModule,
 
     // Broker platform — Phase 10 post-entry cases, audit pack, prior decisions
     BrokerPostEntryModule,

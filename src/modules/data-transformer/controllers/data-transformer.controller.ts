@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -104,7 +105,7 @@ export class DataTransformerController {
 function orgId(req: any): string {
   const id = req?.user?.organizationId;
   if (!id) {
-    throw new Error('authentication context required');
+    throw new UnauthorizedException('authentication context required');
   }
   return id;
 }

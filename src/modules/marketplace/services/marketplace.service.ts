@@ -8,7 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditService } from '../../audit/services/audit.service';
 import { RequestContext } from '../../auth/interfaces/request-context.interface';
-import { EncryptedSecretService } from '../../security/encrypted-secret.service';
+import {
+  EncryptedSecret,
+  EncryptedSecretService,
+} from '../../security/encrypted-secret.service';
 import {
   AdminListBrokerProfilesDto,
   CreateBrokerCredentialDto,
@@ -118,9 +121,9 @@ export class MarketplaceService {
       aiCapabilities: dto.aiCapabilities ?? null,
       metrics: dto.metrics ?? null,
       websiteUrl: dto.websiteUrl ?? null,
-      contactEmail: dto.contactEmail ?? null,
-      contactPhone: dto.contactPhone ?? null,
-      officeAddress: dto.officeAddress ?? null,
+      contactEmailEnc: this.encryptString(dto.contactEmail ?? null),
+      contactPhoneEnc: this.encryptString(dto.contactPhone ?? null),
+      officeAddressEnc: this.encryptJson(dto.officeAddress ?? null),
       minimumEngagement: dto.minimumEngagement ?? null,
       searchKeywords: this.buildSearchKeywords(dto),
       publishedAt:
@@ -360,7 +363,8 @@ export class MarketplaceService {
   ): boolean {
     const companyName = dto.companyName || existing?.companyName;
     const description = dto.description || existing?.description;
-    const contactEmail = dto.contactEmail || existing?.contactEmail;
+    const contactEmail =
+      dto.contactEmail || this.decryptString(existing?.contactEmailEnc ?? null);
     const countries = dto.countries ?? existing?.countries ?? [];
     const serviceCategories =
       dto.serviceCategories ?? existing?.serviceCategories ?? [];
@@ -430,6 +434,11 @@ export class MarketplaceService {
     const exposeEmail = exposure === 'email_only' || exposure === 'full';
     const exposePhone = exposure === 'phone_only' || exposure === 'full';
     const exposeAddress = exposure === 'full';
+    const contactEmail = this.decryptString(profile.contactEmailEnc);
+    const contactPhone = this.decryptString(profile.contactPhoneEnc);
+    const officeAddress = this.decryptJson<NonNullable<UpsertBrokerProfileDto['officeAddress']>>(
+      profile.officeAddressEnc,
+    );
     return {
       id: profile.id,
       companyName: profile.companyName,
@@ -454,9 +463,9 @@ export class MarketplaceService {
       },
       publicContactEnabled: exposure !== 'platform_only',
       publicContactExposure: exposure,
-      publicContactEmail: exposeEmail ? profile.contactEmail : null,
-      publicContactPhone: exposePhone ? profile.contactPhone : null,
-      publicOfficeAddress: exposeAddress ? profile.officeAddress : null,
+      publicContactEmail: exposeEmail ? contactEmail : null,
+      publicContactPhone: exposePhone ? contactPhone : null,
+      publicOfficeAddress: exposeAddress ? officeAddress : null,
       minimumEngagement: profile.minimumEngagement,
       publishedAt: profile.publishedAt,
     };
@@ -465,9 +474,11 @@ export class MarketplaceService {
   private toPrivateProfile(profile: MarketplaceBrokerProfileEntity) {
     return {
       ...this.toPublicProfile(profile),
-      contactEmail: profile.contactEmail,
-      contactPhone: profile.contactPhone,
-      officeAddress: profile.officeAddress,
+      contactEmail: this.decryptString(profile.contactEmailEnc),
+      contactPhone: this.decryptString(profile.contactPhoneEnc),
+      officeAddress: this.decryptJson<NonNullable<UpsertBrokerProfileDto['officeAddress']>>(
+        profile.officeAddressEnc,
+      ),
       status: profile.status,
       submittedForVerificationAt: profile.submittedForVerificationAt,
       verifiedAt: profile.verifiedAt,
@@ -488,6 +499,32 @@ export class MarketplaceService {
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     };
+  }
+
+  /**
+   * Encrypt a plaintext contact value for at-rest storage. Returns null
+   * (no envelope written) for null/empty inputs so the column stays
+   * NULL — keeps the publishable-check distinction between "absent" and
+   * "set to empty string" intact.
+   */
+  private encryptString(value: string | null | undefined): EncryptedSecret | null {
+    if (value === null || value === undefined || value === '') return null;
+    return this.encryptedSecrets.encrypt(value);
+  }
+
+  private decryptString(secret: EncryptedSecret | null | undefined): string | null {
+    if (!secret) return null;
+    return this.encryptedSecrets.decrypt(secret);
+  }
+
+  private encryptJson(value: unknown): EncryptedSecret | null {
+    if (value === null || value === undefined) return null;
+    return this.encryptedSecrets.encrypt(JSON.stringify(value));
+  }
+
+  private decryptJson<T>(secret: EncryptedSecret | null | undefined): T | null {
+    if (!secret) return null;
+    return JSON.parse(this.encryptedSecrets.decrypt(secret)) as T;
   }
 
   private toCredentialResponse(credential: MarketplaceBrokerCredentialEntity) {

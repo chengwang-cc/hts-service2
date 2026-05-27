@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { UserEntity } from '../../auth/entities/user.entity';
+import type { EncryptedSecret } from '../../security/encrypted-secret.service';
 import { MarketplaceBrokerCredentialEntity } from './marketplace-broker-credential.entity';
 
 @Entity('marketplace_broker_profiles')
@@ -86,11 +87,19 @@ export class MarketplaceBrokerProfileEntity {
   @Column('varchar', { length: 255, nullable: true })
   websiteUrl: string | null;
 
-  @Column('varchar', { length: 255, nullable: true })
-  contactEmail: string | null;
+  /**
+   * AES-256-GCM envelope of the broker's contact email. Kept encrypted at
+   * rest so a raw DB read does not surface PII; the service-layer
+   * `publicContactExposure` gate still controls API exposure. Use the
+   * MarketplaceService helpers (encryptContact / decryptContact) when
+   * touching this column — never read it directly from another service.
+   */
+  @Column('jsonb', { nullable: true, name: 'contact_email_enc' })
+  contactEmailEnc: EncryptedSecret | null;
 
-  @Column('varchar', { length: 60, nullable: true })
-  contactPhone: string | null;
+  /** AES-256-GCM envelope of the broker's contact phone (see contactEmailEnc). */
+  @Column('jsonb', { nullable: true, name: 'contact_phone_enc' })
+  contactPhoneEnc: EncryptedSecret | null;
 
   /**
    * Admin-controlled contact exposure on the public broker profile.
@@ -106,15 +115,12 @@ export class MarketplaceBrokerProfileEntity {
     | 'full'
     | string;
 
-  @Column('jsonb', { nullable: true })
-  officeAddress: {
-    line1?: string;
-    line2?: string;
-    city?: string;
-    region?: string;
-    postalCode?: string;
-    country?: string;
-  } | null;
+  /**
+   * AES-256-GCM envelope of the broker's office address (JSON-stringified
+   * before encryption). Same access discipline as contactEmailEnc.
+   */
+  @Column('jsonb', { nullable: true, name: 'office_address_enc' })
+  officeAddressEnc: EncryptedSecret | null;
 
   @Column('varchar', { length: 120, nullable: true })
   minimumEngagement: string | null;

@@ -73,6 +73,17 @@ export interface CalculatorV2QuoteLine {
    * Empty / undefined when the user didn't pick any.
    */
   selectedChapter99Headings?: string[];
+  /**
+   * Per-line exception-rule run manifest. Populated when the engine
+   * actually evaluates the runner; omitted when the runner is bypassed
+   * (e.g. legacy unit tests that don't wire it in). Surfaces the same
+   * signal as the audit snapshot so callers can correlate which rule
+   * mutated which line without parsing component identifiers.
+   */
+  exceptionRules?: {
+    firedRules: string[];
+    skippedByConflict: string[];
+  };
 }
 
 export interface CalculatorV2QuoteResult {
@@ -90,6 +101,12 @@ export interface CalculatorV2QuoteResult {
   warnings: string[];
   assumptions: string[];
   confidence: { score: number; label: 'high' | 'medium' | 'low' | 'review' };
+  /**
+   * Quote-root aggregation of every firedRule across all lines (deduped).
+   * Mirrors the per-line manifest so cross-line consumers (analytics,
+   * e2e tests) don't have to walk lines[].
+   */
+  exceptionRules?: { firedRules: string[] };
 }
 
 /**
