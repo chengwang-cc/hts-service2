@@ -26,6 +26,8 @@ async function bootstrap() {
     // hts-web2's `npm start` script: ng serve --port 8001
     'http://localhost:8001',
     'http://127.0.0.1:4200',
+    'http://127.0.0.1:4299',
+    'http://127.0.0.1:4300',
     'http://127.0.0.1:8001',
   ];
   const envOrigins = process.env.CORS_ORIGIN

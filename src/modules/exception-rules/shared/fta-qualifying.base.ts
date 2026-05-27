@@ -62,15 +62,44 @@ export abstract class FtaQualifyingRuleBase implements ExceptionRule {
 
   evaluate(ctx: ExceptionRuleContext): ExceptionRuleDecision {
     const baseRows = ctx.pendingComponents.filter(isBaseLike);
+    const identifier = `${this.agreementCode.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_QUALIFYING`;
     if (baseRows.length === 0) {
-      return { notes: [`${this.agreementCode} qualifying but no base row present`] };
+      // 2026-05-26: when no base row exists (the destination adapter
+      // didn't surface one for this HS), still ADD a zero-rate
+      // preferential component so the audit + firedRules manifest
+      // reflect that the FTA was applied. The runner's hadEffect gate
+      // requires a component mutation to record `firedRules`; emitting
+      // only `notes` makes the rule invisible to downstream consumers.
+      const synthetic: TariffFormulaComponent = {
+        componentType: 'special',
+        formula: '0',
+        rateText: `${this.agreementCode} preferential — 0% (no base rate from adapter)`,
+        description: `Goods qualify under ${this.agreementCode}; certificate of origin on file. No base rate available from the destination adapter.`,
+        requiredVariables: [],
+        identifier,
+        programFamily: 'special',
+        programAuthority: `${this.agreementCode} Trade Agreement`,
+        legalReference: this.knowledgeCardKeys[0] ?? this.agreementCode,
+        appliesWhen: { kind: 'always' },
+        confidence: 0.7,
+        sourceCitation: {
+          source: this.knowledgeCardKeys[0] ?? this.agreementCode,
+          confidence: 0.7,
+          parserMethod: 'fta_qualifying_rule_synthetic',
+          rowIdentifier: this.id,
+        },
+      };
+      return {
+        add: [synthetic],
+        notes: [`${this.agreementCode} preferential applied (no base row present)`],
+      };
     }
     const replaced: TariffFormulaComponent = {
       ...baseRows[0],
       formula: '0',
       rateText: `${this.agreementCode} preferential — 0%`,
       description: `Goods qualify under ${this.agreementCode}; certificate of origin on file.`,
-      identifier: `${this.agreementCode.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_QUALIFYING`,
+      identifier,
       programFamily: 'special',
       programAuthority: `${this.agreementCode} Trade Agreement`,
       legalReference: this.knowledgeCardKeys[0] ?? this.agreementCode,
