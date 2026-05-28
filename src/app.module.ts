@@ -13,6 +13,7 @@ import { KnowledgebaseModule } from './modules/knowledgebase/knowledgebase.modul
 import { LookupModule } from './modules/lookup/lookup.module';
 import { CalculatorModule } from './modules/calculator/calculator.module';
 import { CalculatorV2QuoteModule } from './modules/calculator-v2-quote/calculator-v2-quote.module';
+import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { ExceptionRulesModule } from './modules/exception-rules/exception-rules.module';
 import { UsExceptionRulesModule } from './modules/exception-rules/us/us-exception-rules.module';
 import { AuExceptionRulesModule } from './modules/exception-rules/au/au-exception-rules.module';
@@ -225,6 +226,9 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Calculator V2 quote module (Phase A — unified multi-country calculator)
     CalculatorV2QuoteModule,
+
+    // Phase 5 — Workspace (account-scoped saved shipments + history)
+    ShipmentsModule,
 
     // Public API module (versioned external APIs)
     PublicApiModule,

@@ -68,6 +68,9 @@ async function bootstrap() {
       'X-Guest-Token',
       'x-guest-token',
       'X-Widget-Key',
+      // Phase 5 — optimistic concurrency token for /shipments PATCH.
+      'If-Match',
+      'if-match',
     ],
   });
 
