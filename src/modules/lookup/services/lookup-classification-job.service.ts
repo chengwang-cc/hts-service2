@@ -376,7 +376,7 @@ export class LookupClassificationJobService {
       );
     }
 
-    let productDescription: string;
+    let productDescription = '';
     let visionUsed = false;
     let detectedProduct: Record<string, unknown> | null = null;
     let visionMs: number | null = null;
@@ -420,7 +420,88 @@ export class LookupClassificationJobService {
         brand: product.brand,
         confidence: product.confidence,
       };
+    } else if (urlResult.imageUrl || urlResult.metadata?.previewImageUrl) {
+      // Image-first: any time the page exposes a product image (OG tag,
+      // schema.org/Product, or direct image URL), TRY vision first.
+      // The product image is the single strongest signal for retail
+      // pages and bypasses the bot-detection text-quality variance we
+      // see on JS-heavy retailers (homedepot.ca, costco, etc.).
+      //
+      // BUT: many retailer CDNs hotlink-protect product images so both
+      // OpenAI's image fetcher AND our own download will fail or time
+      // out (Home Depot blocks both; observed 400 from OpenAI + 6s
+      // download timeout). In that case we MUST NOT fail the whole job
+      // — fall back to the rendered-page text extract instead, which
+      // typically still produces a usable (if less precise) result.
+      const previewImageUrl =
+        urlResult.imageUrl ?? urlResult.metadata?.previewImageUrl;
+      let visionSucceeded = false;
+      try {
+        const analysisResult = await this.analyzeProductImageWithFallback(
+          previewImageUrl!,
+          {
+            url,
+            title: urlResult.metadata?.title,
+          },
+        );
+        const analysis = analysisResult.analysis;
+        visionMs = analysis.processingTime ?? analysisResult.elapsedMs;
+        imageDownloadMs = analysisResult.imageDownloadMs;
+        const visionDescription = analysis.products[0]
+          ? [
+              analysis.products[0].name,
+              analysis.products[0].description,
+              ...(analysis.products[0].materials ?? []),
+            ]
+              .filter(Boolean)
+              .join(', ')
+          : '';
+        // Combine vision + metadata when both are present — richer text
+        // gives the semantic classifier more to work with.
+        const combined = [visionDescription, metadataProductDescription]
+          .filter((s) => s && s.trim().length > 0)
+          .join(' — ');
+        productDescription =
+          combined || visionDescription || metadataProductDescription;
+        visionUsed = Boolean(visionDescription);
+        visionSucceeded = Boolean(productDescription?.trim());
+        detectedProduct = analysis.products[0]
+          ? {
+              name: analysis.products[0].name,
+              description: analysis.products[0].description,
+              materials: analysis.products[0].materials,
+              brand: analysis.products[0].brand,
+              confidence: analysis.products[0].confidence,
+            }
+          : {
+              name: urlResult.metadata?.productName ?? null,
+              description: urlResult.metadata?.description ?? null,
+              source: urlResult.metadata?.extractionMethod ?? null,
+            };
+      } catch (visionError) {
+        this.logger.warn(
+          `Vision failed for ${url} (image=${previewImageUrl}): ${
+            visionError instanceof Error
+              ? visionError.message
+              : String(visionError)
+          }. Falling back to text extract.`,
+        );
+      }
+
+      if (!visionSucceeded) {
+        // Vision threw OR returned nothing usable. Fall back to whatever
+        // rendered-page text we have so the job still completes.
+        productDescription = metadataProductDescription;
+        visionUsed = false;
+        detectedProduct = {
+          name: urlResult.metadata?.productName ?? null,
+          description: urlResult.metadata?.description ?? null,
+          source: urlResult.metadata?.extractionMethod ?? null,
+        };
+      }
     } else if (preferMetadataDescription) {
+      // Reached only when no product image URL is available; rely on the
+      // rendered-page text extract alone.
       productDescription = metadataProductDescription;
       visionUsed = Boolean(urlResult.metadata?.usedVision);
       detectedProduct = {
@@ -428,40 +509,6 @@ export class LookupClassificationJobService {
         description: urlResult.metadata?.description ?? null,
         source: urlResult.metadata?.extractionMethod ?? null,
       };
-    } else if (urlResult.imageUrl || urlResult.metadata?.previewImageUrl) {
-      const previewImageUrl =
-        urlResult.imageUrl ?? urlResult.metadata?.previewImageUrl;
-      const analysisResult = await this.analyzeProductImageWithFallback(
-        previewImageUrl!,
-        {
-          url,
-          title: urlResult.metadata?.title,
-        },
-      );
-      const analysis = analysisResult.analysis;
-      visionMs = analysis.processingTime ?? analysisResult.elapsedMs;
-      imageDownloadMs = analysisResult.imageDownloadMs;
-      const visionDescription = analysis.products[0]
-        ? [
-            analysis.products[0].name,
-            analysis.products[0].description,
-            ...(analysis.products[0].materials ?? []),
-          ]
-            .filter(Boolean)
-            .join(', ')
-        : '';
-      const ogDescription = metadataProductDescription;
-      productDescription = visionDescription || ogDescription;
-      visionUsed = Boolean(visionDescription);
-      detectedProduct = analysis.products[0]
-        ? {
-            name: analysis.products[0].name,
-            description: analysis.products[0].description,
-            materials: analysis.products[0].materials,
-            brand: analysis.products[0].brand,
-            confidence: analysis.products[0].confidence,
-          }
-        : null;
     } else {
       productDescription = [
         urlResult.metadata?.productName,
