@@ -737,7 +737,14 @@ export class LookupClassificationJobService {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       },
-      signal: AbortSignal.timeout(6_000),
+      // 15s (was 6s) — many retailer CDNs (homedepot, costco) serve
+      // product images slowly to non-browser User-Agents and the old 6s
+      // budget timed out before any bytes arrived. 15s gives slow-but-
+      // eventually-responding CDNs a real chance while still bounding the
+      // job's worst-case latency: vision tries OpenAI → fails fast (1-2s
+      // 400), retries with local download → succeeds in ~5-12s for slow
+      // CDNs or times out at 15s and falls back to text.
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
