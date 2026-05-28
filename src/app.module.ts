@@ -105,9 +105,11 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
         migrations: [__dirname + '/db/migrations/**/*{.ts,.js}'],
         migrationsTableName: 'typeorm_migrations',
         ssl:
-          process.env?.NODE_ENV === 'development'
-            ? false
-            : { rejectUnauthorized: false },
+          process.env?.DB_SSL === 'true'
+            ? { rejectUnauthorized: false }
+            : process.env?.NODE_ENV === 'development'
+              ? false
+              : { rejectUnauthorized: false },
         logging: (process.env?.DB_LOGGING ?? 'false') === 'true',
         // Limit pool size so pg-boss + app together stay under max_connections
         extra: { max: parseInt(process.env?.DB_POOL_MAX ?? '8') },

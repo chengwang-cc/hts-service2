@@ -92,7 +92,12 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         schema: 'pgboss',
         // Limit pg-boss pool so TypeORM + pg-boss together stay under max_connections
         max: parseInt(process.env.PGBOSS_POOL_MAX ?? '5'),
-        ssl: process.env.NODE_ENV !== 'development' ? { rejectUnauthorized: false } : undefined,
+        ssl:
+          process.env.DB_SSL === 'true'
+            ? { rejectUnauthorized: false }
+            : process.env.NODE_ENV !== 'development'
+              ? { rejectUnauthorized: false }
+              : undefined,
       });
 
       // Start pg-boss
