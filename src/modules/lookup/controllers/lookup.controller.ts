@@ -143,6 +143,7 @@ export class LookupController {
    * Handles product pages, image URLs, and general web pages.
    * Runs asynchronously through pg-boss to avoid edge/gateway timeouts.
    */
+  @Public()
   @HttpCode(HttpStatus.ACCEPTED)
   @Post('classify-hts-from-url')
   async classifyHtsFromUrl(

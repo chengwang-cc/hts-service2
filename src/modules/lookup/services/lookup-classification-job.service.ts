@@ -71,14 +71,14 @@ export class LookupClassificationJobService {
     url: string,
     source: LookupClassificationJobSource = 'WEB',
   ) {
-    if (!user?.organizationId) {
-      throw new UnauthorizedException('Authentication required');
-    }
+    // Anonymous (hts-web2) traffic has no user — attribute the job to the
+    // ANONYMOUS_ORG_ID sentinel, mirroring createImageJob's behavior.
+    const organizationId: string = user?.organizationId ?? ANONYMOUS_ORG_ID;
 
     const job = await this.jobRepository.save(
       this.jobRepository.create({
-        organizationId: user.organizationId,
-        createdBy: user.id ?? null,
+        organizationId,
+        createdBy: user?.id ?? null,
         status: 'pending',
         requestType: 'URL',
         sourceUrl: url,
@@ -98,7 +98,7 @@ export class LookupClassificationJobService {
     );
 
     await this.jobRepository.update(job.id, { queueJobId });
-    return this.getJob(job.id, user.organizationId);
+    return this.getJob(job.id, organizationId);
   }
 
   async createImageJob(
