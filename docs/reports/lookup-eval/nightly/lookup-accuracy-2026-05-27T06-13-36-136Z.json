@@ -13,9 +13,9 @@
     },
     "search": {
       "evaluated": 300,
-      "exactTop1": 173,
-      "exactTop3": 208,
-      "exactTop10": 234,
+      "exactTop1": 177,
+      "exactTop3": 213,
+      "exactTop10": 238,
       "chapterTop10": 294,
       "errors": 0
     },
@@ -24,14 +24,14 @@
       "exactTop1": 54,
       "exactTop3": 54,
       "exactTop10": 54,
-      "chapterTop10": 75,
+      "chapterTop10": 74,
       "errors": 0
     }
   },
   "classificationTop1": {
     "evaluated": 80,
     "exactTop1": 54,
-    "chapterTop1": 75,
+    "chapterTop1": 74,
     "errors": 0
   }
 }
