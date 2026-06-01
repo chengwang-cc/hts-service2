@@ -16,6 +16,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PartnerAttributionModule } from './modules/partner-attribution/partner-attribution.module';
 import { AttributionMiddleware } from './modules/partner-attribution/middleware/attribution.middleware';
+import { PartnerRateLimitMiddleware } from './modules/partner-attribution/middleware/partner-rate-limit.middleware';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { WidgetModule } from './modules/widget/widget.module';
 import { ExtensionModule } from './modules/extension/extension.module';
@@ -173,9 +174,11 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Resolves (partner, end-user) for every request and stamps `req.attribution`.
-    // Must run before route handlers so the UsageRecordingInterceptor (and any
-    // partner-scoped controller logic) can read the attribution result.
-    consumer.apply(AttributionMiddleware).forRoutes('*');
+    // Ordering matters: AttributionMiddleware must run first so the rate
+    // limiter sees `req.attribution.partnerId`. Nest applies middlewares in
+    // the order they're chained here.
+    consumer
+      .apply(AttributionMiddleware, PartnerRateLimitMiddleware)
+      .forRoutes('*');
   }
 }
