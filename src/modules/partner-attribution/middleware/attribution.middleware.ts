@@ -1,6 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 import { ApiKeyService } from '../../api-keys/services/api-key.service';
 import { PartnerOriginCacheService } from '../services/partner-origin-cache.service';
@@ -90,7 +91,7 @@ export class AttributionMiddleware implements NestMiddleware {
     }
 
     // ── end-user resolution ─────────────────────────────────────────────────
-    const externalUserId = this.resolveExternalUserId(req);
+    const { externalUserId, userIdentitySource } = this.resolveEndUser(req, partnerId);
     const partnerUserId =
       externalUserId && partnerId ? await this.upsertPartnerUser(partnerId, externalUserId) : null;
 
@@ -102,21 +103,62 @@ export class AttributionMiddleware implements NestMiddleware {
       origin,
       externalUserId,
       partnerUserId,
+      userIdentitySource,
       extras: {},
     };
   }
 
   /**
-   * Currently only the asserted form (X-Partner-User-Id). JWT verification
-   * is P2 — when X-Partner-User-Token is present in P1 we just ignore it.
+   * Verified path first (X-Partner-User-Token JWT signed with the partner's
+   * shared secret), then asserted (X-Partner-User-Id). Verification failure
+   * falls through to asserted — invalid tokens never block a request, they
+   * just don't get the trust label.
    */
-  private resolveExternalUserId(req: Request): string | null {
+  private resolveEndUser(
+    req: Request,
+    partnerId: string | null,
+  ): { externalUserId: string | null; userIdentitySource: 'verified' | 'asserted' | null } {
+    const token = this.headerValue(req, 'x-partner-user-token');
+    if (token && partnerId) {
+      const verifiedSub = this.verifyJwtSub(token, partnerId);
+      if (verifiedSub) {
+        return { externalUserId: this.truncate(verifiedSub, 255), userIdentitySource: 'verified' };
+      }
+    }
     const asserted = this.headerValue(req, 'x-partner-user-id');
     if (asserted) {
-      const trimmed = asserted.trim().slice(0, 255);
-      return trimmed || null;
+      const trimmed = this.truncate(asserted.trim(), 255);
+      if (trimmed) return { externalUserId: trimmed, userIdentitySource: 'asserted' };
     }
-    return null;
+    return { externalUserId: null, userIdentitySource: null };
+  }
+
+  /**
+   * Verify a partner-signed JWT and return the `sub` claim. Returns null on
+   * any error (bad signature, expired, malformed, missing secret) — never
+   * throws. Algorithms restricted to HS256 to block the 'alg: none' attack
+   * and asymmetric-key surprises.
+   */
+  private verifyJwtSub(token: string, partnerId: string): string | null {
+    const cfg = this.partnerResolver.configForPartner(partnerId);
+    if (!cfg?.jwtSecret) return null;
+    try {
+      const payload = jwt.verify(token, cfg.jwtSecret, { algorithms: ['HS256'] });
+      if (typeof payload === 'string') return null;
+      const sub = (payload as jwt.JwtPayload).sub;
+      return typeof sub === 'string' && sub.length > 0 ? sub : null;
+    } catch (err) {
+      // Common in production (clock skew, expired tokens) — log at debug only.
+      this.logger.debug(
+        `X-Partner-User-Token verify failed for partner ${partnerId}: ${(err as Error)?.message}`,
+      );
+      return null;
+    }
+  }
+
+  private truncate(s: string, max: number): string | null {
+    if (!s) return null;
+    return s.length > max ? s.slice(0, max) : s;
   }
 
   /**

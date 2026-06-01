@@ -75,6 +75,13 @@ export class ApiKeyService implements OnModuleDestroy {
     ipWhitelist?: string[];
     allowedOrigins?: string[];
     createdBy?: string;
+    /**
+     * 'server' (default) — traditional server-to-server key.
+     * 'browser' — key intended to be embedded in a partner's web app;
+     *             ApiKeyGuard enforces allowedOrigins strictly for these
+     *             keys, and the default rate limit is lower.
+     */
+    purpose?: 'server' | 'browser';
   }): Promise<{ apiKey: ApiKeyEntity; plainTextKey: string }> {
     // Generate random key
     const randomBytes = crypto.randomBytes(24);
@@ -86,6 +93,10 @@ export class ApiKeyService implements OnModuleDestroy {
     // Extract prefix for display (first 20 chars)
     const keyPrefix = plainTextKey.substring(0, 20);
 
+    const purpose = params.purpose ?? 'server';
+    const defaultRpm = purpose === 'browser' ? 30 : 60;
+    const defaultRpd = purpose === 'browser' ? 2000 : 10000;
+
     // Create entity
     const apiKey = this.apiKeyRepository.create({
       keyHash,
@@ -94,9 +105,10 @@ export class ApiKeyService implements OnModuleDestroy {
       description: params.description || null,
       organizationId: params.organizationId,
       environment: params.environment,
+      purpose,
       permissions: params.permissions,
-      rateLimitPerMinute: params.rateLimitPerMinute || 60,
-      rateLimitPerDay: params.rateLimitPerDay || 10000,
+      rateLimitPerMinute: params.rateLimitPerMinute || defaultRpm,
+      rateLimitPerDay: params.rateLimitPerDay || defaultRpd,
       expiresAt: params.expiresAt || null,
       ipWhitelist: params.ipWhitelist || null,
       allowedOrigins: params.allowedOrigins || null,
