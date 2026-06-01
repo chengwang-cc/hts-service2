@@ -77,6 +77,23 @@ export class ApiKeyGuard implements CanActivate {
         }
       }
 
+      // Browser-purpose keys MUST be presented from an allow-listed Origin.
+      // The whole point of a browser key is that it's bundled in client-side
+      // code, so origin is the only enforceable identity signal.
+      if (
+        validatedKey.purpose === 'browser' &&
+        validatedKey.allowedOrigins &&
+        validatedKey.allowedOrigins.length > 0
+      ) {
+        const origin = request.headers['origin'] as string | undefined;
+        const ok = !!origin && this.checkOriginAllowed(origin, validatedKey.allowedOrigins);
+        if (!ok) {
+          throw new ForbiddenException(
+            `Origin "${origin ?? '(missing)'}" is not in the API key's allowed origins`,
+          );
+        }
+      }
+
       // Check rate limits
       const minuteLimit = await this.apiKeyService.checkRateLimit(
         validatedKey,
@@ -191,6 +208,32 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
+    return false;
+  }
+
+  /**
+   * Origin allow-list check. Supports exact match or wildcard subdomain
+   * patterns like `*.chitchats.com`. Always matched against the request's
+   * `Origin` header (case-insensitive, protocol-flexible).
+   */
+  private checkOriginAllowed(origin: string, allowed: string[]): boolean {
+    const normalized = origin.trim().replace(/\/+$/, '').toLowerCase();
+    for (const pattern of allowed) {
+      const p = pattern.trim().toLowerCase();
+      if (!p) continue;
+      // Exact origin
+      if (normalized === p) return true;
+      // Strip scheme from both before pattern match
+      const norHost = normalized.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+      const patHost = p.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+      if (norHost === patHost) return true;
+      if (patHost.startsWith('*.')) {
+        const suffix = patHost.slice(1); // '.chitchats.com'
+        if (norHost.endsWith(suffix) && norHost.split('.').length === patHost.split('.').length) {
+          return true;
+        }
+      }
+    }
     return false;
   }
 

@@ -21,6 +21,13 @@ export interface RequestAttribution {
   /** Resolved partner_users.id (set after upsert; may be null on first sight). */
   partnerUserId: string | null;
   /**
+   * How the end-user identity was established:
+   *   'verified' — JWT signed by the partner's shared secret, verified
+   *   'asserted' — partner-supplied X-Partner-User-Id, untrusted
+   *   null       — no end-user identity present
+   */
+  userIdentitySource: 'verified' | 'asserted' | null;
+  /**
    * Route handlers can stash endpoint-specific fields here for the
    * UsageRecordingInterceptor to read on response (e.g. hts code + country
    * for calculator routes).

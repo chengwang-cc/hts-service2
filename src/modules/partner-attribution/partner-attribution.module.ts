@@ -13,21 +13,27 @@ import { AttributionMiddleware } from './middleware/attribution.middleware';
 import { UsageRecordingInterceptor } from './interceptors/usage-recording.interceptor';
 import { ApiUsageRecorderWorker } from './workers/api-usage-recorder.worker';
 import { PartnerUsageAdminController } from './controllers/partner-usage.admin.controller';
+import { PartnerUsageController } from './controllers/partner-usage.controller';
+import { PartnerApiKeyAdminController } from './controllers/partner-api-key.admin.controller';
+import { PartnerUsageQueryService } from './services/partner-usage-query.service';
 import { AdminGuard } from '../admin/guards/admin.guard';
+import { ApiKeyEntity } from '../api-keys/entities/api-key.entity';
 
 const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
   PartnerOriginEntity,
   PartnerUserEntity,
   OrganizationEntity,
   ApiUsageMetricEntity,
+  ApiKeyEntity,
 ]);
 
 @Module({
   imports: [partnerAttributionTypeOrm, ApiKeysModule, QueueModule],
-  controllers: [PartnerUsageAdminController],
+  controllers: [PartnerUsageAdminController, PartnerUsageController, PartnerApiKeyAdminController],
   providers: [
     PartnerOriginCacheService,
     PartnerResolverService,
+    PartnerUsageQueryService,
     AttributionMiddleware,
     UsageRecordingInterceptor,
     ApiUsageRecorderWorker,
