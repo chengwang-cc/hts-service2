@@ -65,6 +65,14 @@ export class ApiKeyEntity {
   environment: 'test' | 'live';
 
   /**
+   * Key purpose. 'server' = traditional server-to-server (existing default).
+   * 'browser' = key intended to be embedded in a partner's web app; gets a
+   * lower default rate limit and respects allowedOrigins strictly.
+   */
+  @Column('varchar', { length: 20, default: 'server' })
+  purpose: 'server' | 'browser';
+
+  /**
    * Permissions granted to this key
    * Example: ['hts:lookup', 'hts:calculate', 'kb:query']
    */
