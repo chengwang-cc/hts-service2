@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
@@ -14,6 +14,8 @@ import { LookupModule } from './modules/lookup/lookup.module';
 import { CalculatorModule } from './modules/calculator/calculator.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { PartnerAttributionModule } from './modules/partner-attribution/partner-attribution.module';
+import { AttributionMiddleware } from './modules/partner-attribution/middleware/attribution.middleware';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { WidgetModule } from './modules/widget/widget.module';
 import { ExtensionModule } from './modules/extension/extension.module';
@@ -106,6 +108,10 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // API Keys module
     ApiKeysModule,
 
+    // Partner attribution module — must register BEFORE any route module
+    // so AttributionMiddleware can be applied globally below.
+    PartnerAttributionModule,
+
     // Knowledgebase module
     KnowledgebaseModule,
 
@@ -165,4 +171,11 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Resolves (partner, end-user) for every request and stamps `req.attribution`.
+    // Must run before route handlers so the UsageRecordingInterceptor (and any
+    // partner-scoped controller logic) can read the attribution result.
+    consumer.apply(AttributionMiddleware).forRoutes('*');
+  }
+}

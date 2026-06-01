@@ -13,29 +13,92 @@ import { ApiKeyEntity } from './api-key.entity';
  * API Usage Metric Entity
  * Tracks API usage for billing, monitoring, and rate limiting
  */
+/**
+ * Attribution source for a recorded request. Set by AttributionMiddleware
+ * and stamped onto every api_usage_metrics row.
+ *
+ *   'api_key'      → resolved from X-API-Key (legacy server-to-server)
+ *   'partner_key'  → resolved from X-Partner-Key (explicit partner identity)
+ *   'origin'       → resolved by matching Origin header in partner_origins
+ *   'unknown'      → no match; falls back to the 'unknown' sentinel partner
+ */
+export type AttributionSource = 'api_key' | 'partner_key' | 'origin' | 'unknown';
+
 @Entity('api_usage_metrics')
 @Index(['apiKeyId', 'timestamp'])
 @Index(['organizationId', 'timestamp'])
 @Index(['apiKeyId', 'endpoint', 'timestamp'])
+@Index(['partnerId', 'timestamp'])
+@Index(['partnerUserId', 'timestamp'])
+@Index(['endpoint', 'partnerId', 'timestamp'])
 export class ApiUsageMetricEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   /**
-   * API Key that made the request
+   * API Key that made the request. Nullable: anonymous browser traffic
+   * attributed by Origin header has no key.
    */
-  @Column('uuid')
-  apiKeyId: string;
+  @Column('uuid', { nullable: true })
+  apiKeyId: string | null;
 
-  @ManyToOne(() => ApiKeyEntity)
+  @ManyToOne(() => ApiKeyEntity, { nullable: true })
   @JoinColumn({ name: 'api_key_id' })
-  apiKey: ApiKeyEntity;
+  apiKey: ApiKeyEntity | null;
 
   /**
-   * Organization (denormalized for faster queries)
+   * Organization the request is attributed to. For keyed requests this is
+   * the API key's owning org (existing semantic). For anonymous origin-
+   * attributed requests this is the partner organization the Origin matched.
+   *
+   * Stays NOT NULL — the 'unknown' partner row is the catch-all for
+   * unmatched anonymous traffic so every metric has an org.
    */
   @Column('uuid')
   organizationId: string;
+
+  /**
+   * Canonical attribution target. Always set (= organizationId for new rows;
+   * may differ from organizationId in P3 if we let one org operate keys
+   * scoped to multiple partner attribution targets).
+   * Nullable on legacy rows that pre-date attribution wiring.
+   */
+  @Column('uuid', { nullable: true })
+  partnerId: string | null;
+
+  /**
+   * Partner-asserted end-user id (resolved to a partner_users.id). Null for
+   * anonymous traffic or when the partner didn't pass the headers.
+   */
+  @Column('uuid', { nullable: true })
+  partnerUserId: string | null;
+
+  /**
+   * How the partner was resolved on this request — see AttributionSource.
+   */
+  @Column('varchar', { length: 20, nullable: true })
+  attributionSource: AttributionSource | null;
+
+  /**
+   * Origin header value as received. Stored for forensic / audit purposes
+   * (e.g., "we attributed this to chitchats but the Origin says foo.com").
+   */
+  @Column('varchar', { length: 255, nullable: true })
+  origin: string | null;
+
+  /**
+   * HTS code from the request, denormalized for cheap aggregation
+   * ("top 10 HTS codes ChitChats users look up"). Null for endpoints
+   * without an HTS context.
+   */
+  @Column('varchar', { length: 20, nullable: true })
+  htsCode: string | null;
+
+  /**
+   * ISO country code from the request (calculator only). Null elsewhere.
+   */
+  @Column('varchar', { length: 8, nullable: true })
+  countryCode: string | null;
 
   /**
    * Request timestamp (bucketed to minute for aggregation)
