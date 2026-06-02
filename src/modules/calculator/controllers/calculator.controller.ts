@@ -69,29 +69,101 @@ export class CalculatorController {
     private readonly scenarioRepository: Repository<CalculationScenarioEntity>,
   ) {}
 
+  /**
+   * Anonymous calculate. Proxies ai-service POST /v2/tariff/rates and
+   * returns the single-row response verbatim so the hts-web2 calculator UI
+   * (which expects the raw ai-service shape: { htsCode, country, formulas[],
+   * rate, block_reason, isCusmaFreeTrade, … }) can render correctly.
+   *
+   * History persistence + scenario writes live on the partner-key-auth'd
+   * /calculate handler in CalculatorPublicController (see public-api/v1).
+   * Anonymous traffic from hts-web2 doesn't persist by design — we don't
+   * attribute anonymous calls to any organization.
+   *
+   * POST /calculator/calculate
+   */
   @Public()
   @Post('calculate')
-  async calculate(
-    @Body() calculateDto: CalculateDto,
-    @Query('organizationId') organizationId: string,
-    @Query('userId') userId?: string,
-  ) {
-    const tradeAgreementCode =
-      calculateDto.tradeAgreementCode || calculateDto.tradeAgreement;
-    const tradeAgreementCertificate =
-      typeof calculateDto.tradeAgreementCertificate === 'boolean'
-        ? calculateDto.tradeAgreementCertificate
-        : calculateDto.claimPreferential;
+  async calculate(@Body() calculateDto: CalculateDto): Promise<unknown> {
+    // Use /hts-formulas (not /rates) because hts-web2 needs the
+    // tariffTypeExplanation + isCusmaFreeTrade fields that only
+    // /hts-formulas emits. The frontend evaluates per-formula `amount`
+    // locally via its sandboxed evaluator, so we don't need the
+    // pre-evaluated amounts that /rates would supply.
+    const aiRequest = this.toAiRateRequest(calculateDto);
+    const [item] = await this.fetchFormulasFromAiService([
+      { htsCode: aiRequest.htsCode, country: aiRequest.country },
+    ]);
+    if (!item) {
+      throw new HttpException(
+        'Upstream tariff service returned no rows',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
 
-    const result = await this.calculationService.calculate({
-      ...calculateDto,
-      tradeAgreementCode,
-      tradeAgreementCertificate,
-      organizationId,
-      userId,
-    });
+    return {
+      htsCode: item.htsCode ?? aiRequest.htsCode,
+      country: item.country ?? aiRequest.country,
+      effectiveHtsCode: item.effectiveHtsCode ?? null,
+      blocked: !!item.blocked,
+      // Emit both casings so callers don't have to guess which form is
+      // canonical. ai-service uses block_reason (snake) natively.
+      block_reason: item.block_reason ?? null,
+      blockReason: item.block_reason ?? null,
+      message: item.message ?? '',
+      exclusiveSection301: item.exclusiveSection301 ?? false,
+      // Forwarded from /hts-formulas; drives the CUSMA Free Trade row.
+      isCusmaFreeTrade: item.isCusmaFreeTrade ?? null,
+      // Pass through the formulas[] so the FE can render its own
+      // per-tariff breakdown — same shape /formula returns. The FE
+      // evaluates each formula client-side against `inputs` to get the
+      // per-row amount, then sums for the total.
+      formulas: (item.formulas ?? []).map((f) => ({
+        tariffType: f.tariffType,
+        tariffTypeDescription: f.tariffTypeDescription,
+        tariffTypeExplanation: f.tariffTypeExplanation ?? null,
+        formula: f.formula,
+        formulaVariables: f.formulaVariables ?? [],
+        chapter99HtsCode: f.chapter99HtsCode ?? null,
+      })),
+      // Echo back the resolved inputs so callers can see exactly what
+      // values fed the formula evaluation (helpful for debugging).
+      inputs: aiRequest.inputs,
+    };
+  }
 
-    return result;
+  /**
+   * Convert the hts-web2 CalculateDto into the ai-service /v2/tariff/rates
+   * per-row request. `value` / `weight` / `quantity` are the canonical
+   * variable names; anything else hts-web2 sends via additionalInputs (e.g.
+   * aluminum_value / steel_value for metal-tariff formulas) rides through
+   * as-is so the formula evaluator picks it up in scope.
+   */
+  private toAiRateRequest(dto: CalculateDto): {
+    htsCode: string;
+    country: string;
+    inputs: Record<string, number>;
+  } {
+    const inputs: Record<string, number> = {};
+    if (typeof dto.declaredValue === 'number' && Number.isFinite(dto.declaredValue)) {
+      inputs.value = dto.declaredValue;
+    }
+    if (typeof dto.weightKg === 'number' && Number.isFinite(dto.weightKg)) {
+      inputs.weight = dto.weightKg;
+    }
+    if (typeof dto.quantity === 'number' && Number.isFinite(dto.quantity)) {
+      inputs.quantity = dto.quantity;
+    }
+    if (dto.additionalInputs && typeof dto.additionalInputs === 'object') {
+      for (const [k, v] of Object.entries(dto.additionalInputs)) {
+        if (typeof v === 'number' && Number.isFinite(v)) inputs[k] = v;
+      }
+    }
+    return {
+      htsCode: dto.htsNumber,
+      country: (dto.countryOfOrigin ?? '').toUpperCase(),
+      inputs,
+    };
   }
 
   @Get('calculations/:calculationId')
