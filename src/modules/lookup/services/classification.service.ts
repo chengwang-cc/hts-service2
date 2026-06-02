@@ -72,7 +72,7 @@ export class ClassificationService {
   private readonly SEARCH_FIRST_MARGIN_THRESHOLD = 0.06;
   private readonly IMAGE_SEARCH_FIRST_SCORE_THRESHOLD = 0.9;
   private readonly IMAGE_SEARCH_FIRST_MARGIN_THRESHOLD = 0.1;
-  private readonly SEARCH_FIRST_GROUNDING_STOP_WORDS = new Set([
+  private readonly SEARCH_FIRST_GROUNDING_STOP_WORDS = new Set<string>([
     'a',
     'an',
     'and',
@@ -531,7 +531,7 @@ export class ClassificationService {
   }
 
   private extractGroundingTokens(input: string): string[] {
-    const tokens = (input || '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const tokens: string[] = (input || '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
     return [
       ...new Set(
         tokens.filter(

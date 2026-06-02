@@ -28,6 +28,7 @@ interface ExternalFormulaVariable {
 interface ExternalFormula {
   tariffType: string;
   tariffTypeDescription: string;
+  tariffTypeExplanation?: string;
   formula: string;
   formulaVariables?: ExternalFormulaVariable[];
   chapter99HtsCode?: string;
@@ -42,6 +43,7 @@ interface ExternalTariffResult {
   blocked: boolean;
   block_reason: string | null;
   exclusiveSection301?: boolean;
+  isCusmaFreeTrade?: boolean | null;
   formulas: ExternalFormula[];
 }
 
@@ -135,12 +137,14 @@ export class CalculatorController {
       country: item.country ?? country,
       effectiveHtsCode: item.effectiveHtsCode ?? null,
       blocked: !!item.blocked,
-      blockReason: item.block_reason ?? null,
+      block_reason: item.block_reason ?? null,
       message: item.message ?? '',
       exclusiveSection301: item.exclusiveSection301 ?? false,
+      isCusmaFreeTrade: item.isCusmaFreeTrade ?? null,
       formulas: (item.formulas ?? []).map((f) => ({
         tariffType: f.tariffType,
         tariffTypeDescription: f.tariffTypeDescription,
+        tariffTypeExplanation: f.tariffTypeExplanation,
         formula: f.formula,
         formulaVariables: f.formulaVariables ?? [],
         chapter99HtsCode: f.chapter99HtsCode ?? null,

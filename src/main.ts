@@ -15,7 +15,9 @@ async function bootstrap() {
     'http://localhost:4202',
     'http://localhost:4299',
     'http://localhost:4300',
+    'http://localhost:8001',
     'http://127.0.0.1:4200',
+    'http://127.0.0.1:8001',
   ];
   const envOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
@@ -35,17 +37,6 @@ async function bootstrap() {
       } catch {
         // not a parseable origin
       }
-      // Allow Shopify domains (storefront, admin, checkout extensions)
-      if (
-        origin.endsWith('.shopify.com') ||
-        origin.endsWith('.shopifycdn.com') ||
-        origin.endsWith('.shopifypreview.com') ||
-        origin.endsWith('.myshopify.com')
-      ) {
-        return callback(null, true);
-      }
-      // Checkout extensions can run on unpredictable origins. Allow but the
-      // affected endpoints (auth/admin) are protected by their own guards.
       return callback(null, true);
     },
     credentials: true,
@@ -88,7 +79,7 @@ async function bootstrap() {
     .setTitle('HTS Service API')
     .setDescription(
       'HTS duty calculation and lookup API with AI-powered classification. ' +
-        'Provides duty calculation, HTS code lookup, trade agreement analysis, and embeddable widgets.',
+        'Provides duty calculation, HTS code lookup, and trade agreement analysis.',
     )
     .setVersion('1.0')
     .addApiKey(
@@ -104,7 +95,6 @@ async function bootstrap() {
     .addTag('Calculator', 'Duty calculation endpoints')
     .addTag('HTS Lookup', 'HTS code lookup and search')
     .addTag('Knowledgebase', 'AI-powered HTS classification')
-    .addTag('Widgets', 'Embeddable widget management')
     .addTag('Auth', 'Authentication and user management')
     .addTag('API Keys', 'API key management')
     .build();

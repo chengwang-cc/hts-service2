@@ -9,6 +9,7 @@ describe('LookupController', () => {
   const queueService = {} as any;
   const rerankService = {} as any;
   const smartClassifyService = {} as any;
+  const visionService = {} as any;
 
   let lookupClassificationJobService: {
     createUrlJob: jest.Mock;
@@ -33,6 +34,7 @@ describe('LookupController', () => {
       queueService,
       rerankService,
       smartClassifyService,
+      visionService,
     );
   });
 

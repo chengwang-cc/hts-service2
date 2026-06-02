@@ -2,7 +2,6 @@ import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
-import { SKIP_JWT_AUTH_KEY } from '../../api-keys/decorators/skip-jwt-auth.decorator';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -18,16 +17,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     ]);
 
     if (isPublic) {
-      return true;
-    }
-
-    // Skip JWT auth for @SkipJwtAuth() decorated routes (uses API key auth instead)
-    const skipJwtAuth = this.reflector.getAllAndOverride<boolean>(
-      SKIP_JWT_AUTH_KEY,
-      [context.getHandler(), context.getClass()],
-    );
-
-    if (skipJwtAuth) {
       return true;
     }
 

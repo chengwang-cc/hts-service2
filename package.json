@@ -144,6 +144,16 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^@hts/core$": "<rootDir>/core/index.ts",
+      "^@hts/core/(.*)$": "<rootDir>/core/$1",
+      "^@hts/knowledgebase$": "<rootDir>/modules/knowledgebase/index.ts",
+      "^@hts/knowledgebase/(.*)$": "<rootDir>/modules/knowledgebase/$1",
+      "^@hts/calculator$": "<rootDir>/modules/calculator/index.ts",
+      "^@hts/calculator/(.*)$": "<rootDir>/modules/calculator/$1",
+      "^@hts/lookup$": "<rootDir>/modules/lookup/index.ts",
+      "^@hts/lookup/(.*)$": "<rootDir>/modules/lookup/$1"
+    },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

@@ -6,8 +6,6 @@ import {
   ApiUsageSummaryEntity,
 } from './entities/api-usage-metric.entity';
 import { ApiKeyService } from './services/api-key.service';
-import { ApiKeyGuard } from './guards/api-key.guard';
-import { ApiKeysController } from './controllers/api-keys.controller';
 
 @Module({
   imports: [
@@ -17,8 +15,7 @@ import { ApiKeysController } from './controllers/api-keys.controller';
       ApiUsageSummaryEntity,
     ]),
   ],
-  controllers: [ApiKeysController],
-  providers: [ApiKeyService, ApiKeyGuard],
-  exports: [ApiKeyService, ApiKeyGuard],
+  providers: [ApiKeyService],
+  exports: [ApiKeyService],
 })
 export class ApiKeysModule {}

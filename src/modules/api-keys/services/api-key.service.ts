@@ -78,7 +78,7 @@ export class ApiKeyService implements OnModuleDestroy {
     /**
      * 'server' (default) — traditional server-to-server key.
      * 'browser' — key intended to be embedded in a partner's web app;
-     *             ApiKeyGuard enforces allowedOrigins strictly for these
+     *             browser clients must match these allowed origins.
      *             keys, and the default rate limit is lower.
      */
     purpose?: 'server' | 'browser';
