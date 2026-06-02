@@ -28,6 +28,13 @@ interface ExternalFormulaVariable {
 interface ExternalFormula {
   tariffType: string;
   tariffTypeDescription: string;
+  /**
+   * Plain-language explanation of the tariff type (e.g. "Section 301
+   * tariffs on Chinese-origin products are applied through HTS Chapter 99
+   * amendments."). Emitted by ai-service for non-base formulas; surfaced
+   * in the calculator UI as a tooltip on the breakdown row.
+   */
+  tariffTypeExplanation?: string;
   formula: string;
   formulaVariables?: ExternalFormulaVariable[];
   chapter99HtsCode?: string;
@@ -42,6 +49,12 @@ interface ExternalTariffResult {
   blocked: boolean;
   block_reason: string | null;
   exclusiveSection301?: boolean;
+  /**
+   * True when the HTS code is eligible for CUSMA / USMCA preferential
+   * treatment. Only emitted by ai-service's X-API-Key-gated
+   * /v2/tariff/hts-formulas endpoint (not the public /formulas one).
+   */
+  isCusmaFreeTrade?: boolean | null;
   formulas: ExternalFormula[];
 }
 
@@ -135,12 +148,22 @@ export class CalculatorController {
       country: item.country ?? country,
       effectiveHtsCode: item.effectiveHtsCode ?? null,
       blocked: !!item.blocked,
+      // Emit both casings so callers don't have to guess. ai-service uses
+      // block_reason (snake) natively; the camelCase alias stays for
+      // back-compat with existing hts-web2 builds.
+      block_reason: item.block_reason ?? null,
       blockReason: item.block_reason ?? null,
       message: item.message ?? '',
       exclusiveSection301: item.exclusiveSection301 ?? false,
+      // Forwarded from /hts-formulas; drives the CUSMA Free Trade badge
+      // + results row in the calculator UI.
+      isCusmaFreeTrade: item.isCusmaFreeTrade ?? null,
       formulas: (item.formulas ?? []).map((f) => ({
         tariffType: f.tariffType,
         tariffTypeDescription: f.tariffTypeDescription,
+        // Per-formula human-readable explanation — shown as a tooltip on
+        // the breakdown row in the calculator UI.
+        tariffTypeExplanation: f.tariffTypeExplanation ?? null,
         formula: f.formula,
         formulaVariables: f.formulaVariables ?? [],
         chapter99HtsCode: f.chapter99HtsCode ?? null,
@@ -179,6 +202,9 @@ export class CalculatorController {
       const breakdown = formulas.map((f) => ({
         tariffType: f.tariffType,
         tariffTypeDescription: f.tariffTypeDescription,
+        // Match /formula's shape — the FE renders the same tooltip on both
+        // breakdown sources.
+        tariffTypeExplanation: f.tariffTypeExplanation ?? null,
         amount: typeof f.amount === 'number' ? f.amount : 0,
         formula: f.formula,
         formulaVariables: f.formulaVariables ?? [],
@@ -192,8 +218,10 @@ export class CalculatorController {
         country: item.country,
         effectiveHtsCode: item.effectiveHtsCode ?? null,
         blocked: !!item.blocked,
+        block_reason: item.block_reason ?? null,
         blockReason: item.block_reason ?? null,
         message: item.message ?? '',
+        isCusmaFreeTrade: item.isCusmaFreeTrade ?? null,
         totalDuty: Math.round(totalDuty * 100) / 100,
         breakdown,
       };
@@ -214,7 +242,13 @@ export class CalculatorController {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const apiKey = this.configService.get<string>('AI_SERVICE_API_KEY', '');
+    // Accept either env var name. Prod secrets use TARIFF_FORMULAS_API_KEY
+    // (see hts/app-secrets in Secrets Manager); some local envs use the
+    // older AI_SERVICE_API_KEY. Either resolves /hts-formulas auth.
+    const apiKey =
+      this.configService.get<string>('AI_SERVICE_API_KEY') ||
+      this.configService.get<string>('TARIFF_FORMULAS_API_KEY') ||
+      '';
     if (apiKey) headers['X-API-Key'] = apiKey;
     return headers;
   }
@@ -224,9 +258,12 @@ export class CalculatorController {
   ): Promise<ExternalTariffResult[]> {
     if (!requests.length) return [];
     try {
+      // Use /hts-formulas (X-API-Key gated) rather than the public
+      // /formulas endpoint — only /hts-formulas emits isCusmaFreeTrade
+      // and the per-formula tariffTypeExplanation.
       const response = await firstValueFrom(
         this.httpService.post<ExternalTariffResult[]>(
-          `${this.aiServiceUrl()}/formulas`,
+          `${this.aiServiceUrl()}/hts-formulas`,
           requests,
           { headers: this.aiServiceHeaders() },
         ),
