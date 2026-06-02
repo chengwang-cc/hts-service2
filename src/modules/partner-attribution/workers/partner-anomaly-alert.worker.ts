@@ -41,8 +41,12 @@ export class PartnerAnomalyAlertWorker implements OnModuleInit {
     await this.queue.registerHandler(PARTNER_ANOMALY_ALERT_QUEUE, async () => {
       await this.runAlertCheck();
     });
-    await this.queue.scheduleJob(PARTNER_ANOMALY_ALERT_QUEUE, '7 * * * *');
-    this.logger.log(`Anomaly alert worker registered (cron: 7 * * * *)`);
+    // singletonKey prevents pg-boss from queuing concurrent runs if Slack
+    // posts are slow.
+    await this.queue.scheduleJob(PARTNER_ANOMALY_ALERT_QUEUE, '7 * * * *', {}, {
+      singletonKey: PARTNER_ANOMALY_ALERT_QUEUE,
+    });
+    this.logger.log(`Anomaly alert worker registered (cron: 7 * * * *, singleton)`);
   }
 
   async runAlertCheck(): Promise<void> {

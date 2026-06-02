@@ -65,8 +65,13 @@ export class AttributionMiddleware implements NestMiddleware {
         partnerId = validated.organizationId;
         apiKeyId = validated.id;
         attributionSource = partnerKey ? 'partner_key' : 'api_key';
-      } catch {
-        // Invalid key — fall through to origin matching. ApiKeyGuard handles 401 on protected routes.
+      } catch (err) {
+        // Invalid key — fall through to origin matching. ApiKeyGuard handles
+        // 401 on protected routes. Logging at debug helps triage real DB /
+        // upstream failures from routine "client sent a bad key" noise.
+        this.logger.debug(
+          `validateApiKey rejected/failed: ${(err as Error)?.message ?? err}`,
+        );
       }
     }
 
@@ -83,10 +88,14 @@ export class AttributionMiddleware implements NestMiddleware {
       attributionSource = 'unknown';
     }
 
-    // If even the unknown sentinel isn't seeded, log loudly but don't break the request.
+    // If the 'unknown' sentinel isn't seeded yet (brief window between first
+    // deploy and seed-script run), the UsageRecordingInterceptor's worker
+    // will drop this row rather than insert an orphan. Refuses to invent a
+    // partner id that doesn't exist in the organizations table. Logging
+    // here makes the gap obvious.
     if (!partnerId) {
       this.logger.warn(
-        "AttributionMiddleware: no partnerId resolved AND 'unknown' sentinel is not seeded — usage row will have null partner.",
+        "AttributionMiddleware: 'unknown' sentinel not seeded — usage row will be dropped by the recording worker. Run scripts/seed-partner-attribution.ts.",
       );
     }
 
@@ -162,8 +171,15 @@ export class AttributionMiddleware implements NestMiddleware {
   }
 
   /**
-   * LRU-cached upsert. Returns the partner_users.id without round-tripping
-   * to the DB when the (partner, externalId) pair was seen recently.
+   * Atomic upsert via INSERT … ON CONFLICT. The previous find-then-save
+   * pattern lost concurrent first-time requests to the same (partner, user)
+   * because both findOne calls returned null and the second save threw on
+   * the unique constraint — that request got partnerUserId = null even
+   * though the partner_users row was created by the winner.
+   *
+   * The single statement here always returns an id (RETURNING handles both
+   * INSERT and UPDATE paths). DB does the heavy lifting; LRU just avoids
+   * the round-trip for hot users.
    */
   private async upsertPartnerUser(partnerId: string, externalUserId: string): Promise<string | null> {
     const cacheKey = `${partnerId}:${externalUserId}`;
@@ -175,32 +191,17 @@ export class AttributionMiddleware implements NestMiddleware {
       return cached;
     }
     try {
-      // Upsert by unique (organizationId, externalUserId)
-      const existing = await this.partnerUsers.findOne({
-        where: { organizationId: partnerId, externalUserId },
-        select: ['id'],
-      });
-      if (existing) {
-        // Touch last_seen_at + request_count asynchronously
-        void this.partnerUsers
-          .createQueryBuilder()
-          .update(PartnerUserEntity)
-          .set({ lastSeenAt: new Date(), requestCount: () => 'request_count + 1' })
-          .where('id = :id', { id: existing.id })
-          .execute()
-          .catch((err) =>
-            this.logger.debug(`partner_users touch failed for ${existing.id}: ${err?.message}`),
-          );
-        this.rememberInLru(cacheKey, existing.id);
-        return existing.id;
-      }
-      const created = await this.partnerUsers.save({
-        organizationId: partnerId,
-        externalUserId,
-        requestCount: '1',
-      });
-      this.rememberInLru(cacheKey, created.id);
-      return created.id;
+      const rows: Array<{ id: string }> = await this.partnerUsers.manager.query(
+        `INSERT INTO partner_users (organization_id, external_user_id, request_count, first_seen_at, last_seen_at)
+         VALUES ($1, $2, 1, now(), now())
+         ON CONFLICT (organization_id, external_user_id)
+         DO UPDATE SET last_seen_at = now(), request_count = partner_users.request_count + 1
+         RETURNING id`,
+        [partnerId, externalUserId],
+      );
+      const id = rows[0]?.id ?? null;
+      if (id) this.rememberInLru(cacheKey, id);
+      return id;
     } catch (err) {
       this.logger.debug(`partner_users upsert failed for (${partnerId}, ${externalUserId}): ${(err as Error)?.message}`);
       return null;

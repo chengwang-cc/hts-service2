@@ -29,8 +29,14 @@ export class PartnerUsageRollupWorker implements OnModuleInit {
     await this.queue.registerHandler(PARTNER_USAGE_ROLLUP_QUEUE, async () => {
       await this.runRollup();
     });
-    await this.queue.scheduleJob(PARTNER_USAGE_ROLLUP_QUEUE, '*/5 * * * *');
-    this.logger.log(`Rollup worker registered (cron: */5 * * * *)`);
+    // singletonKey prevents pg-boss from queuing a second job when the
+    // previous run is still in flight — if a rollup occasionally takes
+    // longer than 5 min, the next tick is dropped rather than racing on the
+    // same buckets.
+    await this.queue.scheduleJob(PARTNER_USAGE_ROLLUP_QUEUE, '*/5 * * * *', {}, {
+      singletonKey: PARTNER_USAGE_ROLLUP_QUEUE,
+    });
+    this.logger.log(`Rollup worker registered (cron: */5 * * * *, singleton)`);
   }
 
   /**
