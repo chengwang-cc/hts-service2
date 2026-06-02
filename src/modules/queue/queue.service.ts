@@ -19,6 +19,17 @@ export interface SendJobOptions {
 
 export interface ScheduleJobOptions {
   tz?: string;
+  /**
+   * pg-boss singleton key. When set, prevents overlapping fires from
+   * queuing concurrent jobs (helpful for crons that may sometimes run
+   * longer than their interval). Forwarded as-is to boss.schedule.
+   */
+  singletonKey?: string;
+  /**
+   * pg-boss retry limit for the scheduled job. Defaults to pg-boss's
+   * built-in default (0) when unset.
+   */
+  retryLimit?: number;
 }
 
 export interface JobHandler {
@@ -334,12 +345,18 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.boss.createQueue(queueName);
-    await this.boss.schedule(queueName, cronExpression, data, {
-      tz: options?.tz,
-    });
+    // Only include keys with a value so we don't pollute boss with undefined.
+    const bossOptions: Record<string, unknown> = {};
+    if (options?.tz) bossOptions.tz = options.tz;
+    if (options?.singletonKey) bossOptions.singletonKey = options.singletonKey;
+    if (options?.retryLimit !== undefined) bossOptions.retryLimit = options.retryLimit;
+
+    await this.boss.schedule(queueName, cronExpression, data, bossOptions);
 
     this.logger.log(
-      `Recurring schedule upserted for ${queueName}: cron="${cronExpression}"${options?.tz ? ` tz=${options.tz}` : ''}`,
+      `Recurring schedule upserted for ${queueName}: cron="${cronExpression}"` +
+        `${options?.tz ? ` tz=${options.tz}` : ''}` +
+        `${options?.singletonKey ? ` singleton="${options.singletonKey}"` : ''}`,
     );
   }
 
