@@ -24,6 +24,13 @@ export interface CalculationInput {
   claimPreferential?: boolean;
   additionalInputs?: Record<string, any>;
   htsVersion?: string;
+  /**
+   * When false, skip writing a row to calculation_history. Used by the batch
+   * public-API endpoint at checkout volume to avoid write-amplification.
+   * Default is true (write history), preserving back-compat for every
+   * existing caller.
+   */
+  persistHistory?: boolean;
 }
 
 export interface CalculationResult {
@@ -219,7 +226,9 @@ export class CalculationService {
           : null,
       };
 
-      if (calculationInput.organizationId) {
+      // History is opt-out: written by default, suppressed only when the
+      // caller explicitly sets persistHistory=false (batch checkout path).
+      if (calculationInput.organizationId && calculationInput.persistHistory !== false) {
         await this.saveCalculationHistory(calculationInput, result);
       }
 

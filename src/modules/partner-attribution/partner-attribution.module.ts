@@ -15,13 +15,16 @@ import { AttributionMiddleware } from './middleware/attribution.middleware';
 import { UsageRecordingInterceptor } from './interceptors/usage-recording.interceptor';
 import { ApiUsageRecorderWorker } from './workers/api-usage-recorder.worker';
 import { PartnerUsageRollupWorker } from './workers/partner-usage-rollup.worker';
+import { PartnerUsageMonthlyRollupWorker } from './workers/partner-usage-monthly-rollup.worker';
 import { PartnerAnomalyAlertWorker } from './workers/partner-anomaly-alert.worker';
 import { PartnerUsageAdminController } from './controllers/partner-usage.admin.controller';
 import { PartnerUsageController } from './controllers/partner-usage.controller';
+import { PortalPartnerUsageController } from './controllers/portal-partner-usage.controller';
 import { PartnerApiKeyAdminController } from './controllers/partner-api-key.admin.controller';
 import { PartnerBillingAdminController } from './controllers/partner-billing.admin.controller';
 import { PartnerUsageQueryService } from './services/partner-usage-query.service';
 import { PartnerUsageHourlyEntity } from './entities/partner-usage-hourly.entity';
+import { PartnerUsageMonthlyEntity } from './entities/partner-usage-monthly.entity';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { ApiKeyEntity } from '../api-keys/entities/api-key.entity';
 
@@ -29,6 +32,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
   PartnerOriginEntity,
   PartnerUserEntity,
   PartnerUsageHourlyEntity,
+  PartnerUsageMonthlyEntity,
   OrganizationEntity,
   ApiUsageMetricEntity,
   ApiKeyEntity,
@@ -39,6 +43,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
   controllers: [
     PartnerUsageAdminController,
     PartnerUsageController,
+    PortalPartnerUsageController,
     PartnerApiKeyAdminController,
     PartnerBillingAdminController,
   ],
@@ -52,6 +57,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
     UsageRecordingInterceptor,
     ApiUsageRecorderWorker,
     PartnerUsageRollupWorker,
+    PartnerUsageMonthlyRollupWorker,
     PartnerAnomalyAlertWorker,
     AdminGuard,
     // Register as a global interceptor from inside this module so DI can see

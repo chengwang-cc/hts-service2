@@ -53,6 +53,14 @@ export interface ErrorSampleRow {
   origin: string | null;
 }
 
+export interface CostSummaryRow {
+  bucketMonth: string; // YYYY-MM-DD (first of month)
+  requests: number;
+  costUsd: number;
+  llmInputTokens: number;
+  llmOutputTokens: number;
+}
+
 const MAX_HOURS = 24 * 30; // 30 days
 
 function parseHours(raw: string | undefined, defaultHours: number, max = MAX_HOURS): number {
@@ -250,4 +258,54 @@ export class PartnerUsageQueryService {
       origin: r.origin,
     }));
   }
+
+  /**
+   * Per-month $-cost + request totals for the partner. Reads from
+   * partner_usage_monthly (pre-aggregated by PartnerUsageMonthlyRollupWorker).
+   * `months` is clamped to [1, 24].
+   */
+  async costSummary(partnerId: string, monthsParam: string | undefined): Promise<CostSummaryRow[]> {
+    const months = parseInteger(monthsParam, 3, 1, 24, 'months');
+    const rows: Array<{
+      bucket_month: Date;
+      requests: string;
+      cost_usd: string;
+      llm_input_tokens: string;
+      llm_output_tokens: string;
+    }> = await this.metrics.manager.query(
+      `SELECT bucket_month,
+              SUM(requests)::text AS requests,
+              SUM(cost_usd)::text AS cost_usd,
+              SUM(llm_input_tokens)::text AS llm_input_tokens,
+              SUM(llm_output_tokens)::text AS llm_output_tokens
+       FROM partner_usage_monthly
+       WHERE partner_id = $1
+         AND bucket_month >= date_trunc('month', now() - interval '${months - 1} months')::date
+       GROUP BY bucket_month
+       ORDER BY bucket_month ASC`,
+      [partnerId],
+    );
+
+    return rows.map((r) => ({
+      bucketMonth: r.bucket_month.toISOString().slice(0, 10),
+      requests: Number(r.requests ?? 0),
+      costUsd: Number(r.cost_usd ?? 0),
+      llmInputTokens: Number(r.llm_input_tokens ?? 0),
+      llmOutputTokens: Number(r.llm_output_tokens ?? 0),
+    }));
+  }
+}
+
+function parseInteger(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+  field: string,
+): number {
+  const n = Number(raw ?? fallback);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    throw new BadRequestException(`${field} must be between ${min} and ${max}`);
+  }
+  return Math.floor(n);
 }

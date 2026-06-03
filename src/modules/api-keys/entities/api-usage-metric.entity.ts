@@ -31,6 +31,7 @@ export type AttributionSource = 'api_key' | 'partner_key' | 'origin' | 'unknown'
 @Index(['partnerId', 'timestamp'])
 @Index(['partnerUserId', 'timestamp'])
 @Index(['endpoint', 'partnerId', 'timestamp'])
+@Index(['partnerId', 'contextLabel', 'timestamp'])
 export class ApiUsageMetricEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -166,6 +167,36 @@ export class ApiUsageMetricEntity {
    */
   @Column('jsonb', { nullable: true })
   metadata: Record<string, any> | null;
+
+  /**
+   * Dollar cost charged to the partner for this request. Sum of the per-call
+   * baseline (from per-call-pricing.config) plus any AI-provider cost forwarded
+   * via req.attribution.extras.costUsd. Stored at 6-decimal precision because
+   * embedding/AI calls can be fractions of a cent.
+   */
+  @Column('numeric', { precision: 12, scale: 6, default: 0 })
+  costUsd: number;
+
+  /**
+   * LLM input tokens consumed (Anthropic/OpenAI). Zero for non-AI endpoints.
+   * Kept separate from costUsd for forensic and provider price-change audits.
+   */
+  @Column('integer', { default: 0 })
+  llmInputTokens: number;
+
+  /**
+   * LLM output tokens consumed (Anthropic/OpenAI). Zero for non-AI endpoints.
+   */
+  @Column('integer', { default: 0 })
+  llmOutputTokens: number;
+
+  /**
+   * Caller-supplied business context (X-HTS-Context header). Allowlist:
+   * checkout | fulfillment | search-ui | other. Used to slice partner usage
+   * dashboards (e.g. "how many checkout calls vs. merchant searches").
+   */
+  @Column('varchar', { length: 32, nullable: true })
+  contextLabel: string | null;
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThan, Repository } from 'typeorm';
 import { ApiUsageMetricEntity } from '../../api-keys/entities/api-usage-metric.entity';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
+import { getEffectiveLimits } from '../../billing/types/effective-limits';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -13,8 +14,9 @@ export interface RateLimitResult {
 }
 
 /**
- * Per-partner rate limit overrides live on `organizations.settings.rateLimits`.
- * The shape is intentionally identical to the api_keys columns for symmetry.
+ * Per-partner rate limit overrides live on `organizations.settings.effectiveLimits`
+ * (preferred — synced from the active subscription plan) or `settings.rateLimits`
+ * (legacy). Both shapes are read by getEffectiveLimits().
  */
 export interface PartnerRateLimits {
   perMinute: number;
@@ -64,14 +66,19 @@ export class PartnerRateLimitService {
   }
 
   /**
-   * True when the partner should be entirely skipped by the rate limiter
-   * (internal partner OR unmatched 'unknown' sentinel — the latter falls
-   * back to the existing IP-based limiter elsewhere).
+   * True when the partner should be entirely skipped by the rate limiter.
+   * Only first-party (internal) traffic bypasses — everyone else is limited.
+   * The 'unknown' sentinel partner stays in the limiter so we cap anonymous
+   * traffic too (otherwise a bad actor could just drop the Origin header).
+   *
+   * Note: an earlier revision skipped 'customer' orgs as well. That was a
+   * bug — paying customer organizations must be limited by their plan, not
+   * granted unlimited access.
    */
   async shouldSkip(partnerId: string): Promise<boolean> {
     await this.ensureCacheFresh();
     const type = this.orgTypeCache.get(partnerId);
-    return type === 'internal' || type === 'customer';
+    return type === 'internal';
   }
 
   private async checkWindow(
@@ -101,29 +108,25 @@ export class PartnerRateLimitService {
 
   private async ensureCacheFresh(): Promise<void> {
     if (Date.now() - this.lastCacheLoadAt < PartnerRateLimitService.CACHE_TTL_MS) return;
-    const rows = await this.orgs.find({ select: ['id', 'type', 'settings'] });
+    const rows = await this.orgs.find({ select: ['id', 'type', 'plan', 'settings'] });
     const nextLimits = new Map<string, PartnerRateLimits>();
     const nextTypes = new Map<string, string>();
     for (const row of rows) {
       nextTypes.set(row.id, row.type as string);
-      const override = this.extractLimits(row.settings);
-      if (override) nextLimits.set(row.id, override);
+      // getEffectiveLimits handles the full precedence chain (effectiveLimits
+      // → legacy rateLimits → plan defaults). Only cache when the resolved
+      // limits are tighter than the service default, otherwise fall through
+      // to DEFAULT_LIMITS so unconfigured orgs aren't accidentally throttled
+      // by a low plan tier they were never put on.
+      const eff = getEffectiveLimits(row);
+      if (eff.source === 'plan' || eff.source === 'override') {
+        nextLimits.set(row.id, { perMinute: eff.perMinute, perDay: eff.perDay });
+      }
     }
     this.orgLimitsCache.clear();
     for (const [k, v] of nextLimits) this.orgLimitsCache.set(k, v);
     this.orgTypeCache.clear();
     for (const [k, v] of nextTypes) this.orgTypeCache.set(k, v);
     this.lastCacheLoadAt = Date.now();
-  }
-
-  private extractLimits(settings: Record<string, unknown> | null): PartnerRateLimits | null {
-    if (!settings || typeof settings !== 'object') return null;
-    const raw = (settings as { rateLimits?: unknown }).rateLimits;
-    if (!raw || typeof raw !== 'object') return null;
-    const perMinute = Number((raw as { perMinute?: unknown }).perMinute);
-    const perDay = Number((raw as { perDay?: unknown }).perDay);
-    if (!Number.isFinite(perMinute) || !Number.isFinite(perDay)) return null;
-    if (perMinute < 1 || perDay < 1) return null;
-    return { perMinute, perDay };
   }
 }

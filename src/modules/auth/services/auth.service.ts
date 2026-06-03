@@ -322,10 +322,16 @@ export class AuthService {
   /**
    * Return the organization record for an authenticated user, exposing only
    * the fields that are safe to surface (no usage/billing internals).
+   *
+   * `slug` and `type` are required by the portal frontend to route the user
+   * to the right portal tree (/partner-portal vs /business-portal) after
+   * login. Both are nullable on the entity but stable to expose.
    */
   async getOrganizationForUser(organizationId: string): Promise<{
     id: string;
     name: string;
+    slug: string | null;
+    type: 'internal' | 'partner' | 'customer';
     plan: string;
     settings: ShippingSettings;
   } | null> {
@@ -338,6 +344,8 @@ export class AuthService {
     return {
       id: org.id,
       name: org.name,
+      slug: org.slug,
+      type: org.type as 'internal' | 'partner' | 'customer',
       plan: org.plan,
       settings: this.pickShippingSettings(org.settings),
     };
@@ -353,6 +361,8 @@ export class AuthService {
   ): Promise<{
     id: string;
     name: string;
+    slug: string | null;
+    type: 'internal' | 'partner' | 'customer';
     plan: string;
     settings: ShippingSettings;
   }> {
@@ -403,6 +413,8 @@ export class AuthService {
     return {
       id: saved.id,
       name: saved.name,
+      slug: saved.slug,
+      type: saved.type as 'internal' | 'partner' | 'customer',
       plan: saved.plan,
       settings: this.pickShippingSettings(saved.settings),
     };

@@ -4,6 +4,9 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { LookupModule } from '../lookup/lookup.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { BillingModule } from '../billing/billing.module';
+import { OrganizationEntity } from '../auth/entities/organization.entity';
+import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
 import {
   HtsDocumentEntity,
@@ -29,12 +32,23 @@ import { ClassificationPublicController } from './v1/controllers/classification-
     LookupModule, // Import wrapper module that exports services
     CalculatorModule, // Import wrapper module that exports services
     KnowledgebaseModule, // Import wrapper module that exports services
+    BillingModule, // PartnerQuotaGuard for monthly-quota enforcement on /api/v1/*
+    // The guard injects OrganizationEntity + PartnerUsageMonthlyEntity
+    // repositories. NestJS instantiates per-controller guards in the
+    // consumer module's DI context, so even though BillingModule has the
+    // forFeature() for these entities, PublicApiModule needs its own
+    // registration to resolve them here. Without this, boot fails with:
+    //   "Nest can't resolve dependencies of the PartnerQuotaGuard …
+    //    OrganizationEntityRepository at index [1] … in the PublicApiModule
+    //    context."
     TypeOrmModule.forFeature([
       HtsEntity,
       CalculationHistoryEntity,
       HtsDocumentEntity,
       HtsNoteEntity,
       KnowledgeChunkEntity,
+      OrganizationEntity,
+      PartnerUsageMonthlyEntity,
     ]),
   ],
   controllers: [

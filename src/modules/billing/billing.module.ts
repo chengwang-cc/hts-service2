@@ -16,6 +16,10 @@ import { SubscriptionService } from './services/subscription.service';
 import { UsageTrackingService } from './services/usage-tracking.service';
 import { CreditPurchaseService } from './services/credit-purchase.service';
 import { BillingChargeService } from './services/billing-charge.service';
+import { SubscriptionLimitsSyncService } from './services/subscription-limits-sync.service';
+import { OrganizationEntity } from '../auth/entities/organization.entity';
+import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
+import { PartnerQuotaGuard } from './guards/partner-quota.guard';
 
 @Module({
   imports: [
@@ -26,6 +30,8 @@ import { BillingChargeService } from './services/billing-charge.service';
       CreditPurchaseEntity,
       CreditBalanceEntity,
       AutoTopUpConfigEntity,
+      OrganizationEntity,
+      PartnerUsageMonthlyEntity,
     ]),
   ],
   providers: [
@@ -45,6 +51,8 @@ import { BillingChargeService } from './services/billing-charge.service';
     UsageTrackingService,
     CreditPurchaseService,
     BillingChargeService,
+    SubscriptionLimitsSyncService,
+    PartnerQuotaGuard,
   ],
   controllers: [BillingController, CreditController, SubscriptionController],
   exports: [
@@ -54,6 +62,8 @@ import { BillingChargeService } from './services/billing-charge.service';
     UsageTrackingService,
     CreditPurchaseService,
     BillingChargeService,
+    SubscriptionLimitsSyncService,
+    PartnerQuotaGuard,
   ],
 })
 export class BillingModule {}
