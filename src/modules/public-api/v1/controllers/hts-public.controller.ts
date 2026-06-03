@@ -24,6 +24,7 @@ import { In, Repository } from 'typeorm';
 import type { Request } from 'express';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
 import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
+import { SkipJwtAuth } from '../../../api-keys/decorators/skip-jwt-auth.decorator';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
 import { PartnerQuotaGuard } from '../../../billing/guards/partner-quota.guard';
 import { getPerCallBaselineUsd } from '../../../billing/config/per-call-pricing.config';
@@ -34,9 +35,17 @@ import { BatchLookupDto } from '../dto/batch-lookup.dto';
 /**
  * Public API v1 - HTS Lookup
  * Versioned public API for HTS code lookup
+ *
+ * @SkipJwtAuth bypasses the global JwtAuthGuard so the X-API-Key path
+ * isn't blocked first by JWT validation. Without this, requests with a
+ * valid API key but no JWT (the normal public-API auth flow) get a
+ * generic 401 from JwtAuthGuard before ApiKeyGuard ever runs —
+ * CalculatorPublicController already has the decorator; the lookup
+ * controller had it missing.
  */
 @ApiTags('HTS Lookup')
 @ApiSecurity('api-key')
+@SkipJwtAuth()
 @Controller('api/v1/hts')
 @UseGuards(ApiKeyGuard, PartnerQuotaGuard)
 export class HtsPublicController {
