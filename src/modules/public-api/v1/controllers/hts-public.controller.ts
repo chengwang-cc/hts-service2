@@ -5,6 +5,11 @@ import {
   UseGuards,
   HttpException,
   HttpStatus,
+  Post,
+  Body,
+  Req,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -12,14 +17,19 @@ import {
   ApiResponse,
   ApiSecurity,
   ApiQuery,
+  ApiBody,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import type { Request } from 'express';
 import { ApiKeyGuard } from '../../../api-keys/guards/api-key.guard';
 import { ApiPermissions, CurrentApiKey } from '../../../api-keys/decorators';
 import { ApiKeyEntity } from '../../../api-keys/entities/api-key.entity';
+import { PartnerQuotaGuard } from '../../../billing/guards/partner-quota.guard';
+import { getPerCallBaselineUsd } from '../../../billing/config/per-call-pricing.config';
 import { HtsEntity } from '@hts/core';
 import { SearchService } from '@hts/lookup';
+import { BatchLookupDto } from '../dto/batch-lookup.dto';
 
 /**
  * Public API v1 - HTS Lookup
@@ -28,7 +38,7 @@ import { SearchService } from '@hts/lookup';
 @ApiTags('HTS Lookup')
 @ApiSecurity('api-key')
 @Controller('api/v1/hts')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, PartnerQuotaGuard)
 export class HtsPublicController {
   constructor(
     @InjectRepository(HtsEntity)
@@ -336,5 +346,81 @@ export class HtsPublicController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Batch lookup. Returns one entry per requested code in the same order,
+   * with either `result` populated or `error` set when the code isn't
+   * found. The HTTP response is 200 even for partial misses — only DTO
+   * validation can produce a 4xx.
+   *
+   * Designed for e-commerce checkout where the cart often has multiple
+   * line items: one round-trip + one SQL query instead of N.
+   *
+   * POST /api/v1/hts/lookup/batch
+   */
+  @Post('lookup/batch')
+  @ApiOperation({
+    summary: 'Batch HTS code lookup',
+    description:
+      'Look up multiple HTS codes in one request. Returns per-code results in input order; missing codes produce inline errors without failing the whole request.',
+  })
+  @ApiBody({ type: BatchLookupDto })
+  @ApiResponse({ status: 200, description: 'Batch lookup results' })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiResponse({ status: 402, description: 'Monthly quota exceeded' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @ApiPermissions('hts:lookup')
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  )
+  async lookupBatch(
+    @Body() input: BatchLookupDto,
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+    @Req() req: Request,
+  ) {
+    const codes = input.codes.map((c) => c.trim()).filter((c) => c.length > 0);
+    if (codes.length === 0) {
+      throw new HttpException(
+        { statusCode: HttpStatus.BAD_REQUEST, message: 'codes must contain at least one non-empty entry', error: 'Bad Request' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Cost: one HTTP call but N lookups — charge the partner per code so
+    // batching doesn't sneakily reduce their cost vs. N separate calls.
+    if (req.attribution) {
+      req.attribution.extras.costUsd =
+        getPerCallBaselineUsd('GET', '/api/v1/hts/lookup') * codes.length;
+    }
+
+    const rows = await this.htsRepository.find({
+      where: { htsNumber: In(codes), isActive: true },
+    });
+    const byCode = new Map(rows.map((r) => [r.htsNumber, r] as const));
+
+    const data = codes.map((code) => {
+      const r = byCode.get(code);
+      return r
+        ? { code, result: r, error: null }
+        : { code, result: null, error: 'Not Found' };
+    });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        apiVersion: 'v1',
+        organizationId: apiKey.organizationId,
+        count: codes.length,
+        found: rows.length,
+      },
+    };
   }
 }

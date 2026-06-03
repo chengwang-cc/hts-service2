@@ -4,6 +4,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { LookupModule } from '../lookup/lookup.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { BillingModule } from '../billing/billing.module';
 import { HtsEntity, CalculationHistoryEntity } from '@hts/core';
 import {
   HtsDocumentEntity,
@@ -29,6 +30,7 @@ import { ClassificationPublicController } from './v1/controllers/classification-
     LookupModule, // Import wrapper module that exports services
     CalculatorModule, // Import wrapper module that exports services
     KnowledgebaseModule, // Import wrapper module that exports services
+    BillingModule, // PartnerQuotaGuard for monthly-quota enforcement on /api/v1/*
     TypeOrmModule.forFeature([
       HtsEntity,
       CalculationHistoryEntity,

@@ -76,6 +76,10 @@ export class ApiUsageRecorderWorker implements OnModuleInit {
     ent.errorMessage = data.errorMessage;
     ent.htsCode = data.htsCode;
     ent.countryCode = data.countryCode;
+    ent.costUsd = data.costUsd ?? 0;
+    ent.llmInputTokens = data.llmInputTokens ?? 0;
+    ent.llmOutputTokens = data.llmOutputTokens ?? 0;
+    ent.contextLabel = data.contextLabel ?? null;
     return ent;
   }
 }

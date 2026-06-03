@@ -2,6 +2,7 @@ import { Injectable, Logger, NestInterceptor, ExecutionContext, CallHandler } fr
 import { Observable, tap, catchError } from 'rxjs';
 import type { Request, Response } from 'express';
 import { QueueService } from '../../queue/queue.service';
+import { getPerCallBaselineUsd } from '../../billing/config/per-call-pricing.config';
 import type { RequestAttribution } from '../types';
 
 /**
@@ -32,8 +33,15 @@ export interface ApiUsageRecordJob {
   errorMessage: string | null;
   htsCode: string | null;
   countryCode: string | null;
+  costUsd: number;
+  llmInputTokens: number;
+  llmOutputTokens: number;
+  contextLabel: string | null;
   timestamp: string; // ISO
 }
+
+/** Allowlist for X-HTS-Context header values. */
+const ALLOWED_CONTEXT_LABELS = new Set(['checkout', 'fulfillment', 'search-ui', 'other']);
 
 @Injectable()
 export class UsageRecordingInterceptor implements NestInterceptor {
@@ -58,6 +66,21 @@ export class UsageRecordingInterceptor implements NestInterceptor {
 
   private record(req: Request, res: Response, start: number, errorMessage: string | null): void {
     const attribution = req.attribution as RequestAttribution | undefined;
+    const endpoint = this.resolveEndpoint(req);
+    const method = req.method;
+
+    // Cost: extras override (set by route handlers for AI / batch) wins;
+    // otherwise fall back to the static per-call price book. Failed requests
+    // (5xx) are not charged — partner shouldn't pay for our errors.
+    const isServerError = res.statusCode >= 500;
+    const extraCost = attribution?.extras?.costUsd;
+    const baseCost = getPerCallBaselineUsd(method, endpoint);
+    const costUsd = isServerError
+      ? 0
+      : typeof extraCost === 'number' && Number.isFinite(extraCost) && extraCost >= 0
+        ? extraCost
+        : baseCost;
+
     const payload: ApiUsageRecordJob = {
       partnerId: attribution?.partnerId || null,
       partnerUserId: attribution?.partnerUserId ?? null,
@@ -65,8 +88,8 @@ export class UsageRecordingInterceptor implements NestInterceptor {
       organizationId: attribution?.organizationId || null,
       attributionSource: attribution?.attributionSource ?? null,
       origin: attribution?.origin ?? null,
-      endpoint: this.resolveEndpoint(req),
-      method: req.method,
+      endpoint,
+      method,
       statusCode: res.statusCode,
       responseTimeMs: Date.now() - start,
       requestSizeBytes: this.intHeader(req, 'content-length'),
@@ -76,6 +99,10 @@ export class UsageRecordingInterceptor implements NestInterceptor {
       errorMessage: this.shortString(errorMessage, 1000),
       htsCode: attribution?.extras?.htsCode ?? null,
       countryCode: attribution?.extras?.countryCode ?? null,
+      costUsd,
+      llmInputTokens: this.safeInt(attribution?.extras?.llmInputTokens),
+      llmOutputTokens: this.safeInt(attribution?.extras?.llmOutputTokens),
+      contextLabel: this.normalizeContextLabel(attribution?.extras?.contextLabel ?? null),
       timestamp: new Date().toISOString(),
     };
 
@@ -83,6 +110,17 @@ export class UsageRecordingInterceptor implements NestInterceptor {
     this.queue.sendJob(API_USAGE_RECORD_QUEUE, payload as unknown as Record<string, any>).catch((err) =>
       this.logger.debug(`enqueue ${API_USAGE_RECORD_QUEUE} failed: ${err?.message ?? err}`),
     );
+  }
+
+  private safeInt(n: number | null | undefined): number {
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return 0;
+    return Math.floor(n);
+  }
+
+  private normalizeContextLabel(label: string | null): string | null {
+    if (!label) return null;
+    const v = String(label).trim().toLowerCase();
+    return ALLOWED_CONTEXT_LABELS.has(v) ? v : null;
   }
 
   private resolveEndpoint(req: Request): string {

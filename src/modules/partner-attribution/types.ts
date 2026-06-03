@@ -30,11 +30,20 @@ export interface RequestAttribution {
   /**
    * Route handlers can stash endpoint-specific fields here for the
    * UsageRecordingInterceptor to read on response (e.g. hts code + country
-   * for calculator routes).
+   * for calculator routes, AI-token cost for smart-classify).
+   *
+   * costUsd, when present, OVERRIDES the per-call baseline from
+   * per-call-pricing.config. AI handlers should set it to
+   * `baseline + providerCost`. Batch handlers should set it to
+   * `perItemUsd * items.length` (interceptor can't see the payload).
    */
   extras: {
     htsCode?: string | null;
     countryCode?: string | null;
+    costUsd?: number | null;
+    llmInputTokens?: number | null;
+    llmOutputTokens?: number | null;
+    contextLabel?: string | null;
   };
 }
 

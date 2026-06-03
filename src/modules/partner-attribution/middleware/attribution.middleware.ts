@@ -46,6 +46,12 @@ export class AttributionMiddleware implements NestMiddleware {
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const origin = this.headerValue(req, 'origin');
     const attribution = await this.resolve(req, origin);
+    // X-HTS-Context lets the partner tag the request context (checkout,
+    // fulfillment, etc.) for usage segmentation. Allowlist is enforced
+    // in UsageRecordingInterceptor.normalizeContextLabel — bad values
+    // silently degrade to null rather than 400.
+    const ctx = this.headerValue(req, 'x-hts-context');
+    if (ctx) attribution.extras.contextLabel = ctx;
     req.attribution = attribution;
     next();
   }
