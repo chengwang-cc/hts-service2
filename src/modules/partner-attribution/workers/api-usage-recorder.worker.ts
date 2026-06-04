@@ -42,7 +42,13 @@ export class ApiUsageRecorderWorker implements OnModuleInit {
           throw err;
         }
       },
-      { teamSize: 5, teamConcurrency: 1 },
+      // pg-boss v12 uses batchSize + pollingIntervalSeconds (the v9
+      // teamSize/teamConcurrency keys silently no-op on v12, so the
+      // worker had been running at the v12 default of 1 job per 2 s =
+      // 0.5 jobs/sec — well below sustained API traffic during heavy
+      // load. With batchSize=25 + pollingIntervalSeconds=1 we get up
+      // to 25 jobs/sec drain, comfortably above any realistic spike.
+      { batchSize: 25, pollingIntervalSeconds: 1 },
     );
     this.logger.log(`Worker registered for ${API_USAGE_RECORD_QUEUE}`);
   }
