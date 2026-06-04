@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpException,
   HttpStatus,
@@ -9,15 +10,21 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
-import { OrganizationsAdminService, UpdateOrgPatch } from '../services/organizations.admin.service';
+import {
+  OrganizationsAdminService,
+  SetLimitsInput,
+  UpdateOrgPatch,
+} from '../services/organizations.admin.service';
 import { SubscriptionLimitsSyncService } from '../../billing/services/subscription-limits-sync.service';
 import { ApiKeyService } from '../../api-keys/services/api-key.service';
 import { SubscriptionService } from '../../billing/services/subscription.service';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../auth/entities/user.entity';
@@ -75,7 +82,11 @@ export class OrganizationsAdminController {
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() patch: UpdateOrgPatch) {
+  async update(
+    @Param('id') id: string,
+    @Body() patch: UpdateOrgPatch,
+    @CurrentUser() user: UserEntity,
+  ) {
     // Light-weight whitelist guard: reject unknown keys outright instead
     // of silently ignoring (the service whitelists too, but a 400 here
     // is a clearer signal to a misbehaving UI).
@@ -84,7 +95,10 @@ export class OrganizationsAdminController {
     if (extras.length) {
       throw new BadRequestException(`Disallowed fields in patch: ${extras.join(', ')}`);
     }
-    return this.orgs.update(id, patch);
+    // Pass the acting admin's organizationId so the service can block
+    // self-deactivation (setting isActive=false on your own org locks
+    // you out at next login — unrecoverable without DB access).
+    return this.orgs.update(id, patch, user?.organizationId);
   }
 
   @Post(':id/sync-limits')
@@ -96,6 +110,32 @@ export class OrganizationsAdminController {
       if (err instanceof HttpException) throw err;
       throw new NotFoundException((err as Error)?.message ?? 'Failed to sync limits');
     }
+  }
+
+  /**
+   * PUT /admin/organizations/:id/limits — replace the org's
+   * effectiveLimits with an explicit operator-supplied override.
+   * Subsequent PartnerRateLimitService / PartnerQuotaGuard reads pick
+   * up the override on their next 5-min cache cycle.
+   *
+   * Use `requestsPerMonth: -1` + `costUsdPerMonth: null` to grant
+   * unlimited free usage. Use high per-minute / per-day values to
+   * effectively disable the sliding-window limits too.
+   */
+  @Put(':id/limits')
+  async setLimits(@Param('id') id: string, @Body() body: SetLimitsInput) {
+    const effectiveLimits = await this.orgs.setLimitsOverride(id, body);
+    return { organizationId: id, effectiveLimits };
+  }
+
+  /**
+   * DELETE /admin/organizations/:id/limits — drop a previously-set
+   * override. The org reverts to plan-derived limits.
+   */
+  @Delete(':id/limits')
+  async clearLimits(@Param('id') id: string) {
+    const effectiveLimits = await this.orgs.clearLimitsOverride(id);
+    return { organizationId: id, effectiveLimits };
   }
 
   @Get(':id/users')
@@ -111,11 +151,26 @@ export class OrganizationsAdminController {
   @Get(':id/api-keys')
   async listApiKeys(@Param('id') id: string) {
     const keys = await this.apiKeyService.listApiKeys(id);
-    // Strip the hash; never expose it through the admin tree either.
-    const items = keys.map((k) => {
-      const { keyHash: _hash, ...rest } = k;
-      return rest;
-    });
+    // Explicitly select fields the admin UI uses; bypass any extras
+    // (createdBy, updatedAt, ipWhitelist, metadata) that the frontend
+    // doesn't declare. Especially important: never leak keyHash.
+    const items = keys.map((k) => ({
+      id: k.id,
+      name: k.name,
+      description: k.description,
+      keyPrefix: k.keyPrefix,
+      organizationId: k.organizationId,
+      environment: k.environment,
+      purpose: k.purpose,
+      permissions: k.permissions,
+      rateLimitPerMinute: k.rateLimitPerMinute,
+      rateLimitPerDay: k.rateLimitPerDay,
+      isActive: k.isActive,
+      expiresAt: k.expiresAt,
+      lastUsedAt: k.lastUsedAt,
+      allowedOrigins: k.allowedOrigins,
+      createdAt: k.createdAt,
+    }));
     return { organizationId: id, count: items.length, items };
   }
 
