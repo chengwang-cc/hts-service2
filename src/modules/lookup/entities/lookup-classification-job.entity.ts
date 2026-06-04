@@ -13,7 +13,7 @@ export type LookupClassificationJobStatus =
   | 'completed'
   | 'failed';
 
-export type LookupClassificationJobRequestType = 'URL' | 'IMAGE_UPLOAD';
+export type LookupClassificationJobRequestType = 'URL' | 'IMAGE_UPLOAD' | 'TEXT';
 
 export type LookupClassificationJobSource = 'WEB' | 'SHOPIFY' | 'API';
 

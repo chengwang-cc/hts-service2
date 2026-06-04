@@ -14,6 +14,7 @@ import { QueueService } from '../../queue/queue.service';
 import { UrlType } from '../dto/classify-url.dto';
 import type { ClassificationResult } from './classification.service';
 import { ClassificationService } from './classification.service';
+import { SmartClassifyService } from './smart-classify.service';
 import { UrlClassifierService } from './url-classifier.service';
 import {
   LookupClassificationJobEntity,
@@ -64,6 +65,7 @@ export class LookupClassificationJobService {
     private readonly classificationService: ClassificationService,
     private readonly visionService: VisionService,
     private readonly queueService: QueueService,
+    private readonly smartClassifyService: SmartClassifyService,
   ) {}
 
   async createUrlJob(
@@ -99,6 +101,68 @@ export class LookupClassificationJobService {
 
     await this.jobRepository.update(job.id, { queueJobId });
     return this.getJob(job.id, user.organizationId);
+  }
+
+  /**
+   * Submit a free-text product description for async smart-classify.
+   *
+   * Mirrors createUrlJob / createImageJob but with requestType='TEXT'.
+   * The pg-boss worker drains via the same LOOKUP_CLASSIFICATION_QUEUE
+   * — processJob dispatches by requestType.
+   *
+   * Why async: the synchronous /lookup/smart-classify path runs an
+   * OpenAI rerank call inline (5-30 s) inside the request handler.
+   * Under concurrent traffic this contributes to RDS connection
+   * pressure and was implicated in the recurring pg-boss queue
+   * stalls observed on 2026-06-04. Moving the work into pg-boss
+   * frees the request thread immediately and isolates the slow AI
+   * call from the request path.
+   *
+   * Anonymous (`@Public()`) callers are allowed: org defaults to the
+   * ANONYMOUS_ORG_ID sentinel so the entity insert succeeds, but the
+   * `productDescription` content is still preserved.
+   */
+  async createDescriptionJob(
+    user: any,
+    description: string,
+    source: LookupClassificationJobSource = 'WEB',
+  ) {
+    const trimmed = (description ?? '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('Product description cannot be blank');
+    }
+    if (trimmed.length > 512) {
+      // entity column is varchar(512); slice rather than 400 so the
+      // SPA's existing input UX (no client-side length cap today)
+      // doesn't suddenly bounce long descriptions.
+    }
+
+    const organizationId: string = user?.organizationId ?? ANONYMOUS_ORG_ID;
+
+    const job = await this.jobRepository.save(
+      this.jobRepository.create({
+        organizationId,
+        createdBy: user?.id ?? null,
+        status: 'pending',
+        requestType: 'TEXT',
+        productDescription: trimmed.slice(0, 512),
+        source,
+      }),
+    );
+
+    const queueJobId = await this.queueService.sendJob(
+      LOOKUP_CLASSIFICATION_QUEUE,
+      { jobId: job.id },
+      {
+        retryLimit: 2,
+        retryDelay: 30,
+        retryBackoff: true,
+        expireInSeconds: 300, // 5 min — smart-classify is faster than vision pipelines
+      },
+    );
+
+    await this.jobRepository.update(job.id, { queueJobId });
+    return this.getJob(job.id, organizationId);
   }
 
   async createImageJob(
@@ -322,10 +386,17 @@ export class LookupClassificationJobService {
     });
 
     try {
-      const result =
-        job.requestType === 'URL'
-          ? await this.classifyFromUrl(job.organizationId, job.sourceUrl!)
-          : await this.classifyFromImage(job.organizationId, job);
+      // Dispatch by requestType. TEXT was added 2026-06-04 to move the
+      // synchronous smart-classify path onto pg-boss; URL and IMAGE were
+      // already async via different downstream services.
+      let result: LookupClassificationJobResult;
+      if (job.requestType === 'URL') {
+        result = await this.classifyFromUrl(job.organizationId, job.sourceUrl!);
+      } else if (job.requestType === 'TEXT') {
+        result = await this.classifyFromText(job.organizationId, job.productDescription!);
+      } else {
+        result = await this.classifyFromImage(job.organizationId, job);
+      }
 
       const completedAt = new Date();
       const productDescription =
@@ -361,6 +432,98 @@ export class LookupClassificationJobService {
 
       throw error;
     }
+  }
+
+  /**
+   * Run a TEXT job through SmartClassifyService and adapt its
+   * `HtsCode[]` output into the shared LookupClassificationJobResult
+   * shape so the polling endpoint surfaces the same fields as the
+   * URL / image flows. Why adapt rather than return as-is: keeping the
+   * `getJob` response uniform across requestTypes means the SPA's
+   * existing `pollJobUntilComplete()` reads the same `result` object
+   * regardless of how the job was submitted.
+   *
+   * The full SmartClassifyService output (including normalizedQuery)
+   * is preserved under `data.source.smartClassify` for callers that
+   * want the rich result, but the primary classification fields
+   * (htsCode, description, confidence, candidates) are mapped from
+   * the ranked results array.
+   */
+  private async classifyFromText(
+    organizationId: string,
+    productDescription: string,
+  ): Promise<LookupClassificationJobResult> {
+    const startedAt = Date.now();
+    const smart = await this.smartClassifyService.classify(productDescription);
+    const classificationMs = Date.now() - startedAt;
+
+    const ranked = smart.results ?? [];
+
+    // RerankCandidate.fullDescription is `string[] | null` (the HTS
+    // breadcrumb hierarchy), not a flat string. Join with " > " when
+    // present so the SPA breadcrumb renders without extra adaptation.
+    const flatDescription = (
+      r: { description: string; fullDescription?: string[] | null },
+    ): string => {
+      if (Array.isArray(r.fullDescription) && r.fullDescription.length) {
+        return r.fullDescription.join(' > ');
+      }
+      return r.description ?? '';
+    };
+
+    if (ranked.length === 0) {
+      // Empty results aren't a backend failure — surface as a completed
+      // job with no candidates so the SPA can show "no codes found".
+      return {
+        success: true,
+        data: {
+          htsCode: '',
+          description: '',
+          confidence: 0,
+          candidates: [],
+          reasoning: '',
+          chapter: null,
+          source: {
+            inputMethod: 'TEXT',
+            productDescription,
+            sourceUrl: null,
+            smartClassify: { query: smart.query, results: [] },
+          } as Record<string, unknown>,
+        },
+        timings: { classificationMs },
+      };
+    }
+
+    const top = ranked[0];
+    const candidates = ranked.slice(1).map((r) => ({
+      htsCode: r.htsNumber,
+      description: flatDescription(r),
+      score: r.score ?? r.similarity ?? 0,
+    }));
+
+    void organizationId; // partner attribution happens at the request layer
+
+    return {
+      success: true,
+      data: {
+        htsCode: top.htsNumber,
+        description: flatDescription(top),
+        confidence: top.score ?? top.similarity ?? 0,
+        candidates,
+        reasoning: '',
+        chapter: null,
+        source: {
+          inputMethod: 'TEXT',
+          productDescription,
+          sourceUrl: null,
+          smartClassify: {
+            query: smart.query,
+            results: ranked,
+          },
+        } as Record<string, unknown>,
+      },
+      timings: { classificationMs },
+    };
   }
 
   private async classifyFromUrl(

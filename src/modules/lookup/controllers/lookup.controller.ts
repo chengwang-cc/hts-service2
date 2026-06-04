@@ -98,6 +98,38 @@ export class LookupController {
     return result;
   }
 
+  /**
+   * Async variant of /smart-classify. Returns 202 + jobId immediately;
+   * the heavy work (3-phase classification + AI rerank, 5-30 s) runs
+   * in a pg-boss worker. Clients poll GET /lookup/classify-hts-jobs/:id
+   * — the same endpoint URL and image classification use.
+   *
+   * Why this exists alongside the sync route: the sync handler ran the
+   * OpenAI rerank inline, which (a) tied up a request thread for the
+   * duration and (b) under concurrent traffic contributed to RDS
+   * connection pressure that occasionally stalled the recording queue
+   * (observed 18:12 + 19:01 UTC on 2026-06-04). The async route moves
+   * the slow path off the request thread.
+   *
+   * The sync /smart-classify is retained for backwards compatibility
+   * but new clients should prefer the async route.
+   */
+  @Public()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Post('smart-classify-async')
+  async smartClassifyAsync(
+    @CurrentUser() user: any,
+    @Body() dto: SmartClassifyDto,
+  ) {
+    return {
+      success: true,
+      data: await this.lookupClassificationJobService.createDescriptionJob(
+        user,
+        dto.query,
+      ),
+    };
+  }
+
   @Public()
   @Get('autocomplete')
   async autocomplete(
