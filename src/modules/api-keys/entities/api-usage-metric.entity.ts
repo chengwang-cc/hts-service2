@@ -19,10 +19,11 @@ import { ApiKeyEntity } from './api-key.entity';
  *
  *   'api_key'      → resolved from X-API-Key (legacy server-to-server)
  *   'partner_key'  → resolved from X-Partner-Key (explicit partner identity)
+ *   'jwt'          → resolved from Authorization: Bearer <jwt> (signed-in SPA user)
  *   'origin'       → resolved by matching Origin header in partner_origins
  *   'unknown'      → no match; falls back to the 'unknown' sentinel partner
  */
-export type AttributionSource = 'api_key' | 'partner_key' | 'origin' | 'unknown';
+export type AttributionSource = 'api_key' | 'partner_key' | 'jwt' | 'origin' | 'unknown';
 
 @Entity('api_usage_metrics')
 @Index(['apiKeyId', 'timestamp'])

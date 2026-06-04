@@ -51,72 +51,95 @@ export class PartnerUsageController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Aggregate request count + p95 + error rate over the window' })
-  @ApiQuery({ name: 'hours', required: false, description: '1..720 (30d), default 24' })
+  @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 24' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
   @ApiPermissions('partner:read')
   @ApiResponse({ status: 200 })
-  async summary(@CurrentApiKey() apiKey: ApiKeyEntity, @Query('hours') hours?: string) {
+  async summary(
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+    @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const partnerId = await this.resolveScope(apiKey);
-    const summary = await this.query.summary(partnerId, hours);
+    const summary = await this.query.summary(partnerId, { hours, from, to });
     return { data: summary, meta: { partnerId } };
   }
 
   @Get('timeseries')
   @ApiOperation({ summary: 'Per-bucket request count + p95 latency' })
   @ApiQuery({ name: 'hours', required: false })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
   @ApiQuery({ name: 'bucket', required: false, description: 'hour | day (default hour)' })
   @ApiPermissions('partner:read')
   async timeseries(
     @CurrentApiKey() apiKey: ApiKeyEntity,
     @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('bucket') bucket?: 'hour' | 'day',
   ) {
     const partnerId = await this.resolveScope(apiKey);
-    const series = await this.query.timeseries(partnerId, hours, bucket);
+    const series = await this.query.timeseries(partnerId, { hours, from, to }, bucket);
     return { data: series, meta: { partnerId, bucket: bucket ?? 'hour' } };
   }
 
   @Get('endpoints')
   @ApiOperation({ summary: 'Top endpoints by request count' })
   @ApiQuery({ name: 'hours', required: false })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
   @ApiQuery({ name: 'limit', required: false, description: '1..200, default 25' })
   @ApiPermissions('partner:read')
   async endpoints(
     @CurrentApiKey() apiKey: ApiKeyEntity,
     @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('limit') limit?: string,
   ) {
     const partnerId = await this.resolveScope(apiKey);
-    const data = await this.query.topEndpoints(partnerId, hours, limit);
+    const data = await this.query.topEndpoints(partnerId, { hours, from, to }, limit);
     return { data, meta: { partnerId } };
   }
 
   @Get('users')
   @ApiOperation({ summary: 'Top end-users by request count' })
-  @ApiQuery({ name: 'hours', required: false, description: '1..720 (30d), default 168 (7d)' })
+  @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 168 (7d)' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
   @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
   @ApiPermissions('partner:read')
   async users(
     @CurrentApiKey() apiKey: ApiKeyEntity,
     @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('limit') limit?: string,
   ) {
     const partnerId = await this.resolveScope(apiKey);
-    const data = await this.query.topUsers(partnerId, hours, limit);
+    const data = await this.query.topUsers(partnerId, { hours, from, to }, limit);
     return { data, meta: { partnerId } };
   }
 
   @Get('errors')
   @ApiOperation({ summary: 'Recent 4xx / 5xx samples' })
   @ApiQuery({ name: 'hours', required: false })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
   @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
   @ApiPermissions('partner:read')
   async errors(
     @CurrentApiKey() apiKey: ApiKeyEntity,
     @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('limit') limit?: string,
   ) {
     const partnerId = await this.resolveScope(apiKey);
-    const data = await this.query.errorSamples(partnerId, hours, limit);
+    const data = await this.query.errorSamples(partnerId, { hours, from, to }, limit);
     return { data, meta: { partnerId } };
   }
 

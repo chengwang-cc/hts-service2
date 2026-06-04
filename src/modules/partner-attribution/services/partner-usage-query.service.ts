@@ -61,7 +61,33 @@ export interface CostSummaryRow {
   llmOutputTokens: number;
 }
 
-const MAX_HOURS = 24 * 30; // 30 days
+/**
+ * Hard ceiling on the size of a custom date range. 365 days is enough for
+ * "show me last year"; beyond that the cost rollup view should be used.
+ * Bumped from 30d on 2026-06-04 so the portal range picker can ask for
+ * up to a year — the dashboard query itself is bounded by partner_id +
+ * an index on (partner_id, timestamp), so the wider window is cheap.
+ */
+const MAX_HOURS = 24 * 365;
+
+/**
+ * Range filter passed by every controller endpoint. `from`/`to` win when
+ * both (or just one) are present; otherwise `hours` (an integer string)
+ * is used to compute `[now - hours, now]`. Order of precedence is
+ * documented in `parseRange()`.
+ */
+export interface RangeInput {
+  hours?: string;
+  /** ISO 8601 timestamp. */
+  from?: string;
+  /** ISO 8601 timestamp. */
+  to?: string;
+}
+
+interface ResolvedRange {
+  from: Date;
+  to: Date;
+}
 
 function parseHours(raw: string | undefined, defaultHours: number, max = MAX_HOURS): number {
   const n = Number(raw ?? defaultHours);
@@ -69,6 +95,56 @@ function parseHours(raw: string | undefined, defaultHours: number, max = MAX_HOU
     throw new BadRequestException(`hours must be between 1 and ${max}`);
   }
   return Math.floor(n);
+}
+
+/**
+ * Resolve `{ hours }` OR `{ from, to }` into a concrete [from, to] window.
+ *
+ * Precedence:
+ *   - If EITHER `from` or `to` is supplied, range is custom.
+ *       missing `from` → defaults to `to - defaultHours`
+ *       missing `to`   → defaults to `now`
+ *   - Otherwise, `hours` is used to compute `[now - hours, now]`.
+ *
+ * Validation:
+ *   - Both timestamps must parse as ISO.
+ *   - `from < to` (no zero-length or inverted windows).
+ *   - Total span ≤ `maxHours`.
+ *
+ * Returned `from` / `to` are Date objects; controllers pass them straight
+ * to parameterized SQL — no template-string injection.
+ */
+function parseRange(
+  input: RangeInput,
+  defaultHours: number,
+  maxHours = MAX_HOURS,
+): ResolvedRange {
+  const hasCustom = !!(input.from || input.to);
+  const now = new Date();
+  if (hasCustom) {
+    const to = input.to ? new Date(input.to) : now;
+    if (Number.isNaN(to.getTime())) {
+      throw new BadRequestException('`to` must be an ISO 8601 timestamp');
+    }
+    const from = input.from
+      ? new Date(input.from)
+      : new Date(to.getTime() - defaultHours * 3_600_000);
+    if (Number.isNaN(from.getTime())) {
+      throw new BadRequestException('`from` must be an ISO 8601 timestamp');
+    }
+    if (from >= to) {
+      throw new BadRequestException('`from` must be strictly before `to`');
+    }
+    const hours = (to.getTime() - from.getTime()) / 3_600_000;
+    if (hours > maxHours) {
+      throw new BadRequestException(
+        `range cannot exceed ${maxHours} hours (~${Math.floor(maxHours / 24)} days)`,
+      );
+    }
+    return { from, to };
+  }
+  const hours = parseHours(input.hours, defaultHours, maxHours);
+  return { from: new Date(now.getTime() - hours * 3_600_000), to: now };
 }
 
 function parseLimit(raw: string | undefined, defaultLimit: number, max = 200): number {
@@ -86,8 +162,8 @@ export class PartnerUsageQueryService {
     private readonly metrics: Repository<ApiUsageMetricEntity>,
   ) {}
 
-  async summary(partnerId: string, hoursParam: string | undefined): Promise<SummaryRow> {
-    const hours = parseHours(hoursParam, 24);
+  async summary(partnerId: string, range: RangeInput): Promise<SummaryRow> {
+    const { from, to } = parseRange(range, 24);
     const row = await this.metrics
       .createQueryBuilder('m')
       .select('COUNT(*)', 'requests')
@@ -97,7 +173,7 @@ export class PartnerUsageQueryService {
       .addSelect('COUNT(DISTINCT m.partner_user_id) FILTER (WHERE m.partner_user_id IS NOT NULL)', 'distinct_users')
       .addSelect('MAX(m.timestamp)', 'last_seen_at')
       .addSelect('MIN(m.timestamp)', 'first_seen_at')
-      .where(`m.timestamp > now() - interval '${hours} hours'`)
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .andWhere('m.partner_id = :partnerId', { partnerId })
       .getRawOne<{
         requests: string;
@@ -122,10 +198,10 @@ export class PartnerUsageQueryService {
 
   async timeseries(
     partnerId: string,
-    hoursParam: string | undefined,
+    range: RangeInput,
     bucketParam: 'hour' | 'day' | undefined,
   ): Promise<TimeseriesPoint[]> {
-    const hours = parseHours(hoursParam, 24, MAX_HOURS);
+    const { from, to } = parseRange(range, 24);
     const bucket = bucketParam === 'day' ? 'day' : 'hour';
     const rows: Array<{
       bucket: Date;
@@ -140,7 +216,7 @@ export class PartnerUsageQueryService {
       .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400 AND m.status_code < 500)', 'status_4xx')
       .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 500)', 'status_5xx')
       .addSelect('percentile_disc(0.95) WITHIN GROUP (ORDER BY m.response_time_ms)', 'p95_latency_ms')
-      .where(`m.timestamp > now() - interval '${hours} hours'`)
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .andWhere('m.partner_id = :partnerId', { partnerId })
       .groupBy(`date_trunc('${bucket}', m.timestamp)`)
       .orderBy(`date_trunc('${bucket}', m.timestamp)`, 'ASC')
@@ -157,10 +233,10 @@ export class PartnerUsageQueryService {
 
   async topEndpoints(
     partnerId: string,
-    hoursParam: string | undefined,
+    range: RangeInput,
     limitParam: string | undefined,
   ): Promise<EndpointRow[]> {
-    const hours = parseHours(hoursParam, 24);
+    const { from, to } = parseRange(range, 24);
     const limit = parseLimit(limitParam, 25);
     const rows: Array<{
       endpoint: string;
@@ -175,7 +251,7 @@ export class PartnerUsageQueryService {
       .addSelect('COUNT(*)', 'requests')
       .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400)', 'errors')
       .addSelect('percentile_disc(0.95) WITHIN GROUP (ORDER BY m.response_time_ms)', 'p95_latency_ms')
-      .where(`m.timestamp > now() - interval '${hours} hours'`)
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .andWhere('m.partner_id = :partnerId', { partnerId })
       .groupBy('m.endpoint')
       .addGroupBy('m.method')
@@ -194,10 +270,10 @@ export class PartnerUsageQueryService {
 
   async topUsers(
     partnerId: string,
-    hoursParam: string | undefined,
+    range: RangeInput,
     limitParam: string | undefined,
   ): Promise<TopUserRow[]> {
-    const hours = parseHours(hoursParam, 24 * 7);
+    const { from, to } = parseRange(range, 24 * 7);
     const limit = parseLimit(limitParam, 50);
 
     // Aggregate from metrics (counts), join partner_users for external ids.
@@ -215,7 +291,7 @@ export class PartnerUsageQueryService {
       .addSelect('MIN(m.timestamp)', 'first_seen_at')
       .addSelect('MAX(m.timestamp)', 'last_seen_at')
       .leftJoin('partner_users', 'pu', 'pu.id = m.partner_user_id')
-      .where(`m.timestamp > now() - interval '${hours} hours'`)
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .andWhere('m.partner_id = :partnerId', { partnerId })
       .andWhere('m.partner_user_id IS NOT NULL')
       .groupBy('m.partner_user_id')
@@ -235,14 +311,14 @@ export class PartnerUsageQueryService {
 
   async errorSamples(
     partnerId: string,
-    hoursParam: string | undefined,
+    range: RangeInput,
     limitParam: string | undefined,
   ): Promise<ErrorSampleRow[]> {
-    const hours = parseHours(hoursParam, 24);
+    const { from, to } = parseRange(range, 24);
     const limit = parseLimit(limitParam, 50);
     const rows: ApiUsageMetricEntity[] = await this.metrics
       .createQueryBuilder('m')
-      .where(`m.timestamp > now() - interval '${hours} hours'`)
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .andWhere('m.partner_id = :partnerId', { partnerId })
       .andWhere('m.status_code >= 400')
       .orderBy('m.timestamp', 'DESC')
