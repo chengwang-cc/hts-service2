@@ -57,6 +57,7 @@ import { UsersAdminController } from './controllers/users.admin.controller';
 import { RolesAdminController } from './controllers/roles.admin.controller';
 import { PermissionsAdminController } from './controllers/permissions.admin.controller';
 import { AnalyticsAdminController } from './controllers/analytics.admin.controller';
+import { OrganizationsAdminController } from './controllers/organizations.admin.controller';
 
 // Controllers - Phase 2
 import { HtsImportAdminController } from './controllers/hts-import.admin.controller';
@@ -76,6 +77,11 @@ import { RerankerRetrainAdminController } from './controllers/reranker-retrain.a
 import { UsersAdminService } from './services/users.admin.service';
 import { RolesAdminService } from './services/roles.admin.service';
 import { AnalyticsAdminService } from './services/analytics.admin.service';
+import { OrganizationsAdminService } from './services/organizations.admin.service';
+
+// External modules needed by Phase 1 org-admin
+import { BillingModule } from '../billing/billing.module';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 // Services - Phase 2
 import { HtsImportService } from './services/hts-import.service';
@@ -145,6 +151,10 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     LookupModule,
     // Import QueueModule to access QueueService with ConfigService
     QueueModule,
+    // Phase 1 org-admin needs SubscriptionLimitsSyncService + SubscriptionService
+    // (from BillingModule) and ApiKeyService (from ApiKeysModule).
+    BillingModule,
+    ApiKeysModule,
   ],
   controllers: [
     // Phase 1 controllers
@@ -152,6 +162,7 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     RolesAdminController,
     PermissionsAdminController,
     AnalyticsAdminController,
+    OrganizationsAdminController,
     // Phase 2 controllers
     HtsImportAdminController,
     FormulaAdminController,
@@ -169,6 +180,7 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     UsersAdminService,
     RolesAdminService,
     AnalyticsAdminService,
+    OrganizationsAdminService,
     // Phase 2 services
     HtsImportService,
     FormulaAdminService,
