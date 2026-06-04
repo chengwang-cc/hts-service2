@@ -14,10 +14,11 @@ import type { RequestAttribution } from '../types';
  * `req.attribution`. Runs after CORS, before route handlers.
  *
  * Resolution precedence (first match wins):
- *   1. X-Partner-Key  →  partner = key.organization, source='partner_key'
- *   2. X-API-Key      →  partner = key.organization, source='api_key'
- *   3. Origin match   →  partner = partner_origins.organization, source='origin'
- *   4. Fallback       →  partner = 'unknown' sentinel,           source='unknown'
+ *   1. X-Partner-Key  →  partner = key.organization,             source='partner_key'
+ *   2. X-API-Key      →  partner = key.organization,             source='api_key'
+ *   3. Authorization JWT → partner = jwt.organizationId,         source='jwt'
+ *   4. Origin match   →  partner = partner_origins.organization, source='origin'
+ *   5. Fallback       →  partner = 'unknown' sentinel,           source='unknown'
  *
  * End-user (independent of partner resolution):
  *   1. X-Partner-User-Token (JWT) — verified in P2; falls through in P1
@@ -78,6 +79,19 @@ export class AttributionMiddleware implements NestMiddleware {
         this.logger.debug(
           `validateApiKey rejected/failed: ${(err as Error)?.message ?? err}`,
         );
+      }
+    }
+
+    // SPA flow: the signed-in user calls /lookup/* without an API key. The
+    // JWT carries their organizationId — decoding it here lets the usage
+    // row land on their dashboard instead of the 'unknown' sentinel.
+    // Verification is best-effort: bad/expired tokens fall through to the
+    // origin/unknown branches rather than 401 (auth gates do that elsewhere).
+    if (!partnerId) {
+      const orgFromJwt = this.resolveOrgFromJwt(req);
+      if (orgFromJwt) {
+        partnerId = orgFromJwt;
+        attributionSource = 'jwt';
       }
     }
 
@@ -146,6 +160,35 @@ export class AttributionMiddleware implements NestMiddleware {
       if (trimmed) return { externalUserId: trimmed, userIdentitySource: 'asserted' };
     }
     return { externalUserId: null, userIdentitySource: null };
+  }
+
+  /**
+   * Extract organizationId from a portal user JWT (Authorization: Bearer).
+   * Returns null on any failure — no throw, no log noise on bad tokens.
+   * Used to attribute /lookup/* SPA traffic to the signed-in user's org
+   * so usage rows surface on their dashboard instead of being absorbed by
+   * the 'unknown' sentinel. Restricted to HS256 to match auth.module's
+   * JwtModule signing config and to block the 'alg: none' attack.
+   */
+  private resolveOrgFromJwt(req: Request): string | null {
+    const header = this.headerValue(req, 'authorization');
+    if (!header) return null;
+    const match = /^Bearer\s+(.+)$/i.exec(header);
+    if (!match) return null;
+    const token = match[1].trim();
+    if (!token) return null;
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    try {
+      const payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
+      if (typeof payload === 'string') return null;
+      const orgId = (payload as jwt.JwtPayload & { organizationId?: unknown })
+        .organizationId;
+      return typeof orgId === 'string' && orgId.length > 0 ? orgId : null;
+    } catch {
+      // Expired / malformed / bad sig — degrade silently. JwtAuthGuard
+      // produces the user-visible 401 on actually-protected routes.
+      return null;
+    }
   }
 
   /**
