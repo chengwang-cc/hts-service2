@@ -188,8 +188,17 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     queueName: string,
     handler: JobHandler,
     options?: {
+      /** pg-boss v9 alias for v12's `batchSize`. Passed through unchanged. */
       teamSize?: number;
       teamConcurrency?: number;
+      /**
+       * pg-boss v12 option — max jobs fetched per polling cycle.
+       * `teamSize` (v9) is silently ignored on v12, so workers that
+       * need higher throughput must use this explicitly.
+       */
+      batchSize?: number;
+      /** pg-boss v12 option — seconds between worker poll cycles. */
+      pollingIntervalSeconds?: number;
     },
   ): Promise<void> {
     this.handlers.set(queueName, handler);
@@ -214,6 +223,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     options?: {
       teamSize?: number;
       teamConcurrency?: number;
+      batchSize?: number;
+      pollingIntervalSeconds?: number;
     },
   ): Promise<void> {
     if (!this.boss || !this.isStarted) {
@@ -222,8 +233,15 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      // pg-boss v12 work handler receives Job[] array
-      await this.boss.work(queueName, async (jobs: Job[]) => {
+      // pg-boss v12 work handler receives Job[] array.
+      // Forward batchSize / pollingIntervalSeconds when set so workers
+      // can drain faster than the v12 defaults (batchSize=1, poll=2s).
+      const workOptions: Record<string, number> = {};
+      if (options?.batchSize !== undefined) workOptions['batchSize'] = options.batchSize;
+      if (options?.pollingIntervalSeconds !== undefined) {
+        workOptions['pollingIntervalSeconds'] = options.pollingIntervalSeconds;
+      }
+      await this.boss.work(queueName, workOptions, async (jobs: Job[]) => {
         // Process each job in the batch
         for (const job of jobs) {
           this.logger.log(`Processing job ${job.id} from queue ${queueName}`);
