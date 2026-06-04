@@ -1,6 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository } from 'typeorm';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { UserEntity } from '../../auth/entities/user.entity';
 import { SubscriptionLimitsSyncService } from '../../billing/services/subscription-limits-sync.service';
@@ -123,18 +129,39 @@ export class OrganizationsAdminService {
     }
     if (patch.type !== undefined) {
       if (!['internal', 'partner', 'customer'].includes(patch.type)) {
-        throw new NotFoundException(`Unknown organization type: ${patch.type}`);
+        // BadRequest (not NotFound) — the type value is invalid, not a
+        // resource that's missing.
+        throw new BadRequestException(`Invalid organization type: ${patch.type}`);
       }
       org.type = patch.type;
     }
     if (patch.plan !== undefined) {
-      org.plan = patch.plan.trim().toUpperCase();
+      const normalized = patch.plan.trim().toUpperCase();
+      if (!normalized) {
+        // Empty / whitespace-only — earlier this would set org.plan='' and
+        // silently fail the syncFromPlan that followed.
+        throw new BadRequestException('plan must be a non-empty string');
+      }
+      org.plan = normalized;
     }
     if (typeof patch.isActive === 'boolean') {
       org.isActive = patch.isActive;
     }
 
-    await this.orgs.save(org);
+    try {
+      await this.orgs.save(org);
+    } catch (err) {
+      // Duplicate slug surfaces as the Postgres 23505 unique_violation.
+      // Re-raise as a 409 so the operator sees an actionable message
+      // instead of a generic 500.
+      const code = (err as { code?: string })?.code;
+      if (code === '23505') {
+        throw new ConflictException(
+          `slug "${org.slug ?? ''}" is already in use by another organization`,
+        );
+      }
+      throw err;
+    }
     this.logger.log(
       `admin updated org ${id}: ${JSON.stringify({ before, patch })}`,
     );

@@ -111,11 +111,26 @@ export class OrganizationsAdminController {
   @Get(':id/api-keys')
   async listApiKeys(@Param('id') id: string) {
     const keys = await this.apiKeyService.listApiKeys(id);
-    // Strip the hash; never expose it through the admin tree either.
-    const items = keys.map((k) => {
-      const { keyHash: _hash, ...rest } = k;
-      return rest;
-    });
+    // Explicitly select fields the admin UI uses; bypass any extras
+    // (createdBy, updatedAt, ipWhitelist, metadata) that the frontend
+    // doesn't declare. Especially important: never leak keyHash.
+    const items = keys.map((k) => ({
+      id: k.id,
+      name: k.name,
+      description: k.description,
+      keyPrefix: k.keyPrefix,
+      organizationId: k.organizationId,
+      environment: k.environment,
+      purpose: k.purpose,
+      permissions: k.permissions,
+      rateLimitPerMinute: k.rateLimitPerMinute,
+      rateLimitPerDay: k.rateLimitPerDay,
+      isActive: k.isActive,
+      expiresAt: k.expiresAt,
+      lastUsedAt: k.lastUsedAt,
+      allowedOrigins: k.allowedOrigins,
+      createdAt: k.createdAt,
+    }));
     return { organizationId: id, count: items.length, items };
   }
 
