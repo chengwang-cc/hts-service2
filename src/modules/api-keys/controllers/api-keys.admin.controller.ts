@@ -78,10 +78,25 @@ export class ApiKeysAdminController {
       createdBy: user.id,
     });
 
-    const { keyHash: _hash, ...safe } = apiKey;
+    // Explicit field selection — matches frontend RotatedKeyResponse
+    // interface; excludes keyHash + extras (createdBy, updatedAt,
+    // ipWhitelist, metadata) the UI doesn't declare.
     return {
-      ...safe,
+      id: apiKey.id,
+      name: apiKey.name,
+      description: apiKey.description,
+      keyPrefix: apiKey.keyPrefix,
       organizationId: existing.organizationId,
+      environment: apiKey.environment,
+      purpose: apiKey.purpose,
+      permissions: apiKey.permissions,
+      rateLimitPerMinute: apiKey.rateLimitPerMinute,
+      rateLimitPerDay: apiKey.rateLimitPerDay,
+      isActive: apiKey.isActive,
+      expiresAt: apiKey.expiresAt,
+      lastUsedAt: apiKey.lastUsedAt,
+      allowedOrigins: apiKey.allowedOrigins,
+      createdAt: apiKey.createdAt,
       previousKeyId: existing.id,
       apiKey: plainTextKey,
       warning: 'Save this credential token now. You will not be able to see it again.',
