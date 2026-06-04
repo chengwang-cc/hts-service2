@@ -104,6 +104,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         // Limit pg-boss pool so TypeORM + pg-boss together stay under max_connections
         max: parseInt(process.env.PGBOSS_POOL_MAX ?? '5'),
         ssl: process.env.NODE_ENV !== 'development' ? { rejectUnauthorized: false } : undefined,
+        // Connection resilience — without these, a long-lived task can get
+        // stuck after a transient RDS hiccup and never recover (seen
+        // 18:12 UTC + 19:01 UTC stalls today during e2e load). The pool
+        // recycles idle handles every minute and bails on slow connects
+        // so a wedged socket can't pin the worker forever.
+        connectionTimeoutMillis: parseInt(process.env.PGBOSS_CONNECT_TIMEOUT_MS ?? '10000'),
+        idleTimeoutMillis: parseInt(process.env.PGBOSS_IDLE_TIMEOUT_MS ?? '60000'),
+        // Identifies pg-boss connections in pg_stat_activity so ops can
+        // tell them apart from the TypeORM pool.
+        application_name: 'hts-backend.pgboss',
       });
 
       // Start pg-boss
