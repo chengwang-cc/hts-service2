@@ -33,6 +33,8 @@ export type AttributionSource = 'api_key' | 'partner_key' | 'jwt' | 'origin' | '
 @Index(['partnerUserId', 'timestamp'])
 @Index(['endpoint', 'partnerId', 'timestamp'])
 @Index(['partnerId', 'contextLabel', 'timestamp'])
+@Index(['modelName', 'timestamp'])
+@Index(['partnerId', 'modelName', 'timestamp'])
 export class ApiUsageMetricEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -190,6 +192,38 @@ export class ApiUsageMetricEntity {
    */
   @Column('integer', { default: 0 })
   llmOutputTokens: number;
+
+  /**
+   * Cached prompt tokens (OpenAI `prompt_tokens_details.cached_tokens`,
+   * Anthropic `cache_read_input_tokens`). Subset of llmInputTokens. Zero
+   * when the provider doesn't expose a cache-hit count or the call wasn't
+   * cached. Kept separate so the dashboard can show "% of input tokens
+   * served from cache" — a useful efficiency signal when tuning prompts.
+   */
+  @Column('integer', { default: 0 })
+  llmCachedTokens: number;
+
+  /**
+   * Primary model name for the request, normalised (snapshot suffixes
+   * stripped — e.g. `gpt-5.4-mini-2026-04-01` → `gpt-5.4-mini`). When a
+   * request makes calls against multiple models, this column holds the
+   * model that contributed the most cost — the per-model breakdown lives
+   * on the rolled-up partner_usage_monthly_by_model view, not here, so
+   * the metrics row stays narrow.
+   *
+   * Null for non-AI endpoints and rows written before this column existed.
+   */
+  @Column('varchar', { length: 64, nullable: true })
+  modelName: string | null;
+
+  /**
+   * Optional pipeline-stage tag for AI-heavy endpoints. Set by handlers
+   * that fan out into multiple stages and want to surface which stage
+   * dominated cost. Examples: `smart-classify.rerank`,
+   * `detection.bulk`, `agent.tool-loop`. Null when not tagged.
+   */
+  @Column('varchar', { length: 64, nullable: true })
+  llmPipelineStage: string | null;
 
   /**
    * Caller-supplied business context (X-HTS-Context header). Allowlist:

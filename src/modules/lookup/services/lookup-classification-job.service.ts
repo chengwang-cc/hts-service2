@@ -22,6 +22,8 @@ import {
   type LookupClassificationJobSource,
   type LookupClassificationJobStatus,
 } from '../entities/lookup-classification-job.entity';
+import { llmUsageTracker } from '../../../core/services/llm-usage-tracker';
+import { LlmUsageRecordingService } from '../../partner-attribution/services/llm-usage-recording.service';
 
 export interface ListJobsOptions {
   source?: LookupClassificationJobSource | null;
@@ -66,6 +68,7 @@ export class LookupClassificationJobService {
     private readonly visionService: VisionService,
     private readonly queueService: QueueService,
     private readonly smartClassifyService: SmartClassifyService,
+    private readonly llmUsageRecording: LlmUsageRecordingService,
   ) {}
 
   async createUrlJob(
@@ -385,18 +388,55 @@ export class LookupClassificationJobService {
       errorMessage: null,
     });
 
+    // Pipeline-stage tag picked up by LlmUsageRecordingService — drives
+    // dashboard slicing so the AI-cost row is distinguishable from the
+    // synchronous 202 row written by the controller when the job was
+    // enqueued.
+    const pipelineStage =
+      job.requestType === 'URL'
+        ? 'classify-job.url'
+        : job.requestType === 'TEXT'
+          ? 'classify-job.text'
+          : 'classify-job.image';
+
     try {
-      // Dispatch by requestType. TEXT was added 2026-06-04 to move the
-      // synchronous smart-classify path onto pg-boss; URL and IMAGE were
-      // already async via different downstream services.
-      let result: LookupClassificationJobResult;
-      if (job.requestType === 'URL') {
-        result = await this.classifyFromUrl(job.organizationId, job.sourceUrl!);
-      } else if (job.requestType === 'TEXT') {
-        result = await this.classifyFromText(job.organizationId, job.productDescription!);
-      } else {
-        result = await this.classifyFromImage(job.organizationId, job);
-      }
+      // Open an LlmUsageTracker scope around the dispatch so every
+      // OpenAI / Anthropic call made by the downstream services
+      // (SmartClassify, UrlClassifier, Vision) lands in the same
+      // aggregate. The result is read post-dispatch and written to
+      // api_usage_metrics as a separate row via LlmUsageRecordingService.
+      const { result, usage } = await llmUsageTracker.withTracking(async () => {
+        // Dispatch by requestType. TEXT was added 2026-06-04 to move the
+        // synchronous smart-classify path onto pg-boss; URL and IMAGE were
+        // already async via different downstream services.
+        if (job.requestType === 'URL') {
+          return this.classifyFromUrl(job.organizationId, job.sourceUrl!);
+        } else if (job.requestType === 'TEXT') {
+          return this.classifyFromText(job.organizationId, job.productDescription!);
+        } else {
+          return this.classifyFromImage(job.organizationId, job);
+        }
+      });
+
+      // Fire-and-forget: never blocks the job completion. If recording
+      // fails the user still gets their classification result; we just
+      // lose one usage row.
+      void this.llmUsageRecording.recordAsyncLlmCost(
+        {
+          partnerId: job.organizationId,
+          partnerUserId: null,
+          apiKeyId: null,
+          organizationId: job.organizationId,
+          attributionSource: 'jwt',
+          origin: null,
+          endpoint: `/api/v1/lookup/${pipelineStage.replace('classify-job.', 'classify-async-')}`,
+          method: 'POST',
+          statusCode: 200,
+          responseTimeMs: Date.now() - startedAt.getTime(),
+          pipelineStage,
+        },
+        usage,
+      );
 
       const completedAt = new Date();
       const productDescription =

@@ -14,6 +14,7 @@ import type {
   ResponseInput,
   ResponseStreamEvent,
 } from 'openai/resources/responses/responses';
+import { llmUsageTracker } from './llm-usage-tracker';
 
 type ChatOptions = Partial<
   Omit<ChatCompletionCreateParamsNonStreaming, 'messages' | 'stream'>
@@ -153,6 +154,18 @@ export class OpenAiService {
           usage.prompt_tokens || 0,
           usage.completion_tokens || 0,
         );
+        // Surface usage to any active LlmUsageTracker scope so the
+        // request-level interceptor (or async-job wrapper) can roll it
+        // up into req.attribution.extras / direct usage write. No-op
+        // when called outside a scope (scripts, smoke tests, warm-ups).
+        llmUsageTracker.record({
+          model: (response as any).model || model,
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: usage.completion_tokens || 0,
+          cachedTokens:
+            (usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+          tokenType: 'output',
+        });
       }
 
       this.logger.log(
@@ -330,6 +343,14 @@ export class OpenAiService {
           usage.prompt_tokens,
           usage.completion_tokens,
         );
+        llmUsageTracker.record({
+          model: response.model || model,
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: usage.completion_tokens || 0,
+          cachedTokens:
+            (usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+          tokenType: 'output',
+        });
       }
 
       this.logger.log(
@@ -400,6 +421,12 @@ export class OpenAiService {
           usage.prompt_tokens,
           0,
         );
+        llmUsageTracker.record({
+          model: response.model || model,
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: 0,
+          tokenType: 'embedding',
+        });
       }
 
       this.logger.debug(
@@ -440,6 +467,12 @@ export class OpenAiService {
           usage.prompt_tokens,
           0,
         );
+        llmUsageTracker.record({
+          model: response.model || model,
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: 0,
+          tokenType: 'embedding',
+        });
       }
 
       this.logger.log(

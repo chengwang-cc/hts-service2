@@ -43,6 +43,23 @@ export interface RequestAttribution {
     costUsd?: number | null;
     llmInputTokens?: number | null;
     llmOutputTokens?: number | null;
+    /**
+     * Cached prompt tokens (OpenAI cached_tokens, Anthropic
+     * cache_read_input_tokens). Subset of llmInputTokens.
+     */
+    llmCachedTokens?: number | null;
+    /**
+     * Primary model name for the request (highest-cost model when the
+     * handler made calls against several). Normalised — snapshot
+     * suffixes already stripped. Surfaces on the metrics row's
+     * `model_name` column.
+     */
+    modelName?: string | null;
+    /**
+     * Pipeline stage tag for slicing dashboards by stage of the AI
+     * pipeline (e.g. `smart-classify.rerank`).
+     */
+    llmPipelineStage?: string | null;
     contextLabel?: string | null;
   };
 }

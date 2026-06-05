@@ -52,7 +52,7 @@ export class PartnerUsageMonthlyRollupWorker implements OnModuleInit {
         INSERT INTO partner_usage_monthly (
           bucket_month, partner_id, endpoint, method,
           requests, status2xx, status4xx, status5xx,
-          cost_usd, llm_input_tokens, llm_output_tokens, updated_at
+          cost_usd, llm_input_tokens, llm_output_tokens, llm_cached_tokens, updated_at
         )
         SELECT
           date_trunc('month', m.timestamp)::date AS bucket_month,
@@ -66,6 +66,7 @@ export class PartnerUsageMonthlyRollupWorker implements OnModuleInit {
           COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
           COALESCE(SUM(m.llm_input_tokens), 0)::bigint AS llm_input_tokens,
           COALESCE(SUM(m.llm_output_tokens), 0)::bigint AS llm_output_tokens,
+          COALESCE(SUM(m.llm_cached_tokens), 0)::bigint AS llm_cached_tokens,
           now() AS updated_at
         FROM api_usage_metrics m
         WHERE m.partner_id IS NOT NULL
@@ -81,6 +82,7 @@ export class PartnerUsageMonthlyRollupWorker implements OnModuleInit {
           cost_usd = EXCLUDED.cost_usd,
           llm_input_tokens = EXCLUDED.llm_input_tokens,
           llm_output_tokens = EXCLUDED.llm_output_tokens,
+          llm_cached_tokens = EXCLUDED.llm_cached_tokens,
           updated_at = now()
         RETURNING 1
       )

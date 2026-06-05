@@ -60,6 +60,14 @@ export class PartnerUsageMonthlyEntity {
   @Column('bigint', { default: 0 })
   llmOutputTokens: string;
 
+  /**
+   * Sum of cached prompt tokens served from provider cache. Subset of
+   * llmInputTokens. Dashboards derive "cache hit %" from this column.
+   * Bigint to match the other token columns.
+   */
+  @Column('bigint', { default: 0 })
+  llmCachedTokens: string;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 

@@ -85,6 +85,9 @@ export class ApiUsageRecorderWorker implements OnModuleInit {
     ent.costUsd = data.costUsd ?? 0;
     ent.llmInputTokens = data.llmInputTokens ?? 0;
     ent.llmOutputTokens = data.llmOutputTokens ?? 0;
+    ent.llmCachedTokens = data.llmCachedTokens ?? 0;
+    ent.modelName = data.modelName ?? null;
+    ent.llmPipelineStage = data.llmPipelineStage ?? null;
     ent.contextLabel = data.contextLabel ?? null;
     return ent;
   }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { llmUsageTracker } from './llm-usage-tracker';
 
 export interface AnthropicMessage {
   role: 'user' | 'assistant';
@@ -73,6 +74,19 @@ export class AnthropicService {
     const elapsed = Date.now() - t0;
     const usage = response.usage;
     this.logUsage(model, usage, elapsed);
+    // Surface to active LlmUsageTracker scope. Anthropic separates
+    // cache_read_input_tokens from regular input_tokens — combine them
+    // for the tracker's `inputTokens` (consistent with how OpenAI's
+    // `prompt_tokens` includes cached) and pass `cachedTokens` so the
+    // calculator can apply the discounted rate.
+    llmUsageTracker.record({
+      model: response.model || model,
+      inputTokens:
+        (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+      outputTokens: usage.output_tokens ?? 0,
+      cachedTokens: usage.cache_read_input_tokens ?? 0,
+      tokenType: 'output',
+    });
 
     const block = response.content[0];
     if (block?.type !== 'text') {

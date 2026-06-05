@@ -23,6 +23,7 @@ import { PortalPartnerUsageController } from './controllers/portal-partner-usage
 import { PartnerApiKeyAdminController } from './controllers/partner-api-key.admin.controller';
 import { PartnerBillingAdminController } from './controllers/partner-billing.admin.controller';
 import { PartnerUsageQueryService } from './services/partner-usage-query.service';
+import { LlmUsageRecordingService } from './services/llm-usage-recording.service';
 import { PartnerUsageHourlyEntity } from './entities/partner-usage-hourly.entity';
 import { PartnerUsageMonthlyEntity } from './entities/partner-usage-monthly.entity';
 import { AdminGuard } from '../admin/guards/admin.guard';
@@ -51,6 +52,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
     PartnerOriginCacheService,
     PartnerResolverService,
     PartnerUsageQueryService,
+    LlmUsageRecordingService,
     PartnerRateLimitService,
     AttributionMiddleware,
     PartnerRateLimitMiddleware,
@@ -74,6 +76,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
     AttributionMiddleware,
     PartnerRateLimitMiddleware,
     UsageRecordingInterceptor,
+    LlmUsageRecordingService,
     // Re-export the TypeORM feature so AppModule (which applies
     // AttributionMiddleware globally) can resolve the middleware's
     // repository dependencies from its own DI context.
