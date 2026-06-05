@@ -18,6 +18,29 @@ interface PartnerSummaryRow {
   p95LatencyMs: number | null;
   distinctEndUsers: number;
   lastSeenAt: string | null;
+  /** Dollar cost for the window. Sum of per-request cost_usd. */
+  costUsd: number;
+  /** Total LLM input tokens consumed by this partner in the window. */
+  llmInputTokens: number;
+  /** Total LLM output tokens consumed by this partner in the window. */
+  llmOutputTokens: number;
+  /**
+   * Cached input tokens served from provider cache. Subset of
+   * llmInputTokens. Used by the dashboard to surface "% from cache" —
+   * a useful efficiency signal when tuning prompts.
+   */
+  llmCachedTokens: number;
+  /** Primary model name by spend, or null if no AI traffic. */
+  primaryModelName: string | null;
+}
+
+interface PlatformCostByModelRow {
+  modelName: string | null;
+  calls: number;
+  llmInputTokens: number;
+  llmOutputTokens: number;
+  llmCachedTokens: number;
+  costUsd: number;
 }
 
 /**
@@ -72,6 +95,10 @@ export class PartnerUsageAdminController {
       p95_latency_ms: number | null;
       distinct_users: string;
       last_seen_at: Date | null;
+      cost_usd: string;
+      llm_input_tokens: string;
+      llm_output_tokens: string;
+      llm_cached_tokens: string;
     }> = await this.metrics
       .createQueryBuilder('m')
       .select('m.partner_id', 'partner_id')
@@ -81,11 +108,41 @@ export class PartnerUsageAdminController {
       .addSelect('percentile_disc(0.95) WITHIN GROUP (ORDER BY m.response_time_ms)', 'p95_latency_ms')
       .addSelect('COUNT(DISTINCT m.partner_user_id) FILTER (WHERE m.partner_user_id IS NOT NULL)', 'distinct_users')
       .addSelect('MAX(m.timestamp)', 'last_seen_at')
+      .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
+      .addSelect('COALESCE(SUM(m.llm_input_tokens), 0)', 'llm_input_tokens')
+      .addSelect('COALESCE(SUM(m.llm_output_tokens), 0)', 'llm_output_tokens')
+      .addSelect('COALESCE(SUM(m.llm_cached_tokens), 0)', 'llm_cached_tokens')
       .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
       .groupBy('m.partner_id')
       .getRawMany();
 
     const byPartnerId = new Map(rows.map((r) => [r.partner_id, r]));
+
+    // Resolve each partner's primary model with a separate, lean query —
+    // doing it inline would force an aggregate-of-aggregates that
+    // PostgreSQL can't evaluate without a subquery. Two round-trips is
+    // a fine tradeoff for the admin dashboard which loads on operator
+    // action, not on every page view.
+    const primaryModelRows: Array<{ partner_id: string; model_name: string }> =
+      await this.metrics
+        .createQueryBuilder('m')
+        .select('m.partner_id', 'partner_id')
+        .addSelect('m.model_name', 'model_name')
+        .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+        .andWhere('m.model_name IS NOT NULL')
+        .groupBy('m.partner_id')
+        .addGroupBy('m.model_name')
+        .orderBy('m.partner_id', 'ASC')
+        .addOrderBy('COALESCE(SUM(m.cost_usd), 0)', 'DESC')
+        .getRawMany();
+
+    const primaryModelByPartnerId = new Map<string, string>();
+    for (const row of primaryModelRows) {
+      // First row per partner_id wins because we ordered by cost DESC.
+      if (!primaryModelByPartnerId.has(row.partner_id)) {
+        primaryModelByPartnerId.set(row.partner_id, row.model_name);
+      }
+    }
 
     return partners.map((p) => {
       const row = byPartnerId.get(p.id);
@@ -100,8 +157,63 @@ export class PartnerUsageAdminController {
         p95LatencyMs: row?.p95_latency_ms ?? null,
         distinctEndUsers: row ? Number(row.distinct_users) : 0,
         lastSeenAt: row?.last_seen_at ? row.last_seen_at.toISOString() : null,
+        costUsd: row ? Number(row.cost_usd) : 0,
+        llmInputTokens: row ? Number(row.llm_input_tokens) : 0,
+        llmOutputTokens: row ? Number(row.llm_output_tokens) : 0,
+        llmCachedTokens: row ? Number(row.llm_cached_tokens) : 0,
+        primaryModelName: primaryModelByPartnerId.get(p.id) ?? null,
       };
     });
+  }
+
+  /**
+   * Platform-wide per-model cost + token breakdown over the requested
+   * window. Used by the admin dashboard "Which model is driving cost?"
+   * tile — answers "are we spending more on gpt-5.4-mini or gpt-5.4?"
+   * without forcing the operator to sum across the per-partner table.
+   *
+   * Sorted by costUsd DESC. `modelName: null` is included so non-AI
+   * traffic reconciles with the per-partner summary totals.
+   */
+  @Get('cost-by-model')
+  @ApiOperation({ summary: 'Platform-wide per-model cost + token breakdown' })
+  @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 24' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
+  async costByModel(
+    @Query('hours') hoursParam?: string,
+    @Query('from') fromParam?: string,
+    @Query('to') toParam?: string,
+  ): Promise<PlatformCostByModelRow[]> {
+    const { from, to } = this.parseRange(hoursParam, fromParam, toParam);
+    const rows: Array<{
+      model_name: string | null;
+      calls: string;
+      llm_input_tokens: string;
+      llm_output_tokens: string;
+      llm_cached_tokens: string;
+      cost_usd: string;
+    }> = await this.metrics
+      .createQueryBuilder('m')
+      .select('m.model_name', 'model_name')
+      .addSelect('COUNT(*)', 'calls')
+      .addSelect('COALESCE(SUM(m.llm_input_tokens), 0)', 'llm_input_tokens')
+      .addSelect('COALESCE(SUM(m.llm_output_tokens), 0)', 'llm_output_tokens')
+      .addSelect('COALESCE(SUM(m.llm_cached_tokens), 0)', 'llm_cached_tokens')
+      .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+      .groupBy('m.model_name')
+      .orderBy('COALESCE(SUM(m.cost_usd), 0)', 'DESC')
+      .getRawMany();
+
+    return rows.map((r) => ({
+      modelName: r.model_name,
+      calls: Number(r.calls ?? 0),
+      llmInputTokens: Number(r.llm_input_tokens ?? 0),
+      llmOutputTokens: Number(r.llm_output_tokens ?? 0),
+      llmCachedTokens: Number(r.llm_cached_tokens ?? 0),
+      costUsd: Number(r.cost_usd ?? 0),
+    }));
   }
 
   /**

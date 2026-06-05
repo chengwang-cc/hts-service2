@@ -170,4 +170,25 @@ export class PortalPartnerUsageController {
     const data = await this.query.costSummary(partnerId, months);
     return { data, meta: { partnerId } };
   }
+
+  @Get('cost-by-model')
+  @ApiOperation({
+    summary: 'Per-model cost + token breakdown over the requested window',
+    description:
+      'Reads directly from api_usage_metrics so the result reflects in-progress month spend in real time. ' +
+      'One row per (model_name) — includes a model_name: null row when the partner has non-AI traffic.',
+  })
+  @ApiQuery({ name: 'hours', required: false })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
+  async costByModel(
+    @CurrentUser() user: UserEntity,
+    @Query('hours') hours?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const partnerId = await this.resolveScope(user);
+    const data = await this.query.costByModel(partnerId, { hours, from, to });
+    return { data, meta: { partnerId } };
+  }
 }
