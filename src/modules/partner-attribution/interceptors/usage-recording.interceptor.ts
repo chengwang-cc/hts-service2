@@ -1,8 +1,10 @@
 import { Injectable, Logger, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
-import { Observable, tap, catchError } from 'rxjs';
+import { Observable, from, tap, catchError, switchMap } from 'rxjs';
 import type { Request, Response } from 'express';
 import { QueueService } from '../../queue/queue.service';
 import { getPerCallBaselineUsd } from '../../billing/config/per-call-pricing.config';
+import { llmUsageTracker } from '../../../core/services/llm-usage-tracker';
+import { normaliseModelName } from '../../billing/config/llm-pricing.config';
 import type { RequestAttribution } from '../types';
 
 /**
@@ -36,6 +38,9 @@ export interface ApiUsageRecordJob {
   costUsd: number;
   llmInputTokens: number;
   llmOutputTokens: number;
+  llmCachedTokens: number;
+  modelName: string | null;
+  llmPipelineStage: string | null;
   contextLabel: string | null;
   timestamp: string; // ISO
 }
@@ -55,31 +60,73 @@ export class UsageRecordingInterceptor implements NestInterceptor {
     const res = httpCtx.getResponse<Response>();
     const start = Date.now();
 
-    return next.handle().pipe(
-      tap(() => this.record(req, res, start, null)),
+    // Open an LLM-usage scope that spans the route handler's async tree.
+    // Any OpenAI / Anthropic call made during the request lands here.
+    // We can't use `withTracking(promise)` because next.handle() returns
+    // an Observable — we want the scope ACTIVE while the handler runs,
+    // not just for the promise wrapper.
+    const { handle, result } = llmUsageTracker.openScope(() => next.handle());
+    return result.pipe(
+      tap(() => this.record(req, res, start, null, handle.aggregate())),
       catchError((err) => {
-        this.record(req, res, start, err?.message ?? String(err));
+        this.record(req, res, start, err?.message ?? String(err), handle.aggregate());
         throw err;
       }),
     );
   }
 
-  private record(req: Request, res: Response, start: number, errorMessage: string | null): void {
+  private record(
+    req: Request,
+    res: Response,
+    start: number,
+    errorMessage: string | null,
+    llmUsage: ReturnType<typeof llmUsageTracker.openScope>['handle'] extends {
+      aggregate: () => infer U;
+    }
+      ? U
+      : never,
+  ): void {
     const attribution = req.attribution as RequestAttribution | undefined;
     const endpoint = this.resolveEndpoint(req);
     const method = req.method;
 
-    // Cost: extras override (set by route handlers for AI / batch) wins;
-    // otherwise fall back to the static per-call price book. Failed requests
-    // (5xx) are not charged — partner shouldn't pay for our errors.
+    // LLM usage merge precedence
+    // --------------------------
+    //   1. extras.<field>  — explicit value set by the route handler
+    //                         (kept for handlers that compute their own
+    //                         numbers without going through OpenAiService)
+    //   2. llmUsage.<field> — aggregated from the tracker scope
+    //                          (the common path — OpenAI / Anthropic
+    //                          services push records into the scope
+    //                          automatically)
+    //
+    // Same precedence for `costUsd`. When neither is present, fall back
+    // to the static per-call baseline.
+    const extras = attribution?.extras;
     const isServerError = res.statusCode >= 500;
-    const extraCost = attribution?.extras?.costUsd;
+    const extraCost = extras?.costUsd;
+    const trackerCost = llmUsage?.costUsd ?? 0;
     const baseCost = getPerCallBaselineUsd(method, endpoint);
     const costUsd = isServerError
       ? 0
       : typeof extraCost === 'number' && Number.isFinite(extraCost) && extraCost >= 0
         ? extraCost
-        : baseCost;
+        // Tracker cost is *additional* to the baseline — the baseline
+        // covers infra/serving, the tracker cost covers provider pass-
+        // through. Sum them so the partner sees the real number.
+        : baseCost + trackerCost;
+
+    const llmInputTokens =
+      this.safeInt(extras?.llmInputTokens) || this.safeInt(llmUsage?.inputTokens);
+    const llmOutputTokens =
+      this.safeInt(extras?.llmOutputTokens) || this.safeInt(llmUsage?.outputTokens);
+    const llmCachedTokens =
+      this.safeInt(extras?.llmCachedTokens) || this.safeInt(llmUsage?.cachedTokens);
+    const rawModel =
+      extras?.modelName ?? (llmUsage?.primaryModel ?? null);
+    const modelName = rawModel ? normaliseModelName(rawModel) : null;
+    const llmPipelineStage =
+      extras?.llmPipelineStage ?? (llmUsage?.primaryStage ?? null);
 
     const payload: ApiUsageRecordJob = {
       partnerId: attribution?.partnerId || null,
@@ -97,12 +144,15 @@ export class UsageRecordingInterceptor implements NestInterceptor {
       clientIp: this.resolveIp(req),
       userAgent: this.shortString(req.headers['user-agent'] as string | undefined, 500),
       errorMessage: this.shortString(errorMessage, 1000),
-      htsCode: attribution?.extras?.htsCode ?? null,
-      countryCode: attribution?.extras?.countryCode ?? null,
+      htsCode: extras?.htsCode ?? null,
+      countryCode: extras?.countryCode ?? null,
       costUsd,
-      llmInputTokens: this.safeInt(attribution?.extras?.llmInputTokens),
-      llmOutputTokens: this.safeInt(attribution?.extras?.llmOutputTokens),
-      contextLabel: this.normalizeContextLabel(attribution?.extras?.contextLabel ?? null),
+      llmInputTokens,
+      llmOutputTokens,
+      llmCachedTokens,
+      modelName,
+      llmPipelineStage: this.shortString(llmPipelineStage, 64),
+      contextLabel: this.normalizeContextLabel(extras?.contextLabel ?? null),
       timestamp: new Date().toISOString(),
     };
 
