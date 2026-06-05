@@ -59,6 +59,24 @@ export interface CostSummaryRow {
   costUsd: number;
   llmInputTokens: number;
   llmOutputTokens: number;
+  llmCachedTokens: number;
+}
+
+/**
+ * Per-model cost + token breakdown for a partner over a window. Used by
+ * the portal "Cost by model" tile so partners can see which model is
+ * driving their spend (and where prompt-cache hits are saving them).
+ *
+ * `modelName: null` rows roll up all non-AI traffic (calls that didn't
+ * touch an LLM) so the totals reconcile with the summary row.
+ */
+export interface CostByModelRow {
+  modelName: string | null;
+  calls: number;
+  llmInputTokens: number;
+  llmOutputTokens: number;
+  llmCachedTokens: number;
+  costUsd: number;
 }
 
 /**
@@ -348,12 +366,14 @@ export class PartnerUsageQueryService {
       cost_usd: string;
       llm_input_tokens: string;
       llm_output_tokens: string;
+      llm_cached_tokens: string;
     }> = await this.metrics.manager.query(
       `SELECT bucket_month,
               SUM(requests)::text AS requests,
               SUM(cost_usd)::text AS cost_usd,
               SUM(llm_input_tokens)::text AS llm_input_tokens,
-              SUM(llm_output_tokens)::text AS llm_output_tokens
+              SUM(llm_output_tokens)::text AS llm_output_tokens,
+              SUM(llm_cached_tokens)::text AS llm_cached_tokens
        FROM partner_usage_monthly
        WHERE partner_id = $1
          AND bucket_month >= date_trunc('month', now() - interval '${months - 1} months')::date
@@ -368,6 +388,53 @@ export class PartnerUsageQueryService {
       costUsd: Number(r.cost_usd ?? 0),
       llmInputTokens: Number(r.llm_input_tokens ?? 0),
       llmOutputTokens: Number(r.llm_output_tokens ?? 0),
+      llmCachedTokens: Number(r.llm_cached_tokens ?? 0),
+    }));
+  }
+
+  /**
+   * Per-model cost + token breakdown over the requested window. Read
+   * directly from api_usage_metrics so the result reflects partial-month
+   * spend in real time (the monthly rollup lags by up to an hour, which
+   * is fine for billing but feels stale on a dashboard).
+   *
+   * Includes a `modelName: null` row when the partner has non-AI traffic
+   * in the window — gives partners a single place where AI cost + non-AI
+   * usage reconcile to the summary card's totals.
+   *
+   * Sorted by costUsd DESC so the dominant model leads the list. The UI
+   * uses this ordering directly — no per-row "rank" field needed.
+   */
+  async costByModel(partnerId: string, range: RangeInput): Promise<CostByModelRow[]> {
+    const { from, to } = parseRange(range, 24 * 30);
+    const rows: Array<{
+      model_name: string | null;
+      calls: string;
+      llm_input_tokens: string;
+      llm_output_tokens: string;
+      llm_cached_tokens: string;
+      cost_usd: string;
+    }> = await this.metrics
+      .createQueryBuilder('m')
+      .select('m.model_name', 'model_name')
+      .addSelect('COUNT(*)', 'calls')
+      .addSelect('COALESCE(SUM(m.llm_input_tokens), 0)', 'llm_input_tokens')
+      .addSelect('COALESCE(SUM(m.llm_output_tokens), 0)', 'llm_output_tokens')
+      .addSelect('COALESCE(SUM(m.llm_cached_tokens), 0)', 'llm_cached_tokens')
+      .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+      .andWhere('m.partner_id = :partnerId', { partnerId })
+      .groupBy('m.model_name')
+      .orderBy('COALESCE(SUM(m.cost_usd), 0)', 'DESC')
+      .getRawMany();
+
+    return rows.map((r) => ({
+      modelName: r.model_name,
+      calls: Number(r.calls ?? 0),
+      llmInputTokens: Number(r.llm_input_tokens ?? 0),
+      llmOutputTokens: Number(r.llm_output_tokens ?? 0),
+      llmCachedTokens: Number(r.llm_cached_tokens ?? 0),
+      costUsd: Number(r.cost_usd ?? 0),
     }));
   }
 }
