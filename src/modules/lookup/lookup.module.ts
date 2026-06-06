@@ -42,6 +42,7 @@ import { HtsNoteEntity } from '../knowledgebase/entities/hts-note.entity';
 import { UsageRecordEntity } from '../billing/entities/usage-record.entity';
 import { UsageTrackingService } from '../billing/services/usage-tracking.service';
 import { QueueModule } from '../queue/queue.module';
+import { PartnerAttributionModule } from '../partner-attribution/partner-attribution.module';
 import { QueueService } from '../queue/queue.service';
 
 export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
@@ -62,6 +63,11 @@ const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
     KnowledgebaseModule,
     CoreModule.forFeature(),
     QueueModule,
+    // PartnerAttributionModule exports LlmUsageRecordingService which
+    // LookupClassificationJobService injects to record async LLM cost
+    // rows after pg-boss handlers complete. Without this import NestJS
+    // fails to resolve the dependency at boot.
+    PartnerAttributionModule,
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
       LookupClassificationJobEntity,
