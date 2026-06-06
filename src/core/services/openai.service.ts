@@ -145,14 +145,29 @@ export class OpenAiService {
       // Extract response data
       const usage = (response as any).usage;
 
-      // Track usage
+      // Track usage. The Responses API uses `input_tokens` /
+      // `output_tokens` (and `input_tokens_details.cached_tokens`) —
+      // distinct from Chat Completions' `prompt_tokens` /
+      // `completion_tokens`. Read both name pairs so the same code
+      // works for either shape (the Chat-fallback path below routes
+      // through `chat()` which has its own block); previously this
+      // block only read the Chat Completions names and silently
+      // discarded every Responses-API token count.
       if (usage) {
-        this.usageStats.totalPromptTokens += usage.prompt_tokens || 0;
-        this.usageStats.totalCompletionTokens += usage.completion_tokens || 0;
+        const inputTokens =
+          (usage as any).input_tokens ?? (usage as any).prompt_tokens ?? 0;
+        const outputTokens =
+          (usage as any).output_tokens ?? (usage as any).completion_tokens ?? 0;
+        const cachedTokens =
+          (usage as any).input_tokens_details?.cached_tokens ??
+          (usage as any).prompt_tokens_details?.cached_tokens ??
+          0;
+        this.usageStats.totalPromptTokens += inputTokens;
+        this.usageStats.totalCompletionTokens += outputTokens;
         this.usageStats.totalCost += this.calculateCost(
           model,
-          usage.prompt_tokens || 0,
-          usage.completion_tokens || 0,
+          inputTokens,
+          outputTokens,
         );
         // Surface usage to any active LlmUsageTracker scope so the
         // request-level interceptor (or async-job wrapper) can roll it
@@ -160,10 +175,9 @@ export class OpenAiService {
         // when called outside a scope (scripts, smoke tests, warm-ups).
         llmUsageTracker.record({
           model: (response as any).model || model,
-          inputTokens: usage.prompt_tokens || 0,
-          outputTokens: usage.completion_tokens || 0,
-          cachedTokens:
-            (usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+          inputTokens,
+          outputTokens,
+          cachedTokens,
           tokenType: 'output',
         });
       }
