@@ -173,8 +173,15 @@ export class OpenAiService {
         // request-level interceptor (or async-job wrapper) can roll it
         // up into req.attribution.extras / direct usage write. No-op
         // when called outside a scope (scripts, smoke tests, warm-ups).
+        //
+        // We pass the REQUESTED model name, not response.model. The SDK
+        // sometimes returns snapshot-suffixed strings, dated variants,
+        // or in rare cases an aliased family name — none of which the
+        // operator asked for. The requested model is the contract; the
+        // tracker normalises it anyway, but using the canonical input
+        // makes the per-model dashboard column deterministic.
         llmUsageTracker.record({
-          model: (response as any).model || model,
+          model,
           inputTokens,
           outputTokens,
           cachedTokens,
@@ -358,7 +365,7 @@ export class OpenAiService {
           usage.completion_tokens,
         );
         llmUsageTracker.record({
-          model: response.model || model,
+          model,
           inputTokens: usage.prompt_tokens || 0,
           outputTokens: usage.completion_tokens || 0,
           cachedTokens:
@@ -436,7 +443,7 @@ export class OpenAiService {
           0,
         );
         llmUsageTracker.record({
-          model: response.model || model,
+          model,
           inputTokens: usage.prompt_tokens || 0,
           outputTokens: 0,
           tokenType: 'embedding',
@@ -482,7 +489,7 @@ export class OpenAiService {
           0,
         );
         llmUsageTracker.record({
-          model: response.model || model,
+          model,
           inputTokens: usage.prompt_tokens || 0,
           outputTokens: 0,
           tokenType: 'embedding',
