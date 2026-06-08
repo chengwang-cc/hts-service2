@@ -130,6 +130,37 @@ describe('LlmUsageTracker', () => {
     expect(usage.primaryStage).toBe('smart-classify.rerank');
   });
 
+  it('treats snapshot-suffixed model names (gpt-5.4-nano-2026-03-17) as canonical', async () => {
+    // Provider responses carry snapshot suffixes; the price book is
+    // keyed by canonical names. The tracker must normalise before the
+    // price lookup OR the cost rolls up as zero and the per-model
+    // rollup splits into one bucket per snapshot.
+    const { usage } = await llmUsageTracker.withTracking(async () => {
+      llmUsageTracker.record({
+        model: 'gpt-5.4-nano-2026-03-17',
+        inputTokens: 1_000_000,
+        outputTokens: 500_000,
+      });
+      llmUsageTracker.record({
+        model: 'gpt-5.4-nano-2026-04-22',
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+      });
+      return null;
+    });
+
+    // Both snapshots roll up under the canonical key.
+    expect(usage.callsByModel['gpt-5.4-nano']).toBeDefined();
+    expect(usage.callsByModel['gpt-5.4-nano-2026-03-17']).toBeUndefined();
+    expect(usage.callsByModel['gpt-5.4-nano'].calls).toBe(2);
+    expect(usage.callsByModel['gpt-5.4-nano'].inputTokens).toBe(2_000_000);
+    expect(usage.callsByModel['gpt-5.4-nano'].outputTokens).toBe(500_000);
+    // gpt-5.4-nano: input=$0.05/M, output=$0.20/M
+    // 2M input * 0.05 + 0.5M output * 0.20 = 0.10 + 0.10 = $0.20
+    expect(usage.costUsd).toBeCloseTo(0.2, 6);
+    expect(usage.primaryModel).toBe('gpt-5.4-nano');
+  });
+
   it('unknown model logs a warning but rolls up cost as zero', async () => {
     const { usage } = await llmUsageTracker.withTracking(async () => {
       llmUsageTracker.record({
