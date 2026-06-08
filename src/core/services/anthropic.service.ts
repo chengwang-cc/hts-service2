@@ -80,7 +80,11 @@ export class AnthropicService {
     // `prompt_tokens` includes cached) and pass `cachedTokens` so the
     // calculator can apply the discounted rate.
     llmUsageTracker.record({
-      model: response.model || model,
+      // Use the REQUESTED model; the response sometimes carries the
+      // dated snapshot which would split the per-model rollup and
+      // miss the price book. See llm-usage-tracker.ts for the
+      // canonical normalisation it also applies as belt-and-braces.
+      model,
       inputTokens:
         (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
       outputTokens: usage.output_tokens ?? 0,
