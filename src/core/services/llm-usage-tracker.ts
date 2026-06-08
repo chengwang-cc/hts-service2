@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   getLlmPriceUsdPerMillion,
+  normaliseModelName,
   type LlmTokenType,
 } from '../../modules/billing/config/llm-pricing.config';
 
@@ -127,13 +128,18 @@ function emptyModelUsage(): LlmModelUsage {
 }
 
 function costForCall(call: LlmCallRecord): number {
-  const inputPrice = getLlmPriceUsdPerMillion(call.model, 'input');
-  const outputPrice = getLlmPriceUsdPerMillion(call.model, 'output');
+  // OpenAI / Anthropic responses carry the snapshot model name —
+  // `gpt-5.4-nano-2026-03-17`, not the canonical `gpt-5.4-nano`. Look
+  // up the price under the canonical name so we don't roll up every
+  // snapshot release as an unknown model with $0 cost.
+  const canonical = normaliseModelName(call.model);
+  const inputPrice = getLlmPriceUsdPerMillion(canonical, 'input');
+  const outputPrice = getLlmPriceUsdPerMillion(canonical, 'output');
   // Cached input tokens (when reported) are billed at a discounted rate
   // by both major providers. The pricing config exposes a 'cached_input'
   // entry per model; if absent, fall back to the regular input rate.
   const cachedPrice =
-    getLlmPriceUsdPerMillion(call.model, 'cached_input') ?? inputPrice;
+    getLlmPriceUsdPerMillion(canonical, 'cached_input') ?? inputPrice;
 
   const billedInputTokens = Math.max(
     0,
@@ -216,13 +222,19 @@ function record(call: LlmCallRecord): void {
   const cachedTokens = call.cachedTokens ?? 0;
   const cost = costForCall(call);
 
-  const existing = scope.callsByModel.get(call.model) ?? emptyModelUsage();
+  // Key the per-model rollup by the canonical name. Without this, the
+  // April and May snapshots of the same model would split into
+  // separate buckets, and the primary-model picker would tie-break
+  // arbitrarily on the first one inserted instead of summing them.
+  const canonical = normaliseModelName(call.model);
+
+  const existing = scope.callsByModel.get(canonical) ?? emptyModelUsage();
   existing.inputTokens += call.inputTokens;
   existing.outputTokens += call.outputTokens;
   existing.cachedTokens += cachedTokens;
   existing.costUsd += cost;
   existing.calls += 1;
-  scope.callsByModel.set(call.model, existing);
+  scope.callsByModel.set(canonical, existing);
   scope.totalCalls += 1;
 
   if (!scope.firstStage && call.stage) {
