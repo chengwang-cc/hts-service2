@@ -215,6 +215,21 @@ export class ApiKeyGuard implements CanActivate {
    * Origin allow-list check. Supports exact match or wildcard subdomain
    * patterns like `*.chitchats.com`. Always matched against the request's
    * `Origin` header (case-insensitive, protocol-flexible).
+   *
+   * Wildcard semantics
+   * ------------------
+   * `*.chitchats.com` matches:
+   *   - the apex (`chitchats.com`)
+   *   - any subdomain at any depth (`shop.chitchats.com`,
+   *     `staging.shop.chitchats.com`)
+   *
+   * Previously the matcher required the dot count to match exactly,
+   * which excluded both the apex AND deeper subdomains. Partners
+   * embedding their key on multiple frontends (`www.`, `shop.`,
+   * `staging.shop.`, plus the bare apex) had to enumerate every host
+   * individually. Relaxing to "apex OR any subdomain depth" lets a
+   * single wildcard entry cover the whole domain — matching the
+   * intuition most operators have about `*.example.com`.
    */
   private checkOriginAllowed(origin: string, allowed: string[]): boolean {
     const normalized = origin.trim().replace(/\/+$/, '').toLowerCase();
@@ -228,10 +243,12 @@ export class ApiKeyGuard implements CanActivate {
       const patHost = p.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
       if (norHost === patHost) return true;
       if (patHost.startsWith('*.')) {
-        const suffix = patHost.slice(1); // '.chitchats.com'
-        if (norHost.endsWith(suffix) && norHost.split('.').length === patHost.split('.').length) {
-          return true;
-        }
+        const apex = patHost.slice(2); // 'chitchats.com'
+        // Apex match: `*.chitchats.com` accepts `chitchats.com` too.
+        if (norHost === apex) return true;
+        // Subdomain at any depth: `shop.chitchats.com`,
+        // `staging.shop.chitchats.com`, etc.
+        if (norHost.endsWith('.' + apex)) return true;
       }
     }
     return false;
