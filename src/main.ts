@@ -50,10 +50,21 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    // NOTE: header names are case-INSENSITIVE per the Fetch spec, so a
+    // single entry covers all casings. Both `X-Partner-Key` and the
+    // older `X-API-Key` are listed because the attribution middleware
+    // treats them as siblings (rawKey = partnerKey ?? apiKey) — partners
+    // embedding the key in browser-side code (e.g. the ChitChats Rails
+    // app) need the preflight to accept whichever name they choose.
+    // `X-HTS-Context` is the optional segmentation header documented in
+    // the partner API guide — accepting it here avoids a future surprise.
     allowedHeaders: [
       'Content-Type',
       'Authorization',
       'X-API-Key',
+      'X-Partner-Key',
+      'X-Partner-User-Id',
+      'X-HTS-Context',
       'X-Guest-Token',
       'x-guest-token',
       'X-Widget-Key',
