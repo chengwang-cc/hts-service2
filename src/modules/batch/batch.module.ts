@@ -8,6 +8,7 @@ import { BatchController } from './batch.controller';
 import { QueueModule } from '../queue/queue.module';
 import { AuthModule } from '../auth/auth.module';
 import { LookupModule } from '../lookup/lookup.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { LookupModule } from '../lookup/lookup.module';
     QueueModule,
     AuthModule,
     LookupModule,
+    BillingModule,
   ],
   controllers: [BatchController],
   providers: [BatchJobService, BatchWorkerService],
