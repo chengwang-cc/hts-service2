@@ -6,6 +6,7 @@ import { CreditController } from './controllers/credit.controller';
 import { SubscriptionController } from './controllers/subscription.controller';
 import { CostAlertController } from './controllers/cost-alert.controller';
 import { CostAlertAdminController } from './controllers/cost-alert.admin.controller';
+import { PortalBillingController } from './controllers/portal-billing.controller';
 import { SubscriptionEntity } from './entities/subscription.entity';
 import { InvoiceEntity } from './entities/invoice.entity';
 import { UsageRecordEntity } from './entities/usage-record.entity';
@@ -75,6 +76,7 @@ import {
     SubscriptionController,
     CostAlertController,
     CostAlertAdminController,
+    PortalBillingController,
   ],
   exports: [
     EntitlementService,

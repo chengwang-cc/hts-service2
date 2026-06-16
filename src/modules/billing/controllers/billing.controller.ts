@@ -15,12 +15,16 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SubscriptionService } from '../services/subscription.service';
 import { UsageTrackingService } from '../services/usage-tracking.service';
 import { EntitlementService } from '../services/entitlement.service';
 import { StripeService } from '../services/stripe.service';
 import { CreditPurchaseService } from '../services/credit-purchase.service';
 import { BillingChargeService } from '../services/billing-charge.service';
+import { SubscriptionLimitsSyncService } from '../services/subscription-limits-sync.service';
+import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -38,6 +42,9 @@ export class BillingController {
     private readonly stripeService: StripeService,
     private readonly creditPurchaseService: CreditPurchaseService,
     private readonly billingChargeService: BillingChargeService,
+    private readonly limitsSync: SubscriptionLimitsSyncService,
+    @InjectRepository(OrganizationEntity)
+    private readonly orgs: Repository<OrganizationEntity>,
     @Inject('STRIPE_WEBHOOK_SECRET') private readonly webhookSecret: string,
   ) {}
 
@@ -373,6 +380,11 @@ export class BillingController {
             stripeSubscriptionId: session.subscription as string,
             stripeCustomerId: session.customer as string,
           });
+          // Phase 2: also mutate the org row so the SPA + quota guard see
+          // the new plan. The subscription row is the source of truth for
+          // billing; `org.plan` mirrors it for everything else (dashboard
+          // label, effective limits, partner attribution joins).
+          await this.applyPlanToOrganization(organizationId, plan);
         }
         break;
       }
@@ -432,6 +444,64 @@ export class BillingController {
 
       default:
         this.logger.debug(`Unhandled Stripe event: ${event.type}`);
+    }
+  }
+
+  /**
+   * Applied from the `checkout.session.completed` webhook. Three things
+   * happen here so the rest of the system reflects the new plan:
+   *
+   *   1. `org.plan` flips to the new plan label — used by the SPA
+   *      dashboard, partner-portal sidebar, and the JWT-time auth lookup.
+   *   2. `org.settings.firstPaidAt` is stamped on the FIRST upgrade —
+   *      drives lifetime-free-vs-upgraded dashboards. Subsequent
+   *      upgrades (e.g. STARTER → PROFESSIONAL) don't churn it.
+   *   3. `SubscriptionLimitsSyncService` recomputes effective limits
+   *      from the new plan and writes them to `org.settings.effectiveLimits`.
+   *      Quota guard reads these to enforce the new per-month cap.
+   *
+   * The whole thing is best-effort: a failure here logs but does NOT
+   * fail the webhook response (Stripe would retry, doubling work).
+   * If the org row is missing or the plan is unknown, we log + move on.
+   */
+  private async applyPlanToOrganization(
+    organizationId: string,
+    plan: string,
+  ): Promise<void> {
+    try {
+      const org = await this.orgs.findOne({ where: { id: organizationId } });
+      if (!org) {
+        this.logger.warn(
+          `applyPlanToOrganization: org ${organizationId} not found — skipping`,
+        );
+        return;
+      }
+
+      const settings: Record<string, any> = { ...(org.settings ?? {}) };
+      if (!settings.firstPaidAt) {
+        settings.firstPaidAt = new Date().toISOString();
+      }
+
+      await this.orgs.update(
+        { id: organizationId },
+        { plan, settings },
+      );
+
+      // Effective limits sync — independent so a sync failure (unknown
+      // plan id) doesn't roll back the org.plan flip. The quota guard
+      // tolerates missing effectiveLimits by falling back to FREE
+      // defaults.
+      try {
+        await this.limitsSync.syncFromPlan(organizationId);
+      } catch (err) {
+        this.logger.warn(
+          `applyPlanToOrganization: syncFromPlan failed for ${organizationId}: ${(err as Error)?.message}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `applyPlanToOrganization: failed for ${organizationId}: ${(err as Error)?.message}`,
+      );
     }
   }
 
