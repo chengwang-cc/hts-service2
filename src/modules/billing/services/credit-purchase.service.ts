@@ -118,7 +118,12 @@ export class CreditPurchaseService {
       currency: 'USD',
       status: 'pending',
       returnUrl: '',
-      stripeSessionId: '',
+      // `stripe_session_id` has a unique index (legacy from the Checkout
+      // Session flow). For the Payment Intent path there's no checkout
+      // session, so we mirror the intent id here as a unique stable
+      // identifier — keeps the constraint happy and the row queryable
+      // by either id.
+      stripeSessionId: intent.id,
       stripePaymentIntentId: intent.id,
       metadata: { purpose: 'credit_purchase', source: 'portal' },
     });
