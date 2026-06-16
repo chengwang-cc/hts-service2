@@ -111,12 +111,19 @@ describe('PortalBillingController.createCheckoutSession', () => {
     expect(call.metadata.interval).toBe('year');
   });
 
-  it('throws 500 when the Stripe price id for the requested plan is not configured', async () => {
+  // Note: the controller falls back to test-mode price defaults when
+  // STRIPE_PRICE_* envs are absent, so a missing env no longer trips a
+  // 500 — it serves the test-mode price id instead. We keep a coverage
+  // sanity check on the fallback rather than the missing-env path.
+  it('falls back to test-mode price defaults when STRIPE_PRICE_* env is unset', async () => {
     delete process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
-    const { ctrl } = buildController({ id: ORG, plan: 'FREE', type: 'customer' });
-    await expect(
-      ctrl.createCheckoutSession(fakeUser(), dto({ plan: 'ENTERPRISE' })),
-    ).rejects.toThrow(InternalServerErrorException);
+    const { ctrl, stripe } = buildController({ id: ORG, plan: 'FREE', type: 'customer' });
+    await ctrl.createCheckoutSession(fakeUser(), dto({ plan: 'ENTERPRISE' }));
+    const call = (stripe.createFlexibleCheckoutSession.mock.calls[0] as any[])[0] as any;
+    // The default starts with 'price_' — assert it's a Stripe price id,
+    // not the env-provided 'price_ent_m' from beforeEach.
+    expect(call.line_items[0].price).toMatch(/^price_/);
+    expect(call.line_items[0].price).not.toBe('price_ent_m');
   });
 
   it('throws 400 when the org is not found', async () => {

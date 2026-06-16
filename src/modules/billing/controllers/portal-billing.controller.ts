@@ -53,13 +53,23 @@ interface CheckoutSessionResponse {
 export class PortalBillingController {
   private readonly logger = new Logger(PortalBillingController.name);
 
+  /**
+   * Stripe price IDs, env-first with the same test-mode defaults the
+   * existing SubscriptionController uses. These defaults match the
+   * test-mode Stripe account already wired via STRIPE_SECRET_KEY in
+   * hts/app-secrets — so the endpoint works out of the box for e2e
+   * + manual smoke without per-environment env var configuration.
+   *
+   * Production overrides via STRIPE_PRICE_* env vars when live-mode
+   * pricing IDs need to be used (different prefix on live secret).
+   */
   private readonly PRICE_IDS = {
-    STARTER_MONTHLY: process.env.STRIPE_PRICE_STARTER_MONTHLY,
-    STARTER_YEARLY: process.env.STRIPE_PRICE_STARTER_YEARLY,
-    PROFESSIONAL_MONTHLY: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
-    PROFESSIONAL_YEARLY: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
-    ENTERPRISE_MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
-    ENTERPRISE_YEARLY: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY,
+    STARTER_MONTHLY: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1TFirqFlkGnRAYYW7oshC8t5',
+    STARTER_YEARLY: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_1TFirqFlkGnRAYYWEbbIxnZ2',
+    PROFESSIONAL_MONTHLY: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || 'price_1TFirrFlkGnRAYYWMQQG2B12',
+    PROFESSIONAL_YEARLY: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_1TFirrFlkGnRAYYWAccaTxyT',
+    ENTERPRISE_MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || 'price_1TFirrFlkGnRAYYWki54ItkJ',
+    ENTERPRISE_YEARLY: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || 'price_1TFirrFlkGnRAYYWbHjg8a2i',
   } as const;
 
   constructor(
