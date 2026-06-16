@@ -21,6 +21,7 @@ import { AdminGuard } from '../guards/admin.guard';
 import { UsersAdminService } from '../services/users.admin.service';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
+import { ResetPasswordDto } from '../dto/reset-password.dto';
 
 @ApiTags('Admin - Users')
 @ApiBearerAuth()
@@ -193,9 +194,9 @@ export class UsersAdminController {
   @ApiOperation({ summary: 'Reset user password' })
   async resetPassword(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('newPassword') newPassword: string,
+    @Body() dto: ResetPasswordDto,
   ) {
-    await this.usersAdminService.resetPassword(id, newPassword);
+    await this.usersAdminService.resetPassword(id, dto.newPassword);
 
     return {
       success: true,
