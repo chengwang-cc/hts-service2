@@ -140,12 +140,26 @@ export class OrganizationsAdminController {
 
   @Get(':id/users')
   async listUsers(@Param('id') id: string) {
+    // Pull users + their roles in one query. The roles relation drives
+    // the role-edit UI on admin-orgs-detail; without it the SPA can't
+    // pre-populate the role-multi-select on the Edit modal.
     const rows = await this.users.find({
       where: { organizationId: id },
-      select: ['id', 'email', 'firstName', 'lastName', 'isActive', 'emailVerified', 'lastLoginAt', 'createdAt'],
+      relations: ['roles'],
       order: { createdAt: 'DESC' },
     });
-    return { organizationId: id, count: rows.length, items: rows };
+    const items = rows.map((u) => ({
+      id: u.id,
+      email: u.email,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      isActive: u.isActive,
+      emailVerified: u.emailVerified,
+      lastLoginAt: u.lastLoginAt,
+      createdAt: u.createdAt,
+      roles: (u.roles ?? []).map((r) => ({ id: r.id, name: r.name })),
+    }));
+    return { organizationId: id, count: items.length, items };
   }
 
   @Get(':id/api-keys')
