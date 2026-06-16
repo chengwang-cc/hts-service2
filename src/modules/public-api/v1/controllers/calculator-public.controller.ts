@@ -14,6 +14,7 @@ import {
   Param,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -36,6 +37,8 @@ import { Repository } from 'typeorm';
 import { CalculationHistoryEntity } from '@hts/core';
 import { CalculatePublicDto } from '../dto/calculate-public.dto';
 import { CalculateBatchPublicDto } from '../dto/calculate-batch-public.dto';
+import { Idempotent } from '../../../idempotency/decorators/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../../idempotency/interceptors/idempotency.interceptor';
 import type { Request } from 'express';
 
 /**
@@ -140,6 +143,8 @@ export class CalculatorPublicController {
    * POST /api/v1/calculator/calculate/batch
    */
   @Post('calculate/batch')
+  @Idempotent('calculator.calculate.batch')
+  @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({
     summary: 'Batch calculate duties for many items',
     description:

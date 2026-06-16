@@ -6,6 +6,7 @@ import { BatchJobService, BATCH_COORDINATOR_QUEUE, BATCH_ITEM_QUEUE } from './ba
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BatchJobEntity } from '../entities/batch-job.entity';
+import { BillingChargeService } from '../../billing/services/billing-charge.service';
 
 @Injectable()
 export class BatchWorkerService implements OnModuleInit {
@@ -18,6 +19,7 @@ export class BatchWorkerService implements OnModuleInit {
     private readonly smartClassifyService: SmartClassifyService,
     @InjectRepository(BatchJobEntity)
     private readonly jobRepo: Repository<BatchJobEntity>,
+    private readonly billing: BillingChargeService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -48,7 +50,7 @@ export class BatchWorkerService implements OnModuleInit {
     // Check job status before processing (supports pause/cancel)
     const dbJob = await this.jobRepo.findOne({
       where: { id: jobId },
-      select: ['status', 'method'],
+      select: ['status', 'method', 'organizationId'],
     });
 
     if (!dbJob || dbJob.status === 'cancelled') {
@@ -66,6 +68,34 @@ export class BatchWorkerService implements OnModuleInit {
     if (!item) return;
 
     const start = Date.now();
+
+    // Phase 3: per-item credit deduction. Guards against a 1000-row
+    // batch running away after a $0.001 entry charge — every item is
+    // its own billable PRODUCT_CLASSIFICATION event. Guest jobs (no
+    // organizationId) skip the charge; they're not billable until they
+    // convert to a user account.
+    //
+    // The charge service handles shadow mode internally (BILLING_ENABLED
+    // env flag) — when off, every call is a no-op log line, balance
+    // untouched. So this is safe to leave enabled in prod even before
+    // the credit balance is positive for every customer.
+    if (dbJob.organizationId) {
+      const outcome = await this.billing.chargeForEvent(
+        dbJob.organizationId,
+        'PRODUCT_CLASSIFICATION',
+        { source: 'batch', jobId, itemId },
+      );
+      if (!outcome.shadow && !outcome.charged && outcome.reason === 'insufficient_credits') {
+        this.logger.warn(
+          `[Item ${itemId}] insufficient credits — failing item (org=${dbJob.organizationId})`,
+        );
+        await this.batchJobService.recordItemResult(jobId, itemId, {
+          errorMessage: 'INSUFFICIENT_CREDITS',
+          processingMs: Date.now() - start,
+        });
+        return;
+      }
+    }
 
     try {
       if (dbJob.method === 'deep_search') {

@@ -20,6 +20,8 @@ import { BatchJobService } from './services/batch-job.service';
 import { CreateBatchJobDto } from './dto';
 import { Public } from '../lookup/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Idempotent } from '../idempotency/decorators/idempotent.decorator';
+import { IdempotencyInterceptor } from '../idempotency/interceptors/idempotency.interceptor';
 
 @Controller('batch')
 export class BatchController {
@@ -29,6 +31,8 @@ export class BatchController {
 
   @Public()
   @Post('jobs')
+  @Idempotent('batch.jobs.create')
+  @UseInterceptors(IdempotencyInterceptor)
   async createJob(
     @CurrentUser() user: any,
     @Headers('x-guest-token') guestToken: string | undefined,
@@ -63,7 +67,9 @@ export class BatchController {
 
   @Public()
   @Post('jobs/csv')
+  @Idempotent('batch.jobs.csv')
   @UseInterceptors(
+    IdempotencyInterceptor,
     FileInterceptor('file', {
       limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
       fileFilter: (_req, file, cb) => {

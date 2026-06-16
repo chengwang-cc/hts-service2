@@ -29,6 +29,7 @@ import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { TestModule } from './modules/test/test.module';
 import { BatchModule } from './modules/batch/batch.module';
+import { IdempotencyModule } from './modules/idempotency/idempotency.module';
 import { ShopifyAppModule } from './modules/shopify-app/shopify-app.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
@@ -139,6 +140,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Billing module (Subscriptions & usage tracking)
     BillingModule,
+    IdempotencyModule,
 
     // Onboarding module (User onboarding & templates)
     OnboardingModule,
