@@ -219,7 +219,10 @@ export class AutoTopupService {
         currency: 'USD',
         status: 'pending',
         returnUrl: '',
-        stripeSessionId: '',
+        // See credit-purchase.service.ts — stripe_session_id has a
+        // unique index; mirror the intent id so the constraint stays
+        // satisfied on the Payment Intent path (no Checkout Session).
+        stripeSessionId: intent.id,
         stripePaymentIntentId: intent.id,
         metadata: { purpose: 'auto_topup', source: 'auto', triggeredBy: 'AutoTopupService' },
       }),
