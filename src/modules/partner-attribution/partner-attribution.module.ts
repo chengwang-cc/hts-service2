@@ -28,6 +28,7 @@ import { PartnerUsageHourlyEntity } from './entities/partner-usage-hourly.entity
 import { PartnerUsageMonthlyEntity } from './entities/partner-usage-monthly.entity';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { ApiKeyEntity } from '../api-keys/entities/api-key.entity';
+import { BillingModule } from '../billing/billing.module';
 
 const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
   PartnerOriginEntity,
@@ -40,7 +41,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
 ]);
 
 @Module({
-  imports: [partnerAttributionTypeOrm, ApiKeysModule, QueueModule],
+  imports: [partnerAttributionTypeOrm, ApiKeysModule, QueueModule, BillingModule],
   controllers: [
     PartnerUsageAdminController,
     PartnerUsageController,
