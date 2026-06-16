@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -13,16 +14,13 @@ import type { Request, Response } from 'express';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../../partner-attribution/entities/partner-usage-monthly.entity';
 import type { RequestAttribution } from '../../partner-attribution/types';
-import { EffectiveLimits, getEffectiveLimits } from '../types/effective-limits';
+import { getEffectiveLimits } from '../types/effective-limits';
 import { SKIP_ENTITLEMENT_KEY } from '../decorators/skip-entitlement.decorator';
-
-interface CachedQuota {
-  limits: EffectiveLimits;
-  orgType: string;
-  requestsThisMonth: number;
-  costUsdThisMonth: number;
-  expiresAt: number;
-}
+import {
+  type IQuotaCache,
+  type QuotaSnapshot,
+  QUOTA_CACHE,
+} from '../services/quota-cache.service';
 
 /**
  * Monthly-quota enforcement against the partner's subscription plan.
@@ -54,8 +52,6 @@ interface CachedQuota {
 @Injectable()
 export class PartnerQuotaGuard implements CanActivate {
   private readonly logger = new Logger(PartnerQuotaGuard.name);
-  private readonly cache = new Map<string, CachedQuota>();
-  private static readonly CACHE_TTL_MS = 60_000;
 
   constructor(
     private readonly reflector: Reflector,
@@ -63,6 +59,10 @@ export class PartnerQuotaGuard implements CanActivate {
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(PartnerUsageMonthlyEntity)
     private readonly monthly: Repository<PartnerUsageMonthlyEntity>,
+    // Backend-agnostic cache. Memory in single-task deploys, Redis in
+    // multi-task deploys. Pick via QUOTA_BACKEND env. See
+    // quota-cache.service.ts for rationale.
+    @Inject(QUOTA_CACHE) private readonly cache: IQuotaCache,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -78,7 +78,7 @@ export class PartnerQuotaGuard implements CanActivate {
     const partnerId = attribution?.partnerId;
     if (!partnerId) return true;
 
-    let quota: CachedQuota;
+    let quota: QuotaSnapshot;
     try {
       quota = await this.getQuota(partnerId);
     } catch (err) {
@@ -119,7 +119,7 @@ export class PartnerQuotaGuard implements CanActivate {
     return true;
   }
 
-  private setQuotaHeaders(res: Response, quota: CachedQuota): void {
+  private setQuotaHeaders(res: Response, quota: QuotaSnapshot): void {
     const { limits, requestsThisMonth } = quota;
     res.setHeader('X-Quota-Plan', limits.plan);
     res.setHeader('X-Quota-Limit-Month', String(limits.requestsPerMonth));
@@ -154,10 +154,9 @@ export class PartnerQuotaGuard implements CanActivate {
     );
   }
 
-  private async getQuota(partnerId: string): Promise<CachedQuota> {
-    const now = Date.now();
-    const cached = this.cache.get(partnerId);
-    if (cached && cached.expiresAt > now) return cached;
+  private async getQuota(partnerId: string): Promise<QuotaSnapshot> {
+    const cached = await this.cache.get(partnerId);
+    if (cached) return cached;
 
     const org = await this.orgs.findOne({ where: { id: partnerId } });
     const limits = getEffectiveLimits(org);
@@ -165,15 +164,17 @@ export class PartnerQuotaGuard implements CanActivate {
 
     const totals = await this.fetchMonthTotals(partnerId);
 
-    const entry: CachedQuota = {
+    const snapshot: QuotaSnapshot = {
       limits,
       orgType,
       requestsThisMonth: totals.requests,
       costUsdThisMonth: totals.costUsd,
-      expiresAt: now + PartnerQuotaGuard.CACHE_TTL_MS,
+      syncedAt: Date.now(),
     };
-    this.cache.set(partnerId, entry);
-    return entry;
+    // Fire-and-forget: a Redis hiccup must not 500 the request path.
+    // RedisQuotaCache.set() already swallows errors at debug.
+    void this.cache.set(partnerId, snapshot);
+    return snapshot;
   }
 
   private async fetchMonthTotals(partnerId: string): Promise<{ requests: number; costUsd: number }> {
