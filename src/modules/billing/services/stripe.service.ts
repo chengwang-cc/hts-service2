@@ -210,6 +210,52 @@ export class StripeService {
   }
 
   /**
+   * Create a one-off Payment Intent.
+   *
+   * Used by:
+   *   - Credit purchase: customer enters $X in the SPA; we create an
+   *     intent for X*100 cents and return the client_secret. The SPA's
+   *     Stripe Elements widget completes payment on the customer's
+   *     device; payment_intent.succeeded webhook then refills credits.
+   *   - Auto top-up: triggered server-side when the credit balance
+   *     drops below the configured threshold. The customer's saved
+   *     payment method is used without a confirmation modal (off-session).
+   *
+   * `metadata.purpose` distinguishes the two flows so the webhook
+   * handler knows whether the credit refill is customer-initiated or
+   * an auto-trigger.
+   */
+  async createPaymentIntent(params: {
+    customerId: string;
+    amountUsd: number;
+    purpose: 'credit_purchase' | 'auto_topup';
+    organizationId: string;
+    paymentMethodId?: string;
+    offSession?: boolean;
+  }): Promise<Stripe.PaymentIntent> {
+    const amountCents = Math.round(params.amountUsd * 100);
+    return this.stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'usd',
+      customer: params.customerId,
+      ...(params.paymentMethodId
+        ? {
+            payment_method: params.paymentMethodId,
+            confirm: params.offSession === true,
+            off_session: params.offSession === true,
+          }
+        : {
+            automatic_payment_methods: { enabled: true },
+          }),
+      metadata: {
+        organizationId: params.organizationId,
+        purpose: params.purpose,
+        creditUsd: String(params.amountUsd),
+      },
+    });
+  }
+
+  /**
    * Verify webhook signature
    */
   verifyWebhookSignature(

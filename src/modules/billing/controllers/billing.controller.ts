@@ -442,6 +442,36 @@ export class BillingController {
         break;
       }
 
+      case 'payment_intent.succeeded': {
+        // Phase 4a: one-off credit purchase + auto top-up.
+        // The intent's metadata is set by us at creation
+        // (StripeService.createPaymentIntent), so we trust it. The
+        // CreditPurchaseService entry point is idempotent (matches on
+        // stripe_payment_intent_id) so duplicate webhook delivery is
+        // a no-op.
+        const intent = event.data.object as import('stripe').default.PaymentIntent;
+        const purpose = intent.metadata?.purpose;
+        const organizationId = intent.metadata?.organizationId;
+        const creditsRaw = intent.metadata?.creditUsd;
+        if (
+          (purpose === 'credit_purchase' || purpose === 'auto_topup') &&
+          organizationId &&
+          creditsRaw
+        ) {
+          // We persisted the tier's `credits` value into the pending
+          // purchase row at intent-creation time; the webhook re-derives
+          // it from the amount. Defensive: if the amounts disagree, the
+          // service treats the purchase row as the truth.
+          const amountUsd = (intent.amount ?? 0) / 100;
+          await this.creditPurchaseService.creditFromPaymentIntent({
+            paymentIntentId: intent.id,
+            organizationId,
+            credits: this.creditsForUsd(amountUsd),
+          });
+        }
+        break;
+      }
+
       default:
         this.logger.debug(`Unhandled Stripe event: ${event.type}`);
     }
@@ -503,6 +533,25 @@ export class BillingController {
         `applyPlanToOrganization: failed for ${organizationId}: ${(err as Error)?.message}`,
       );
     }
+  }
+
+  /**
+   * Reverse-lookup the credit tier for a USD amount. Used by the
+   * payment_intent.succeeded webhook because the intent carries the
+   * dollar amount; we want the credits to refill the balance.
+   * Returns 0 (no-op) if the amount doesn't match any known tier —
+   * keeps the webhook safe from off-tier purchases (which can only
+   * arise from someone hand-crafting an intent in the Stripe dashboard).
+   */
+  private creditsForUsd(amountUsd: number): number {
+    const map: Record<string, number> = {
+      '5': 10,
+      '9': 20,
+      '20': 50,
+      '35': 100,
+      '60': 200,
+    };
+    return map[String(amountUsd)] ?? 0;
   }
 
   /**

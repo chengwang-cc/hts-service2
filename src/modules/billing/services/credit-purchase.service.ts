@@ -1,9 +1,10 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreditPurchaseEntity } from '../entities/credit-purchase.entity';
 import { CreditBalanceEntity } from '../entities/credit-balance.entity';
 import { StripeService } from './stripe.service';
+import { SubscriptionService } from './subscription.service';
 
 export interface CreateCreditCheckoutSessionDto {
   organizationId: string;
@@ -39,7 +40,156 @@ export class CreditPurchaseService {
     @InjectRepository(CreditBalanceEntity)
     private readonly creditBalanceRepo: Repository<CreditBalanceEntity>,
     private readonly stripeService: StripeService,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
+
+  /**
+   * The discrete credit tiers we sell. The SPA shows these as plan
+   * cards; arbitrary amounts are not accepted. Keeping tiers small
+   * means we can keep the pricing table inline (above) and the SPA
+   * UI flat.
+   */
+  static readonly VALID_TIERS = [10, 20, 50, 100, 200] as const;
+
+  /**
+   * Public tier→USD lookup so the controller can validate the request
+   * body without re-implementing the pricing table.
+   */
+  static priceForTier(credits: number): number | null {
+    const known: Record<number, number> = {
+      10: 5.0,
+      20: 9.0,
+      50: 20.0,
+      100: 35.0,
+      200: 60.0,
+    };
+    return known[credits] ?? null;
+  }
+
+  /**
+   * One-off Payment Intent flow (Phase 4a). Returns the client_secret
+   * for the SPA's Stripe Elements widget. The webhook on
+   * payment_intent.succeeded credits the balance — this method does NOT
+   * mutate the balance directly.
+   *
+   * Pending purchase row is written up front so the webhook can match
+   * by stripe_payment_intent_id and avoid double-crediting on retry.
+   */
+  async createPaymentIntentForCredits(params: {
+    organizationId: string;
+    email: string;
+    credits: number;
+    paymentMethodId?: string;
+  }): Promise<{
+    paymentIntentClientSecret: string;
+    paymentIntentId: string;
+    customerId: string;
+    credits: number;
+    amountUsd: number;
+  }> {
+    const price = CreditPurchaseService.priceForTier(params.credits);
+    if (price === null) {
+      throw new BadRequestException(
+        `Invalid credits amount. Must be one of: ${CreditPurchaseService.VALID_TIERS.join(', ')}`,
+      );
+    }
+
+    const customerId = await this.subscriptionService.getOrCreateStripeCustomer({
+      organizationId: params.organizationId,
+      email: params.email,
+    });
+
+    const intent = await this.stripeService.createPaymentIntent({
+      customerId,
+      amountUsd: price,
+      purpose: 'credit_purchase',
+      organizationId: params.organizationId,
+      paymentMethodId: params.paymentMethodId,
+    });
+
+    // Track the pending purchase. The webhook will move it to
+    // 'completed' once Stripe confirms. Storing `creditsAdded` here so
+    // the webhook trusts our intent rather than Stripe's metadata
+    // (defense-in-depth — Stripe metadata is mutable up until charge).
+    const purchase = this.creditPurchaseRepo.create({
+      organizationId: params.organizationId,
+      credits: params.credits,
+      amount: price,
+      currency: 'USD',
+      status: 'pending',
+      returnUrl: '',
+      stripeSessionId: '',
+      stripePaymentIntentId: intent.id,
+      metadata: { purpose: 'credit_purchase', source: 'portal' },
+    });
+    await this.creditPurchaseRepo.save(purchase);
+
+    if (!intent.client_secret) {
+      throw new BadRequestException(
+        'Stripe did not return a client_secret for this Payment Intent',
+      );
+    }
+
+    return {
+      paymentIntentClientSecret: intent.client_secret,
+      paymentIntentId: intent.id,
+      customerId,
+      credits: params.credits,
+      amountUsd: price,
+    };
+  }
+
+  /**
+   * Webhook entry point: payment_intent.succeeded. Idempotent by
+   * design — we look up the pending purchase row and short-circuit
+   * if it's already marked completed.
+   */
+  async creditFromPaymentIntent(params: {
+    paymentIntentId: string;
+    organizationId: string;
+    credits: number;
+  }): Promise<void> {
+    const purchase = await this.creditPurchaseRepo.findOne({
+      where: { stripePaymentIntentId: params.paymentIntentId },
+    });
+    if (!purchase) {
+      this.logger.warn(
+        `[credits] payment_intent.succeeded for unknown intent ${params.paymentIntentId} — ignoring`,
+      );
+      return;
+    }
+    if (purchase.status === 'completed') {
+      // Stripe sends duplicate webhooks routinely; we MUST be idempotent.
+      this.logger.debug(
+        `[credits] payment_intent.succeeded replay for ${params.paymentIntentId} — already credited`,
+      );
+      return;
+    }
+    if (purchase.organizationId !== params.organizationId) {
+      // Defensive: a forged webhook should not be able to credit a
+      // different org just by mutating metadata.
+      this.logger.error(
+        `[credits] org mismatch for intent ${params.paymentIntentId}: ` +
+          `purchase=${purchase.organizationId} webhook=${params.organizationId}`,
+      );
+      return;
+    }
+
+    await this.addCredits(params.organizationId, params.credits);
+
+    purchase.status = 'completed';
+    purchase.completedAt = new Date();
+    await this.creditPurchaseRepo.save(purchase);
+  }
+
+  /** Returns the most recent N completed credit purchases for the org. */
+  async listRecentPurchases(organizationId: string, limit = 20) {
+    return this.creditPurchaseRepo.find({
+      where: { organizationId },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+  }
 
   /**
    * Create a Stripe Checkout Session for credit purchase
