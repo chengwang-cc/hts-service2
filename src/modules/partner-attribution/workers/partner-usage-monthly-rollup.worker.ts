@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { QueueService } from '../../queue/queue.service';
+import { CostAlertService } from '../../billing/services/cost-alert.service';
 
 /**
  * Monthly rollup of api_usage_metrics into partner_usage_monthly.
@@ -26,6 +27,10 @@ export class PartnerUsageMonthlyRollupWorker implements OnModuleInit {
   constructor(
     private readonly queue: QueueService,
     @InjectDataSource() private readonly ds: DataSource,
+    // Optional so a future test bootstrap can omit the BillingModule
+    // without breaking the rollup itself. The alert step is wrapped in
+    // an env-flag check and a defensive null-guard for the same reason.
+    @Optional() private readonly costAlerts?: CostAlertService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -92,6 +97,31 @@ export class PartnerUsageMonthlyRollupWorker implements OnModuleInit {
     const n = Number(inserted[0]?.inserted ?? 0);
     if (n > 0) {
       this.logger.log(`Monthly rollup updated ${n} (partner, endpoint, method) buckets`);
+    }
+
+    // Phase 4b: cost-threshold alerts.
+    // Runs in the SAME worker because monthly cost is freshly committed
+    // and we can deliver alerts within one hour of the actual crossing.
+    // Gated behind COST_ALERTS_ENABLED so the entire feature can be
+    // disabled by env-flag without a code revert — see execution-plan
+    // §7b.9. Defaults to disabled until DB migration is applied in prod.
+    if (this.costAlerts && process.env.COST_ALERTS_ENABLED === 'true') {
+      try {
+        const fired = await this.costAlerts.detectAndFireCrossings();
+        if (fired.length > 0) {
+          this.logger.log(
+            `Cost-threshold alerts fired: ${fired.length} ` +
+              `(webhooks queued: ${fired.filter((f) => f.webhookQueued).length})`,
+          );
+        }
+      } catch (err) {
+        // Alert delivery must NOT break the rollup itself — the rollup
+        // is what feeds quota enforcement, and missed alerts are
+        // recoverable on the next hourly tick.
+        this.logger.warn(
+          `Cost-alert detection failed (rollup continues): ${(err as Error)?.message}`,
+        );
+      }
     }
   }
 }
