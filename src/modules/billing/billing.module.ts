@@ -7,6 +7,7 @@ import { SubscriptionController } from './controllers/subscription.controller';
 import { CostAlertController } from './controllers/cost-alert.controller';
 import { CostAlertAdminController } from './controllers/cost-alert.admin.controller';
 import { PortalBillingController } from './controllers/portal-billing.controller';
+import { PortalCreditsController } from './controllers/portal-credits.controller';
 import { SubscriptionEntity } from './entities/subscription.entity';
 import { InvoiceEntity } from './entities/invoice.entity';
 import { UsageRecordEntity } from './entities/usage-record.entity';
@@ -24,6 +25,7 @@ import { BillingChargeService } from './services/billing-charge.service';
 import { SubscriptionLimitsSyncService } from './services/subscription-limits-sync.service';
 import { CostAlertService } from './services/cost-alert.service';
 import { WebhookDeliveryService } from './services/webhook-delivery.service';
+import { AutoTopupService } from './services/auto-topup.service';
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 import { PartnerQuotaGuard } from './guards/partner-quota.guard';
@@ -68,6 +70,7 @@ import {
     createQuotaCacheProvider(),
     CostAlertService,
     WebhookDeliveryService,
+    AutoTopupService,
     PartnerQuotaGuard,
   ],
   controllers: [
@@ -77,6 +80,7 @@ import {
     CostAlertController,
     CostAlertAdminController,
     PortalBillingController,
+    PortalCreditsController,
   ],
   exports: [
     EntitlementService,
@@ -88,6 +92,7 @@ import {
     SubscriptionLimitsSyncService,
     QUOTA_CACHE,
     CostAlertService,
+    AutoTopupService,
     PartnerQuotaGuard,
   ],
 })
