@@ -34,8 +34,13 @@ export class UpdateUserDto {
   @IsOptional()
   organizationId?: string;
 
+  // `@IsUUID` (no version arg) accepts any RFC 4122 UUID. The seeded
+  // role IDs use a deterministic v1-shape (`20000000-0000-…`) so
+  // pinning to v4 here rejected legitimate PATCHes — surfaced by the
+  // e2e for the Edit-user modal. Defense-in-depth is unchanged: the
+  // service still looks up roles by id and 400s on a miss.
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID(undefined, { each: true })
   @IsOptional()
   roleIds?: string[];
 
