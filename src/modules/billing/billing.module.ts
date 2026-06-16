@@ -20,6 +20,10 @@ import { SubscriptionLimitsSyncService } from './services/subscription-limits-sy
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 import { PartnerQuotaGuard } from './guards/partner-quota.guard';
+import {
+  createQuotaCacheProvider,
+  QUOTA_CACHE,
+} from './services/quota-cache.service';
 
 @Module({
   imports: [
@@ -52,6 +56,7 @@ import { PartnerQuotaGuard } from './guards/partner-quota.guard';
     CreditPurchaseService,
     BillingChargeService,
     SubscriptionLimitsSyncService,
+    createQuotaCacheProvider(),
     PartnerQuotaGuard,
   ],
   controllers: [BillingController, CreditController, SubscriptionController],
@@ -63,6 +68,7 @@ import { PartnerQuotaGuard } from './guards/partner-quota.guard';
     CreditPurchaseService,
     BillingChargeService,
     SubscriptionLimitsSyncService,
+    QUOTA_CACHE,
     PartnerQuotaGuard,
   ],
 })
