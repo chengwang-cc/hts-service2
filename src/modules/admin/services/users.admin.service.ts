@@ -73,12 +73,24 @@ export class UsersAdminService {
 
   /**
    * Create new user
+   *
+   * Operator-mode create: an admin is vouching for the account
+   * themselves, so we set `emailVerified: true` directly — the
+   * admin already saw the email, and a verification step here just
+   * pollutes the user's first sign-in with a stale verification mail.
+   * `metadata.authProvider = 'password'` mirrors the `/auth/register`
+   * default so downstream consumers don't need a special "admin-
+   * created" branch when reading metadata.
    */
   async create(createUserDto: CreateUserDto): Promise<UserEntity> {
-    // Check if email already exists
-    const existing = await this.userRepository.findOne({
-      where: { email: createUserDto.email },
-    });
+    // Check if email already exists. Email comparison is case-
+    // insensitive — '.com' vs '.COM' would otherwise allow duplicates
+    // that downstream sign-in (which lowercases) treats as collisions.
+    const emailNormalized = createUserDto.email.trim().toLowerCase();
+    const existing = await this.userRepository
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = :email', { email: emailNormalized })
+      .getOne();
 
     if (existing) {
       throw new ConflictException('Email already exists');
@@ -101,11 +113,13 @@ export class UsersAdminService {
 
     // Create user
     const user = this.userRepository.create({
-      email: createUserDto.email,
+      email: emailNormalized,
       password: hashedPassword,
       firstName: createUserDto.firstName,
       lastName: createUserDto.lastName,
       organizationId: createUserDto.organizationId,
+      emailVerified: true,
+      metadata: { authProvider: 'password', createdBy: 'admin' },
       roles,
     });
 
