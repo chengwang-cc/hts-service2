@@ -24,6 +24,9 @@ import { LedgerService } from '../../billing/services/ledger.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { RefundService } from '../../billing/refunds/services/refund.service';
 import { CreateRefundDto } from '../../billing/refunds/dto/create-refund.dto';
+import { FinancialReportsService } from '../../billing/reports/services/financial-reports.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
 import { Idempotent } from '../../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../idempotency/interceptors/idempotency.interceptor';
 import { FinanceAdminGuard } from './guards/finance-admin.guard';
@@ -64,6 +67,7 @@ export class FinancialAdminController {
     private readonly ledger: LedgerService,
     private readonly credits: CreditPurchaseService,
     private readonly refunds: RefundService,
+    private readonly reports: FinancialReportsService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(CreditLedgerEntity)
@@ -282,6 +286,165 @@ export class FinancialAdminController {
       currency: r.currency,
       createdAt: r.createdAt.toISOString(),
     };
+  }
+
+  // ─── Reports (Phase 9, PR F9.1) ─────────────────────────────────────
+
+  /**
+   * Dashboard summary tile data. Bundles MRR / refund rate / active
+   * orgs so the dashboard fires ONE call on mount rather than N
+   * parallel calls. Gated by FINANCIAL_REPORTS_ENABLED in addition
+   * to FINANCIAL_ADMIN_ENABLED so the dashboard can stay dark while
+   * the views are still warming up.
+   */
+  @Get('reports/summary')
+  async reportsSummary() {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    return this.reports.dashboardSummary();
+  }
+
+  @Get('reports/revenue')
+  async revenueReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.revenueByMonth({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/refunds')
+  async refundsReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.refundsByMonth({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/manual-credits')
+  async manualCreditsReport(
+    @Query('groupBy') groupBy?: 'reason_code' | 'month',
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    return this.reports.manualCredits({ groupBy });
+  }
+
+  @Get('reports/top-accounts')
+  async topAccountsReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1),
+      200,
+    );
+    const data = await this.reports.topAccounts(limit);
+    return { count: data.length, data };
+  }
+
+  /**
+   * CSV export. `type` selects the report; the response body is the
+   * raw CSV (Content-Type: text/csv). Filename mirrors the report +
+   * the current date for downstream file-archive ergonomics.
+   *
+   * Supported types: 'revenue' | 'refunds' | 'manual-credits' | 'top-accounts'.
+   */
+  @Get('reports/export')
+  async exportReport(
+    @Query('type') type: string,
+    @Query('from') fromMonth: string | undefined,
+    @Query('to') toMonth: string | undefined,
+    @Query('limit') limitRaw: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+
+    let headers: string[];
+    let rows: Array<Record<string, unknown>>;
+    let baseFilename: string;
+
+    switch (type) {
+      case 'revenue': {
+        headers = ['month', 'source', 'count', 'grossUsd', 'grossUsdCents'];
+        rows = await this.reports.revenueByMonth({ fromMonth, toMonth });
+        baseFilename = 'revenue';
+        break;
+      }
+      case 'refunds': {
+        headers = [
+          'month',
+          'refundCount',
+          'refundedCents',
+          'creditsReturned',
+          'grossCents',
+          'refundRate',
+        ];
+        rows = await this.reports.refundsByMonth({ fromMonth, toMonth });
+        baseFilename = 'refunds';
+        break;
+      }
+      case 'manual-credits': {
+        const groupBy = (
+          fromMonth === 'month' ? 'month' : 'reason_code'
+        ) as 'reason_code' | 'month';
+        const result = await this.reports.manualCredits({ groupBy });
+        headers = ['key', 'topupCount', 'topupCredits', 'debitCount', 'debitCredits'];
+        rows = result.rows.map((r) => ({
+          key: r.key,
+          topupCount: r.grants.count,
+          topupCredits: r.grants.credits,
+          debitCount: r.debits.count,
+          debitCredits: r.debits.credits,
+        }));
+        baseFilename = 'manual-credits';
+        break;
+      }
+      case 'top-accounts': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'organizationName',
+          'organizationSlug',
+          'revenueUsd',
+          'revenueCents',
+        ];
+        rows = await this.reports.topAccounts(limit);
+        baseFilename = 'top-accounts';
+        break;
+      }
+      default: {
+        throw new ForbiddenException(
+          `Unknown export type: ${type}. Supported: revenue | refunds | manual-credits | top-accounts`,
+        );
+      }
+    }
+
+    const csv = this.reports.toCsv(headers, rows);
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${baseFilename}-${today}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    res.send(csv);
+  }
+
+  private assertReportsEnabled(): void {
+    if (process.env.FINANCIAL_REPORTS_ENABLED !== 'true') {
+      throw new ForbiddenException(
+        'Financial reports are disabled. Set FINANCIAL_REPORTS_ENABLED=true to enable.',
+      );
+    }
   }
 
   private assertEnabled(): void {

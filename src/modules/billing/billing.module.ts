@@ -30,6 +30,9 @@ import { WebhookDeliveryService } from './services/webhook-delivery.service';
 import { AutoTopupService } from './services/auto-topup.service';
 import { LedgerService } from './services/ledger.service';
 import { RefundService } from './refunds/services/refund.service';
+import { FinancialReportsService } from './reports/services/financial-reports.service';
+import { FinancialReportsRefreshWorker } from './reports/workers/financial-reports-refresh.worker';
+import { QueueModule } from '../queue/queue.module';
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 import { PartnerQuotaGuard } from './guards/partner-quota.guard';
@@ -54,6 +57,7 @@ import {
       OrganizationEntity,
       PartnerUsageMonthlyEntity,
     ]),
+    QueueModule,
   ],
   providers: [
     {
@@ -79,6 +83,8 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    FinancialReportsService,
+    FinancialReportsRefreshWorker,
     PartnerQuotaGuard,
   ],
   controllers: [
@@ -103,6 +109,7 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    FinancialReportsService,
     PartnerQuotaGuard,
   ],
 })
