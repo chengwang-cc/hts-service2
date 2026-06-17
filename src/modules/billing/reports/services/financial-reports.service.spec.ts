@@ -259,6 +259,111 @@ describe('FinancialReportsService.dashboardSummary', () => {
   });
 });
 
+describe('FinancialReportsService.paidVsPromoCredits (F9.1.5)', () => {
+  it('computes paid/promo split + paidPct per month', async () => {
+    const { svc } = buildService(async () => [
+      {
+        month: new Date('2026-05-01T00:00:00Z'),
+        paid: '300',
+        promo: '100',
+      },
+      {
+        month: new Date('2026-06-01T00:00:00Z'),
+        paid: '0',
+        promo: '50',
+      },
+    ]);
+    const out = await svc.paidVsPromoCredits({});
+    expect(out).toEqual([
+      { month: '2026-05-01', paidCredits: 300, promoCredits: 100, paidPct: 0.75 },
+      { month: '2026-06-01', paidCredits: 0, promoCredits: 50, paidPct: 0 },
+    ]);
+  });
+
+  it('SQL filters to delta_credits > 0 and the right kinds', async () => {
+    let captured = '';
+    const { svc } = buildService(async (sql) => {
+      captured = sql;
+      return [];
+    });
+    await svc.paidVsPromoCredits({ fromMonth: '2026-01', toMonth: '2026-06' });
+    expect(captured).toMatch(/delta_credits > 0/);
+    expect(captured).toMatch(/PURCHASE.*AUTO_TOPUP/);
+    expect(captured).toMatch(/MANUAL_TOPUP.*PROMO.*MIGRATION/);
+  });
+});
+
+describe('FinancialReportsService.autoTopupVelocity (F9.1.5)', () => {
+  it('maps rows + caps limit at 200', async () => {
+    let captured: any[] | undefined;
+    const { svc } = buildService(async (_sql, params) => {
+      captured = params;
+      return [
+        {
+          organization_id: 'org-1',
+          topup_count: '4',
+          first_at: new Date('2026-01-01T00:00:00Z'),
+          last_at: new Date('2026-04-01T00:00:00Z'),
+          avg_interval_days: '30.00',
+        },
+      ];
+    });
+    const out = await svc.autoTopupVelocity(500);
+    expect(captured).toEqual([200]); // clamped
+    expect(out[0]).toEqual({
+      organizationId: 'org-1',
+      topupCount: 4,
+      firstTopupAt: '2026-01-01T00:00:00.000Z',
+      lastTopupAt: '2026-04-01T00:00:00.000Z',
+      avgIntervalDays: 30,
+    });
+  });
+
+  it('SQL excludes orgs with only one topup (HAVING COUNT >= 2)', async () => {
+    let captured = '';
+    const { svc } = buildService(async (sql) => {
+      captured = sql;
+      return [];
+    });
+    await svc.autoTopupVelocity();
+    expect(captured).toMatch(/HAVING COUNT\(\*\) >= 2/);
+  });
+});
+
+describe('FinancialReportsService.unbilledUsage (F9.1.5)', () => {
+  it('maps rows including nullable lastInvoiceAt', async () => {
+    const { svc } = buildService(async () => [
+      {
+        organization_id: 'org-1',
+        unbilled_records: '125',
+        last_invoice_at: new Date('2026-05-01T00:00:00Z'),
+        oldest_unbilled_at: new Date('2026-05-02T00:00:00Z'),
+      },
+      {
+        organization_id: 'org-2',
+        unbilled_records: '10',
+        last_invoice_at: null,
+        oldest_unbilled_at: new Date('2026-04-01T00:00:00Z'),
+      },
+    ]);
+    const out = await svc.unbilledUsage();
+    expect(out).toEqual([
+      {
+        organizationId: 'org-1',
+        unbilledRecords: 125,
+        lastInvoiceAt: '2026-05-01T00:00:00.000Z',
+        oldestUnbilledAt: '2026-05-02T00:00:00.000Z',
+      },
+      {
+        organizationId: 'org-2',
+        unbilledRecords: 10,
+        lastInvoiceAt: null,
+        oldestUnbilledAt: '2026-04-01T00:00:00.000Z',
+      },
+    ]);
+  });
+});
+
 describe('FinancialReportsService.toCsv', () => {
   it('emits headers + rows joined by newlines', () => {
     const { svc } = buildService(async () => []);

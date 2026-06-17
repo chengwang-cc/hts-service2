@@ -347,12 +347,50 @@ export class FinancialAdminController {
     return { count: data.length, data };
   }
 
+  // ── F9.1.5 additional reports ─────────────────────────────────────
+
+  @Get('reports/paid-vs-promo-credits')
+  async paidVsPromoCreditsReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.paidVsPromoCredits({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/auto-topup-velocity')
+  async autoTopupVelocityReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+      200,
+    );
+    const data = await this.reports.autoTopupVelocity(limit);
+    return { count: data.length, data };
+  }
+
+  @Get('reports/unbilled-usage')
+  async unbilledUsageReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+      200,
+    );
+    const data = await this.reports.unbilledUsage(limit);
+    return { count: data.length, data };
+  }
+
   /**
    * CSV export. `type` selects the report; the response body is the
    * raw CSV (Content-Type: text/csv). Filename mirrors the report +
    * the current date for downstream file-archive ergonomics.
    *
-   * Supported types: 'revenue' | 'refunds' | 'manual-credits' | 'top-accounts'.
+   * Supported types: 'revenue' | 'refunds' | 'manual-credits' | 'top-accounts'
+   *                | 'paid-vs-promo-credits' | 'auto-topup-velocity' | 'unbilled-usage'.
    */
   @Get('reports/export')
   async exportReport(
@@ -421,9 +459,46 @@ export class FinancialAdminController {
         baseFilename = 'top-accounts';
         break;
       }
+      case 'paid-vs-promo-credits': {
+        headers = ['month', 'paidCredits', 'promoCredits', 'paidPct'];
+        rows = await this.reports.paidVsPromoCredits({ fromMonth, toMonth });
+        baseFilename = 'paid-vs-promo-credits';
+        break;
+      }
+      case 'auto-topup-velocity': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'topupCount',
+          'firstTopupAt',
+          'lastTopupAt',
+          'avgIntervalDays',
+        ];
+        rows = await this.reports.autoTopupVelocity(limit);
+        baseFilename = 'auto-topup-velocity';
+        break;
+      }
+      case 'unbilled-usage': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'unbilledRecords',
+          'lastInvoiceAt',
+          'oldestUnbilledAt',
+        ];
+        rows = await this.reports.unbilledUsage(limit);
+        baseFilename = 'unbilled-usage';
+        break;
+      }
       default: {
         throw new ForbiddenException(
-          `Unknown export type: ${type}. Supported: revenue | refunds | manual-credits | top-accounts`,
+          `Unknown export type: ${type}. Supported: revenue | refunds | manual-credits | top-accounts | paid-vs-promo-credits | auto-topup-velocity | unbilled-usage`,
         );
       }
     }
