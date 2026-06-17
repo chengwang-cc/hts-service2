@@ -18,7 +18,7 @@ import { Response } from 'express';
 import { parse as csvParse } from 'csv-parse/sync';
 import { BatchJobService } from './services/batch-job.service';
 import { CreateBatchJobDto } from './dto';
-import { Public } from '../lookup/decorators/public.decorator';
+import { OptionalAuth } from '../auth/decorators/optional-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Idempotent } from '../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../idempotency/interceptors/idempotency.interceptor';
@@ -29,7 +29,7 @@ export class BatchController {
 
   // ── Create job via JSON ───────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Post('jobs')
   @Idempotent('batch.jobs.create')
   @UseInterceptors(IdempotencyInterceptor)
@@ -65,7 +65,7 @@ export class BatchController {
 
   // ── Create job via CSV upload ─────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Post('jobs/csv')
   @Idempotent('batch.jobs.csv')
   @UseInterceptors(
@@ -140,7 +140,7 @@ export class BatchController {
 
   // ── List jobs ─────────────────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Get('jobs')
   async listJobs(
     @CurrentUser() user: any,
@@ -159,7 +159,7 @@ export class BatchController {
 
   // ── Get job status ────────────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Get('jobs/:jobId')
   async getJob(
     @CurrentUser() user: any,
@@ -173,7 +173,7 @@ export class BatchController {
 
   // ── Get job items (paginated) ─────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Get('jobs/:jobId/items')
   async getJobItems(
     @CurrentUser() user: any,
@@ -194,7 +194,7 @@ export class BatchController {
 
   // ── Download results as CSV ───────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Get('jobs/:jobId/csv')
   async downloadCsv(
     @CurrentUser() user: any,
@@ -211,7 +211,7 @@ export class BatchController {
 
   // ── Cancel job ────────────────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Delete('jobs/:jobId')
   async cancelJob(
     @CurrentUser() user: any,
@@ -225,7 +225,7 @@ export class BatchController {
 
   // ── Pause job ─────────────────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Patch('jobs/:jobId/pause')
   async pauseJob(
     @CurrentUser() user: any,
@@ -239,7 +239,7 @@ export class BatchController {
 
   // ── Resume job ────────────────────────────────────────────────────────────
 
-  @Public()
+  @OptionalAuth()
   @Patch('jobs/:jobId/resume')
   async resumeJob(
     @CurrentUser() user: any,
