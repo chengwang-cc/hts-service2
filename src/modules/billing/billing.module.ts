@@ -17,6 +17,7 @@ import { AutoTopUpConfigEntity } from './entities/auto-topup-config.entity';
 import { CostAlertConfigEntity } from './entities/cost-alert-config.entity';
 import { CostAlertEventEntity } from './entities/cost-alert-event.entity';
 import { CreditLedgerEntity } from './entities/credit-ledger.entity';
+import { RefundEntity } from './entities/refund.entity';
 import { EntitlementService } from './services/entitlement.service';
 import { StripeService } from './services/stripe.service';
 import { SubscriptionService } from './services/subscription.service';
@@ -28,6 +29,7 @@ import { CostAlertService } from './services/cost-alert.service';
 import { WebhookDeliveryService } from './services/webhook-delivery.service';
 import { AutoTopupService } from './services/auto-topup.service';
 import { LedgerService } from './services/ledger.service';
+import { RefundService } from './refunds/services/refund.service';
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 import { PartnerQuotaGuard } from './guards/partner-quota.guard';
@@ -48,6 +50,7 @@ import {
       CostAlertConfigEntity,
       CostAlertEventEntity,
       CreditLedgerEntity,
+      RefundEntity,
       OrganizationEntity,
       PartnerUsageMonthlyEntity,
     ]),
@@ -75,6 +78,7 @@ import {
     WebhookDeliveryService,
     AutoTopupService,
     LedgerService,
+    RefundService,
     PartnerQuotaGuard,
   ],
   controllers: [
@@ -98,6 +102,7 @@ import {
     CostAlertService,
     AutoTopupService,
     LedgerService,
+    RefundService,
     PartnerQuotaGuard,
   ],
 })

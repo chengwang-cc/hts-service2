@@ -21,6 +21,9 @@ import { UserEntity } from '../../auth/entities/user.entity';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { CreditLedgerEntity } from '../../billing/entities/credit-ledger.entity';
 import { LedgerService } from '../../billing/services/ledger.service';
+import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
+import { RefundService } from '../../billing/refunds/services/refund.service';
+import { CreateRefundDto } from '../../billing/refunds/dto/create-refund.dto';
 import { Idempotent } from '../../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../idempotency/interceptors/idempotency.interceptor';
 import { FinanceAdminGuard } from './guards/finance-admin.guard';
@@ -59,6 +62,8 @@ export class FinancialAdminController {
   constructor(
     private readonly adjustments: ManualAdjustmentService,
     private readonly ledger: LedgerService,
+    private readonly credits: CreditPurchaseService,
+    private readonly refunds: RefundService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(CreditLedgerEntity)
@@ -123,6 +128,118 @@ export class FinancialAdminController {
       currency: 'USD',
       recentLedger: recentLedger.map((r) => this.toLedgerRowDto(r)),
     };
+  }
+
+  /**
+   * Recent credit purchases for an org — the SPA refund modal uses
+   * this to render the picker. Limit defaults to 20; covers the
+   * typical "refund the last purchase" workflow.
+   */
+  @Get('organizations/:id/purchases')
+  async purchases(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Query('limit') limitRaw?: string,
+  ) {
+    this.assertEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1), 100);
+    const rows = await this.credits.listRecentPurchases(organizationId, limit);
+    return {
+      organizationId,
+      count: rows.length,
+      data: rows.map((p) => ({
+        id: p.id,
+        credits: p.credits,
+        amount: Number(p.amount),
+        currency: p.currency,
+        status: p.status,
+        stripePaymentIntentId: p.stripePaymentIntentId,
+        stripeSessionId: p.stripeSessionId,
+        completedAt: p.completedAt?.toISOString() ?? null,
+        createdAt: p.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * List refunds for an org. Used by the Financial tab to render a
+   * "Recent refunds" section under the purchase table.
+   */
+  @Get('organizations/:id/refunds')
+  async listRefunds(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.assertEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1), 100);
+    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const rows = await this.refunds.listForOrganization(organizationId, limit, offset);
+    return {
+      organizationId,
+      count: rows.length,
+      data: rows.map((r) => ({
+        id: r.id,
+        originalPaymentIntentId: r.originalPaymentIntentId,
+        stripeRefundId: r.stripeRefundId,
+        amountMinorUnits: Number(r.amountMinorUnits),
+        currency: r.currency,
+        reason: r.reason,
+        status: r.status,
+        creditsReturned: r.creditsReturned,
+        failureReason: r.failureReason,
+        internalNote: r.internalNote,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * Issue a Stripe refund. The Idempotency-Key header is required
+   * (forwarded to Stripe so a retry doesn't fork the refund). Body:
+   *
+   *   {
+   *     paymentIntentId: 'pi_...',
+   *     amountMinorUnits?: 2000,           // default = full purchase
+   *     reason: 'requested_by_customer',   // duplicate | fraudulent | requested_by_customer
+   *     internalNote?: 'support ticket #123'
+   *   }
+   *
+   * Returns the refund row (status='pending' until webhook flips it
+   * to 'succeeded' or 'failed').
+   */
+  @Post('organizations/:id/refunds')
+  @Idempotent('admin.refund.create')
+  @UseInterceptors(IdempotencyInterceptor)
+  async createRefund(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Body() dto: CreateRefundDto,
+    @CurrentUser() user: UserEntity,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    this.assertEnabled();
+    if (process.env.STRIPE_REFUNDS_ENABLED !== 'true') {
+      throw new ForbiddenException(
+        'Stripe refunds are disabled. Set STRIPE_REFUNDS_ENABLED=true to enable.',
+      );
+    }
+    return this.refunds.createRefund(
+      {
+        organizationId,
+        paymentIntentId: dto.paymentIntentId,
+        amountMinorUnits: dto.amountMinorUnits,
+        reason: dto.reason,
+        internalNote: dto.internalNote,
+        idempotencyKey,
+      },
+      {
+        kind: 'ADMIN',
+        userId: user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: (req.headers['x-request-id'] as string | undefined) ?? undefined,
+      },
+    );
   }
 
   /**

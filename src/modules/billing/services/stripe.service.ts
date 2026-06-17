@@ -256,6 +256,86 @@ export class StripeService {
   }
 
   /**
+   * Create a refund against a payment intent. Phase 4 of the financial
+   * management rollout (PR F4.1).
+   *
+   * Idempotency: the caller's `Idempotency-Key` is forwarded as
+   * Stripe's request option of the same name. A retry with the same
+   * key returns the same Stripe refund object (Stripe's 24h TTL on
+   * keys lines up with our admin retry window).
+   *
+   * `amountMinorUnits` omitted = full refund of the remaining balance
+   * on the intent.
+   *
+   * `expand: ['balance_transaction']` populates the canonical
+   * reconciliation join key on the response object so the caller can
+   * persist it without a second round-trip.
+   */
+  async createRefund(params: {
+    paymentIntentId: string;
+    amountMinorUnits?: number;
+    reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer';
+    metadata?: Record<string, string>;
+    idempotencyKey: string;
+  }): Promise<Stripe.Refund> {
+    const refundParams: Stripe.RefundCreateParams = {
+      payment_intent: params.paymentIntentId,
+      ...(params.amountMinorUnits !== undefined
+        ? { amount: params.amountMinorUnits }
+        : {}),
+      ...(params.reason ? { reason: params.reason } : {}),
+      metadata: params.metadata ?? {},
+      expand: ['balance_transaction'],
+    };
+    return this.stripe.refunds.create(refundParams, {
+      idempotencyKey: params.idempotencyKey,
+    });
+  }
+
+  async getRefund(refundId: string): Promise<Stripe.Refund> {
+    return this.stripe.refunds.retrieve(refundId, {
+      expand: ['balance_transaction'],
+    });
+  }
+
+  async listRefunds(
+    params: { paymentIntent?: string; charge?: string; limit?: number } = {},
+  ): Promise<Stripe.Refund[]> {
+    const out = await this.stripe.refunds.list({
+      ...(params.paymentIntent ? { payment_intent: params.paymentIntent } : {}),
+      ...(params.charge ? { charge: params.charge } : {}),
+      limit: params.limit ?? 20,
+      expand: ['data.balance_transaction'],
+    });
+    return out.data;
+  }
+
+  /**
+   * The reconciliation backbone. Every cash-moving Stripe event
+   * (charges, refunds, payouts, fees, disputes) is reified as a
+   * BalanceTransaction with id=txn_*. Phase 6's reconciliation cron
+   * pages through this listing daily.
+   *
+   * `created` filters by Unix timestamp range; `starting_after` paginates.
+   */
+  async listBalanceTransactions(params: {
+    created?: { gte?: number; lt?: number };
+    startingAfter?: string;
+    limit?: number;
+  } = {}): Promise<{ data: Stripe.BalanceTransaction[]; hasMore: boolean; lastId: string | null }> {
+    const out = await this.stripe.balanceTransactions.list({
+      ...(params.created ? { created: params.created } : {}),
+      ...(params.startingAfter ? { starting_after: params.startingAfter } : {}),
+      limit: params.limit ?? 100,
+    });
+    return {
+      data: out.data,
+      hasMore: out.has_more,
+      lastId: out.data.length > 0 ? out.data[out.data.length - 1].id : null,
+    };
+  }
+
+  /**
    * Verify webhook signature
    */
   verifyWebhookSignature(
