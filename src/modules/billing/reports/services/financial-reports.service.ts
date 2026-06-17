@@ -363,6 +363,190 @@ export class FinancialReportsService {
     };
   }
 
+  // ── Phase 9 priority-list reports (PR F9.1.5) ────────────────────
+
+  /**
+   * Paid-vs-non-paid credits: how many credits did orgs receive from
+   * paid purchases (PURCHASE + AUTO_TOPUP) vs. promotional grants
+   * (MANUAL_TOPUP + PROMO + MIGRATION). Critical for accounting —
+   * promotional credits are NOT revenue.
+   *
+   * Live query against credit_ledger; no materialized view needed.
+   */
+  async paidVsPromoCredits(opts: {
+    fromMonth?: string;
+    toMonth?: string;
+  } = {}): Promise<
+    Array<{
+      month: string;
+      paidCredits: number;
+      promoCredits: number;
+      paidPct: number;
+    }>
+  > {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (opts.fromMonth) {
+      where.push(`date_trunc('month', created_at)::date >= $${params.length + 1}::date`);
+      params.push(`${opts.fromMonth}-01`);
+    }
+    if (opts.toMonth) {
+      where.push(`date_trunc('month', created_at)::date <= $${params.length + 1}::date`);
+      params.push(`${opts.toMonth}-01`);
+    }
+    if (where.length === 0) {
+      where.push(
+        `created_at >= (date_trunc('month', now()) - interval '12 months')`,
+      );
+    }
+    const rows = await this.ds.query<
+      Array<{ month: Date; paid: string; promo: string }>
+    >(
+      `SELECT
+         date_trunc('month', created_at AT TIME ZONE 'UTC')::date AS month,
+         COALESCE(SUM(delta_credits) FILTER (WHERE kind IN ('PURCHASE', 'AUTO_TOPUP')), 0)::bigint AS paid,
+         COALESCE(SUM(delta_credits) FILTER (WHERE kind IN ('MANUAL_TOPUP', 'PROMO', 'MIGRATION')), 0)::bigint AS promo
+       FROM credit_ledger
+       WHERE delta_credits > 0
+         AND ${where.join(' AND ')}
+       GROUP BY 1
+       ORDER BY 1 ASC`,
+      params,
+    );
+    return rows.map((r) => {
+      const paid = Number(r.paid);
+      const promo = Number(r.promo);
+      const total = paid + promo;
+      return {
+        month:
+          r.month instanceof Date
+            ? r.month.toISOString().slice(0, 10)
+            : String(r.month).slice(0, 10),
+        paidCredits: paid,
+        promoCredits: promo,
+        paidPct: total === 0 ? 0 : paid / total,
+      };
+    });
+  }
+
+  /**
+   * Auto-topup velocity: average days between consecutive AUTO_TOPUP
+   * events per org. A short interval indicates aggressive usage; a
+   * long interval = idle. Useful for the SPA to highlight which
+   * customers are about to hit their monthly cap.
+   *
+   * Returns top N orgs ordered by topup_count (most active first).
+   * Orgs with fewer than 2 topup events are excluded — can't compute
+   * an interval from a single point.
+   */
+  async autoTopupVelocity(limit = 50): Promise<
+    Array<{
+      organizationId: string;
+      topupCount: number;
+      firstTopupAt: string;
+      lastTopupAt: string;
+      avgIntervalDays: number;
+    }>
+  > {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
+    const rows = await this.ds.query<
+      Array<{
+        organization_id: string;
+        topup_count: string;
+        first_at: Date;
+        last_at: Date;
+        avg_interval_days: string;
+      }>
+    >(
+      `SELECT
+         organization_id,
+         COUNT(*)::bigint AS topup_count,
+         MIN(created_at) AS first_at,
+         MAX(created_at) AS last_at,
+         (EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / NULLIF(COUNT(*) - 1, 0) / 86400.0)::numeric(10, 2) AS avg_interval_days
+       FROM credit_ledger
+       WHERE kind = 'AUTO_TOPUP'
+       GROUP BY 1
+       HAVING COUNT(*) >= 2
+       ORDER BY COUNT(*) DESC
+       LIMIT $1`,
+      [safeLimit],
+    );
+    return rows.map((r) => ({
+      organizationId: r.organization_id,
+      topupCount: Number(r.topup_count),
+      firstTopupAt:
+        r.first_at instanceof Date ? r.first_at.toISOString() : String(r.first_at),
+      lastTopupAt:
+        r.last_at instanceof Date ? r.last_at.toISOString() : String(r.last_at),
+      avgIntervalDays: Number(r.avg_interval_days),
+    }));
+  }
+
+  /**
+   * Unbilled usage (WIP): per-org sum of usage_records since the org's
+   * last invoice. Surfaces orgs that have racked up usage but haven't
+   * been billed yet — useful for ops to spot stuck billing flows.
+   *
+   * Joins on the most recent invoice; orgs without any invoice fall
+   * through to all usage (typical for free-tier orgs).
+   *
+   * Returns top N orgs by unbilled usage record count.
+   */
+  async unbilledUsage(limit = 50): Promise<
+    Array<{
+      organizationId: string;
+      unbilledRecords: number;
+      lastInvoiceAt: string | null;
+      oldestUnbilledAt: string | null;
+    }>
+  > {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
+    const rows = await this.ds.query<
+      Array<{
+        organization_id: string;
+        unbilled_records: string;
+        last_invoice_at: Date | null;
+        oldest_unbilled_at: Date | null;
+      }>
+    >(
+      `WITH last_invoice AS (
+         SELECT organization_id, MAX(created_at) AS last_at
+         FROM invoices
+         WHERE status = 'paid'
+         GROUP BY 1
+       )
+       SELECT
+         u.organization_id,
+         COUNT(*)::bigint AS unbilled_records,
+         li.last_at AS last_invoice_at,
+         MIN(u.timestamp) AS oldest_unbilled_at
+       FROM usage_records u
+       LEFT JOIN last_invoice li ON li.organization_id = u.organization_id
+       WHERE u.timestamp > COALESCE(li.last_at, '1970-01-01'::timestamp)
+       GROUP BY u.organization_id, li.last_at
+       ORDER BY COUNT(*) DESC
+       LIMIT $1`,
+      [safeLimit],
+    );
+    return rows.map((r) => ({
+      organizationId: r.organization_id,
+      unbilledRecords: Number(r.unbilled_records),
+      lastInvoiceAt:
+        r.last_invoice_at instanceof Date
+          ? r.last_invoice_at.toISOString()
+          : r.last_invoice_at
+            ? String(r.last_invoice_at)
+            : null,
+      oldestUnbilledAt:
+        r.oldest_unbilled_at instanceof Date
+          ? r.oldest_unbilled_at.toISOString()
+          : r.oldest_unbilled_at
+            ? String(r.oldest_unbilled_at)
+            : null,
+    }));
+  }
+
   // ── CSV export ───────────────────────────────────────────────────
 
   /**
