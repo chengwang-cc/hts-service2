@@ -27,6 +27,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { FinancialAdminModule } from './modules/admin/financial/financial-admin.module';
 import { TestModule } from './modules/test/test.module';
 import { BatchModule } from './modules/batch/batch.module';
 import { IdempotencyModule } from './modules/idempotency/idempotency.module';
@@ -153,6 +154,7 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Admin module (HTS import, knowledge base admin, etc.)
     AdminModule,
+    FinancialAdminModule,
 
     // Test module (E2E testing endpoints)
     TestModule,
