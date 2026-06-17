@@ -9,3 +9,5 @@ export * from './cost-alert-event.entity';
 export * from './credit-ledger.entity';
 export * from './refund.entity';
 export * from './dispute.entity';
+export * from './reconciliation-run.entity';
+export * from './reconciliation-mismatch.entity';
