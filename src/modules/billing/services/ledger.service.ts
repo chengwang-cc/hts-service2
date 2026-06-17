@@ -145,6 +145,26 @@ export class LedgerService {
         [entry.organizationId, after, saved.id],
       );
 
+      // Phase 7 (PR F7.2): cross-into-negative detection. The first
+      // time the org's balance crosses below zero (typically a refund
+      // exceeding remaining credits), freeze auto-topup so we don't
+      // re-charge a card that might be compromised. Cleared by the
+      // settle-arrears admin endpoint. UPDATE is a no-op if the org
+      // has no auto_topup_configs row — narrow scope, no need to
+      // create the row defensively.
+      if (before >= 0 && after < 0) {
+        await tx.query(
+          `UPDATE auto_topup_configs
+             SET suspended_reason = $2, updated_at = now()
+           WHERE organization_id = $1
+             AND suspended_reason IS NULL`,
+          [entry.organizationId, 'negative_balance'],
+        );
+        this.logger.warn(
+          `[ledger] org=${entry.organizationId} balance crossed into negative (${before} → ${after}); auto-topup frozen.`,
+        );
+      }
+
       return saved;
     });
   }
