@@ -6,3 +6,4 @@ export * from './credit-balance.entity';
 export * from './auto-topup-config.entity';
 export * from './cost-alert-config.entity';
 export * from './cost-alert-event.entity';
+export * from './credit-ledger.entity';

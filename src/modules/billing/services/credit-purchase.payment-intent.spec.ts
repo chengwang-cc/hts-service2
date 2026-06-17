@@ -38,13 +38,20 @@ const buildService = (params: {
   const subs = {
     getOrCreateStripeCustomer: jest.fn(async () => 'cus_test_abc'),
   };
+  // Stub ledger: matches LedgerService's surface used by
+  // CreditPurchaseService (shadowAppend on deduction + webhook credit).
+  const ledger = {
+    shadowAppend: jest.fn(async () => undefined),
+    append: jest.fn(async () => ({}) as any),
+  };
   const svc = new CreditPurchaseService(
     purchaseRepo as any,
     balanceRepo as any,
     stripe as any,
     subs as any,
+    ledger as any,
   );
-  return { svc, purchaseRepo, balanceRepo, stripe, subs };
+  return { svc, purchaseRepo, balanceRepo, stripe, subs, ledger };
 };
 
 describe('CreditPurchaseService.createPaymentIntentForCredits', () => {

@@ -5,6 +5,7 @@ import { CreditPurchaseEntity } from '../entities/credit-purchase.entity';
 import { CreditBalanceEntity } from '../entities/credit-balance.entity';
 import { StripeService } from './stripe.service';
 import { SubscriptionService } from './subscription.service';
+import { LedgerService } from './ledger.service';
 
 export interface CreateCreditCheckoutSessionDto {
   organizationId: string;
@@ -41,7 +42,13 @@ export class CreditPurchaseService {
     private readonly creditBalanceRepo: Repository<CreditBalanceEntity>,
     private readonly stripeService: StripeService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly ledger: LedgerService,
   ) {}
+
+  /** Phase 1 SHADOW MODE — gated by env flag, default ON. */
+  private get shadowWriteEnabled(): boolean {
+    return process.env.LEDGER_SHADOW_WRITE !== 'false';
+  }
 
   /**
    * The discrete credit tiers we sell. The SPA shows these as plan
@@ -185,6 +192,28 @@ export class CreditPurchaseService {
     purchase.status = 'completed';
     purchase.completedAt = new Date();
     await this.creditPurchaseRepo.save(purchase);
+
+    // Phase 1 SHADOW MODE: also write a ledger row. The legacy path
+    // above remains the source of truth until LEDGER_AUTHORITY=ledger
+    // flips in PR F1.2.
+    if (this.shadowWriteEnabled) {
+      const purpose = (purchase.metadata as { purpose?: string } | undefined)?.purpose;
+      const kind = purpose === 'auto_topup' ? 'AUTO_TOPUP' : 'PURCHASE';
+      await this.ledger.shadowAppend(
+        {
+          organizationId: params.organizationId,
+          deltaCredits: params.credits,
+          kind,
+          referenceType: 'stripe_payment_intent',
+          referenceId: params.paymentIntentId,
+          amountMinorUnits: Math.round(Number(purchase.amount) * 100),
+          currency: purchase.currency,
+          taxTreatment: 'TAXED_AT_PURCHASE',
+          metadata: { purpose },
+        },
+        { kind: 'WEBHOOK', requestId: params.paymentIntentId },
+      );
+    }
   }
 
   /** Returns the most recent N completed credit purchases for the org. */
@@ -447,6 +476,21 @@ export class CreditPurchaseService {
 
     const raw = (result.raw as Array<{ balance: number; lifetime_used: number }>) ?? [];
     if (raw.length === 0) return null;
+
+    // Phase 1 SHADOW MODE: write a matching USAGE_DEBIT ledger row.
+    // Best-effort — errors are swallowed at the shadow layer.
+    if (this.shadowWriteEnabled) {
+      await this.ledger.shadowAppend(
+        {
+          organizationId,
+          deltaCredits: -amount,
+          kind: 'USAGE_DEBIT',
+          referenceType: 'deductCredits',
+        },
+        { kind: 'SYSTEM' },
+      );
+    }
+
     return {
       balance: Number(raw[0].balance),
       lifetimeUsed: Number(raw[0].lifetime_used),
