@@ -24,6 +24,12 @@ import { LedgerService } from '../../billing/services/ledger.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { RefundService } from '../../billing/refunds/services/refund.service';
 import { CreateRefundDto } from '../../billing/refunds/dto/create-refund.dto';
+import { ReconciliationService } from '../../billing/services/reconciliation.service';
+import {
+  ReconciliationRunEntity,
+} from '../../billing/entities/reconciliation-run.entity';
+import { ReconciliationMismatchEntity } from '../../billing/entities/reconciliation-mismatch.entity';
+import { IsString, MaxLength } from 'class-validator';
 import { Idempotent } from '../../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../idempotency/interceptors/idempotency.interceptor';
 import { FinanceAdminGuard } from './guards/finance-admin.guard';
@@ -64,6 +70,7 @@ export class FinancialAdminController {
     private readonly ledger: LedgerService,
     private readonly credits: CreditPurchaseService,
     private readonly refunds: RefundService,
+    private readonly reconciliation: ReconciliationService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(CreditLedgerEntity)
@@ -284,6 +291,113 @@ export class FinancialAdminController {
     };
   }
 
+  // ─── Reconciliation (Phase 6, PR F6.1) ─────────────────────────────
+
+  /**
+   * Recent reconciliation runs (last 30 by default). Sorted by
+   * as_of_date DESC so the most recent appears first.
+   *
+   * Gated by FINANCIAL_ADMIN_ENABLED. RECONCILIATION_CRON_ENABLED
+   * gates the worker, not the read endpoints — runs that exist from a
+   * prior enabled period stay viewable after the flag flips off.
+   */
+  @Get('reconciliation/runs')
+  async listReconciliationRuns(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '30', 10) || 30, 1),
+      200,
+    );
+    const rows = await this.reconciliation.listRecentRuns(limit);
+    return {
+      count: rows.length,
+      data: rows.map((r) => this.toRunDto(r)),
+    };
+  }
+
+  @Get('reconciliation/runs/:id')
+  async getReconciliationRun(@Param('id', ParseUUIDPipe) id: string) {
+    this.assertEnabled();
+    const row = await this.reconciliation.getRun(id);
+    return this.toRunDto(row);
+  }
+
+  @Get('reconciliation/runs/:id/mismatches')
+  async listReconciliationMismatches(
+    @Param('id', ParseUUIDPipe) runId: string,
+    @Query('unresolved') unresolvedRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ) {
+    this.assertEnabled();
+    const onlyUnresolved = unresolvedRaw === 'true';
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '200', 10) || 200, 1),
+      1000,
+    );
+    const rows = await this.reconciliation.listMismatchesForRun(
+      runId,
+      onlyUnresolved,
+      limit,
+    );
+    return {
+      runId,
+      count: rows.length,
+      data: rows.map((m) => this.toMismatchDto(m)),
+    };
+  }
+
+  /**
+   * Mark a mismatch resolved with a note. Idempotent — a row already
+   * resolved is returned unchanged.
+   */
+  @Post('reconciliation/mismatches/:id/resolve')
+  @Idempotent('admin.reconciliation.resolve')
+  @UseInterceptors(IdempotencyInterceptor)
+  async resolveReconciliationMismatch(
+    @Param('id', ParseUUIDPipe) mismatchId: string,
+    @Body() dto: ResolveReconciliationMismatchDto,
+    @CurrentUser() user: UserEntity,
+  ) {
+    this.assertEnabled();
+    const row = await this.reconciliation.resolveMismatch(
+      mismatchId,
+      user.id,
+      dto.note,
+    );
+    return this.toMismatchDto(row);
+  }
+
+  private toRunDto(r: ReconciliationRunEntity) {
+    return {
+      id: r.id,
+      asOfDate: r.asOfDate,
+      eventsChecked: r.eventsChecked,
+      mismatches: r.mismatches,
+      driftAmountMinorUnits:
+        r.driftAmountMinorUnits !== null ? Number(r.driftAmountMinorUnits) : null,
+      status: r.status,
+      startedAt: r.startedAt.toISOString(),
+      finishedAt: r.finishedAt?.toISOString() ?? null,
+      errorMessage: r.errorMessage,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
+
+  private toMismatchDto(m: ReconciliationMismatchEntity) {
+    return {
+      id: m.id,
+      runId: m.runId,
+      kind: m.kind,
+      stripeBalanceTransactionId: m.stripeBalanceTransactionId,
+      htsLedgerId: m.htsLedgerId,
+      details: m.details,
+      resolvedAt: m.resolvedAt?.toISOString() ?? null,
+      resolvedByUserId: m.resolvedByUserId,
+      resolutionNote: m.resolutionNote,
+      createdAt: m.createdAt.toISOString(),
+    };
+  }
+
   private assertEnabled(): void {
     if (process.env.FINANCIAL_ADMIN_ENABLED !== 'true') {
       throw new ForbiddenException(
@@ -291,4 +405,16 @@ export class FinancialAdminController {
       );
     }
   }
+}
+
+/**
+ * Body for POST /admin/financial/reconciliation/mismatches/:id/resolve.
+ * Lives inline with the controller because no other endpoint takes
+ * this shape; lifting it into a separate file would add indirection
+ * without value.
+ */
+export class ResolveReconciliationMismatchDto {
+  @IsString()
+  @MaxLength(4000)
+  note: string;
 }
