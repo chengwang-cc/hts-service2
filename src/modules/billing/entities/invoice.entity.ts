@@ -77,6 +77,26 @@ export class InvoiceEntity {
   @Column('jsonb', { nullable: true })
   metadata: Record<string, any> | null;
 
+  // Multi-currency money columns (Phase 7, PR F7.1).
+  //
+  // Declared here so the F8.1 webhook handler can populate them when
+  // F7.1 has already merged its migration. F7.1 owns this code too —
+  // if F7.1 lands first these declarations are a no-op merge; if F8.1
+  // somehow lands first (unexpected — F8.1 depends on F7.1) the
+  // columns become useful immediately once F7.1's migration runs.
+  @Column('bigint', { name: 'amount_minor_units', nullable: true })
+  amountMinorUnits: string | null;
+
+  @Column('bigint', { name: 'tax_amount_minor_units', nullable: true })
+  taxAmountMinorUnits: string | null;
+
+  @Column('varchar', {
+    name: 'stripe_balance_transaction_id',
+    length: 64,
+    nullable: true,
+  })
+  stripeBalanceTransactionId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
