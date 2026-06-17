@@ -24,6 +24,7 @@ import { StripeService } from '../services/stripe.service';
 import { CreditPurchaseService } from '../services/credit-purchase.service';
 import { BillingChargeService } from '../services/billing-charge.service';
 import { SubscriptionLimitsSyncService } from '../services/subscription-limits-sync.service';
+import { RefundService } from '../refunds/services/refund.service';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -43,6 +44,7 @@ export class BillingController {
     private readonly creditPurchaseService: CreditPurchaseService,
     private readonly billingChargeService: BillingChargeService,
     private readonly limitsSync: SubscriptionLimitsSyncService,
+    private readonly refundService: RefundService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @Inject('STRIPE_WEBHOOK_SECRET') private readonly webhookSecret: string,
@@ -472,7 +474,28 @@ export class BillingController {
         break;
       }
 
+      // ── Refund webhooks (Phase 4, PR F4.1) ─────────────────────────
+      // The `refund.*` family is the modern Stripe surface; we listen
+      // to all three plus the legacy charge.refunded. The string-comparison
+      // detour vs. `case` literals is because the Stripe SDK's union
+      // type at this version doesn't include 'refund.failed' yet —
+      // the event IS sent by Stripe, just not typed.
+
+      case 'charge.refunded': {
+        // Legacy event — log only. The refund.* family handles state.
+        this.logger.debug(`charge.refunded received (legacy compat): ${event.id}`);
+        break;
+      }
+
       default:
+        if (
+          event.type === 'refund.created' ||
+          event.type === 'refund.updated' ||
+          (event.type as string) === 'refund.failed'
+        ) {
+          await this.refundService.onRefundEvent(event);
+          break;
+        }
         this.logger.debug(`Unhandled Stripe event: ${event.type}`);
     }
   }
