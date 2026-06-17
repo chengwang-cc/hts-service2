@@ -24,6 +24,9 @@ import { LedgerService } from '../../billing/services/ledger.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { RefundService } from '../../billing/refunds/services/refund.service';
 import { CreateRefundDto } from '../../billing/refunds/dto/create-refund.dto';
+import { DisputeService } from '../../billing/disputes/services/dispute.service';
+import { DisputeEntity } from '../../billing/entities/dispute.entity';
+import { SubmitEvidenceDto } from '../../billing/disputes/dto/submit-evidence.dto';
 import { ReconciliationService } from '../../billing/services/reconciliation.service';
 import {
   ReconciliationRunEntity,
@@ -70,6 +73,7 @@ export class FinancialAdminController {
     private readonly ledger: LedgerService,
     private readonly credits: CreditPurchaseService,
     private readonly refunds: RefundService,
+    private readonly disputes: DisputeService,
     private readonly reconciliation: ReconciliationService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
@@ -396,6 +400,162 @@ export class FinancialAdminController {
       resolutionNote: m.resolutionNote,
       createdAt: m.createdAt.toISOString(),
     };
+  }
+
+  // ─── Disputes (Phase 5, PR F5.1) ────────────────────────────────────
+
+  /**
+   * Cross-org queue of open disputes, sorted by evidence_due_by ASC.
+   * The SPA renders rows due < 48h in red. Internal_state filtered to
+   * OPEN | EVIDENCE_DRAFTING | EVIDENCE_SUBMITTED — closed disputes
+   * (WON/LOST) live in the per-org view.
+   *
+   * Gated by DISPUTES_ENABLED in addition to FINANCIAL_ADMIN_ENABLED so
+   * the flag can be flipped late once Stripe Dashboard subscribes to
+   * the dispute webhook events.
+   */
+  @Get('disputes')
+  async listOpenDisputes(
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1), 200);
+    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const rows = await this.disputes.listOpen(limit, offset);
+    return {
+      count: rows.length,
+      limit,
+      offset,
+      data: rows.map((r) => this.toDisputeDto(r)),
+    };
+  }
+
+  @Get('organizations/:id/disputes')
+  async listOrgDisputes(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1), 100);
+    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const rows = await this.disputes.listForOrganization(organizationId, limit, offset);
+    return {
+      organizationId,
+      count: rows.length,
+      data: rows.map((r) => this.toDisputeDto(r)),
+    };
+  }
+
+  @Get('disputes/:id')
+  async getDispute(@Param('id', ParseUUIDPipe) id: string) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const row = await this.disputes.getById(id);
+    return this.toDisputeDto(row);
+  }
+
+  /**
+   * Submit evidence to Stripe. The Idempotency-Key header is required.
+   * Stripe accepts ONE submission per dispute, so the controller
+   * rejects retries via DisputeService's submission_count guard.
+   */
+  @Post('disputes/:id/respond')
+  @Idempotent('admin.dispute.evidence')
+  @UseInterceptors(IdempotencyInterceptor)
+  async submitEvidence(
+    @Param('id', ParseUUIDPipe) disputeId: string,
+    @Body() dto: SubmitEvidenceDto,
+    @CurrentUser() user: UserEntity,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    if (!idempotencyKey) {
+      throw new ForbiddenException('Idempotency-Key header is required.');
+    }
+
+    // Map our DTO → Stripe's DisputeUpdateParams.Evidence shape.
+    const evidence = {
+      ...(dto.customerCommunication !== undefined && {
+        customer_communication: dto.customerCommunication,
+      }),
+      ...(dto.accessActivityLog !== undefined && {
+        access_activity_log: dto.accessActivityLog,
+      }),
+      ...(dto.productDescription !== undefined && {
+        product_description: dto.productDescription,
+      }),
+      ...(dto.refundPolicy !== undefined && { refund_policy: dto.refundPolicy }),
+      ...(dto.refundPolicyDisclosure !== undefined && {
+        refund_policy_disclosure: dto.refundPolicyDisclosure,
+      }),
+      ...(dto.serviceDate !== undefined && { service_date: dto.serviceDate }),
+      ...(dto.serviceDocumentation !== undefined && {
+        service_documentation: dto.serviceDocumentation,
+      }),
+      ...(dto.uncategorizedText !== undefined && {
+        uncategorized_text: dto.uncategorizedText,
+      }),
+      ...(dto.customerEmailAddress !== undefined && {
+        customer_email_address: dto.customerEmailAddress,
+      }),
+      ...(dto.customerName !== undefined && { customer_name: dto.customerName }),
+      ...(dto.customerPurchaseIp !== undefined && {
+        customer_purchase_ip: dto.customerPurchaseIp,
+      }),
+    };
+
+    const row = await this.disputes.submitEvidence(
+      disputeId,
+      evidence,
+      {
+        kind: 'ADMIN',
+        userId: user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: (req.headers['x-request-id'] as string | undefined) ?? undefined,
+      },
+      idempotencyKey,
+    );
+    return this.toDisputeDto(row);
+  }
+
+  private toDisputeDto(r: DisputeEntity) {
+    return {
+      id: r.id,
+      organizationId: r.organizationId,
+      stripeDisputeId: r.stripeDisputeId,
+      stripeChargeId: r.stripeChargeId,
+      stripePaymentIntentId: r.stripePaymentIntentId,
+      amountMinorUnits: Number(r.amountMinorUnits),
+      currency: r.currency,
+      reason: r.reason,
+      stripeStatus: r.stripeStatus,
+      internalState: r.internalState,
+      evidenceDueBy: r.evidenceDueBy?.toISOString() ?? null,
+      submissionCount: r.submissionCount,
+      isChargeRefundable: r.isChargeRefundable,
+      evidence: r.evidence,
+      fundsWithdrawnAt: r.fundsWithdrawnAt?.toISOString() ?? null,
+      fundsReinstatedAt: r.fundsReinstatedAt?.toISOString() ?? null,
+      chargebackLedgerEntryId: r.chargebackLedgerEntryId,
+      reversalLedgerEntryId: r.reversalLedgerEntryId,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+    };
+  }
+
+  private assertDisputesEnabled(): void {
+    if (process.env.DISPUTES_ENABLED !== 'true') {
+      throw new ForbiddenException(
+        'Disputes are disabled. Set DISPUTES_ENABLED=true to enable.',
+      );
+    }
   }
 
   private assertEnabled(): void {

@@ -25,6 +25,7 @@ import { CreditPurchaseService } from '../services/credit-purchase.service';
 import { BillingChargeService } from '../services/billing-charge.service';
 import { SubscriptionLimitsSyncService } from '../services/subscription-limits-sync.service';
 import { RefundService } from '../refunds/services/refund.service';
+import { DisputeService } from '../disputes/services/dispute.service';
 import { OrganizationEntity } from '../../auth/entities/organization.entity';
 import { PLANS } from '../config/plans.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -45,6 +46,7 @@ export class BillingController {
     private readonly billingChargeService: BillingChargeService,
     private readonly limitsSync: SubscriptionLimitsSyncService,
     private readonly refundService: RefundService,
+    private readonly disputeService: DisputeService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @Inject('STRIPE_WEBHOOK_SECRET') private readonly webhookSecret: string,
@@ -484,6 +486,18 @@ export class BillingController {
       case 'charge.refunded': {
         // Legacy event — log only. The refund.* family handles state.
         this.logger.debug(`charge.refunded received (legacy compat): ${event.id}`);
+        break;
+      }
+
+      // ── Dispute webhooks (Phase 5, PR F5.1) ────────────────────────
+      // Stripe's chargeback family. All five route to DisputeService;
+      // it handles ordering + idempotency internally.
+      case 'charge.dispute.created':
+      case 'charge.dispute.updated':
+      case 'charge.dispute.closed':
+      case 'charge.dispute.funds_withdrawn':
+      case 'charge.dispute.funds_reinstated': {
+        await this.disputeService.onDisputeEvent(event);
         break;
       }
 

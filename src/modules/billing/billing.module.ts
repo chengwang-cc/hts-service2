@@ -18,6 +18,7 @@ import { CostAlertConfigEntity } from './entities/cost-alert-config.entity';
 import { CostAlertEventEntity } from './entities/cost-alert-event.entity';
 import { CreditLedgerEntity } from './entities/credit-ledger.entity';
 import { RefundEntity } from './entities/refund.entity';
+import { DisputeEntity } from './entities/dispute.entity';
 import { ReconciliationRunEntity } from './entities/reconciliation-run.entity';
 import { ReconciliationMismatchEntity } from './entities/reconciliation-mismatch.entity';
 import { EntitlementService } from './services/entitlement.service';
@@ -32,6 +33,7 @@ import { WebhookDeliveryService } from './services/webhook-delivery.service';
 import { AutoTopupService } from './services/auto-topup.service';
 import { LedgerService } from './services/ledger.service';
 import { RefundService } from './refunds/services/refund.service';
+import { DisputeService } from './disputes/services/dispute.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { ReconciliationNightlyWorker } from './workers/reconciliation-nightly.worker';
 import { QueueModule } from '../queue/queue.module';
@@ -56,6 +58,7 @@ import {
       CostAlertEventEntity,
       CreditLedgerEntity,
       RefundEntity,
+      DisputeEntity,
       ReconciliationRunEntity,
       ReconciliationMismatchEntity,
       OrganizationEntity,
@@ -87,6 +90,7 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    DisputeService,
     ReconciliationService,
     ReconciliationNightlyWorker,
     PartnerQuotaGuard,
@@ -113,6 +117,7 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    DisputeService,
     ReconciliationService,
     PartnerQuotaGuard,
   ],
