@@ -52,7 +52,8 @@
     "lookup:eval:report": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-accuracy-report.ts",
     "lookup:plans:check": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/lookup-query-plan-check.ts",
     "lookup:embeddings:refresh": "npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/refresh-hts-embeddings.ts",
-    "kill-port": "./scripts/kill-port.sh"
+    "kill-port": "./scripts/kill-port.sh",
+    "backfill:ledger": "NODE_ENV=development npx ts-node -P ./tsconfig.json -r tsconfig-paths/register ./scripts/backfill-credit-ledger.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
