@@ -28,6 +28,7 @@ import { Idempotent } from '../../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../idempotency/interceptors/idempotency.interceptor';
 import { FinanceAdminGuard } from './guards/finance-admin.guard';
 import { ManualAdjustmentService } from './services/manual-adjustment.service';
+import { NegativeBalanceService } from './services/negative-balance.service';
 import { CreditAdjustDto } from './dto/credit-adjust.dto';
 
 /**
@@ -64,6 +65,7 @@ export class FinancialAdminController {
     private readonly ledger: LedgerService,
     private readonly credits: CreditPurchaseService,
     private readonly refunds: RefundService,
+    private readonly negativeBalance: NegativeBalanceService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(CreditLedgerEntity)
@@ -282,6 +284,68 @@ export class FinancialAdminController {
       currency: r.currency,
       createdAt: r.createdAt.toISOString(),
     };
+  }
+
+  // ─── Negative balance / arrears settlement (Phase 7, PR F7.2) ────
+
+  /**
+   * Preview the settle-arrears charge without firing it. The SPA uses
+   * this to render the confirmation modal showing the deficit + the
+   * USD amount that will be charged.
+   */
+  @Get('organizations/:id/settle-arrears/preview')
+  async previewSettleArrears(@Param('id', ParseUUIDPipe) organizationId: string) {
+    this.assertEnabled();
+    return this.negativeBalance.preview(organizationId);
+  }
+
+  /**
+   * Settle the org's deficit by charging the saved Stripe payment
+   * method off-session. On synchronous success this posts a
+   * MANUAL_TOPUP ledger entry that returns the balance to >= 0 and
+   * clears auto_topup_configs.suspended_reason.
+   *
+   * The Idempotency-Key header is REQUIRED — forwarded to Stripe so a
+   * retry doesn't double-charge. Same header value reused against an
+   * already-resolved org returns the cached prior result.
+   */
+  @Post('organizations/:id/settle-arrears')
+  @Idempotent('admin.arrears.settle')
+  @UseInterceptors(IdempotencyInterceptor)
+  async settleArrears(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @CurrentUser() user: UserEntity,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    this.assertEnabled();
+    if (!idempotencyKey) {
+      throw new ForbiddenException('Idempotency-Key header is required.');
+    }
+    return this.negativeBalance.settleArrears(
+      organizationId,
+      {
+        kind: 'ADMIN',
+        userId: user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: (req.headers['x-request-id'] as string | undefined) ?? undefined,
+      },
+      idempotencyKey,
+    );
+  }
+
+  /**
+   * Manual unfreeze. Use this when the balance was settled
+   * out-of-band (e.g. via the credit-adjust endpoint) and we just
+   * need to clear the auto-topup suspension flag.
+   */
+  @Post('organizations/:id/unsuspend-auto-topup')
+  async unsuspendAutoTopup(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+  ) {
+    this.assertEnabled();
+    return this.negativeBalance.unsuspendAutoTopup(organizationId);
   }
 
   private assertEnabled(): void {

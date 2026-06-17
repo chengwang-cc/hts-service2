@@ -139,6 +139,18 @@ export class AutoTopupService {
       const config = await this.configs.findOne({ where: { organizationId } });
       if (!config?.enabled || !config.stripePaymentMethodId) return false;
 
+      // Phase 7 (PR F7.2): suspended_reason short-circuit. The
+      // ledger marks this column 'negative_balance' the first time
+      // the org dips below zero; settle-arrears clears it. We don't
+      // auto-charge a card while suspended (it's likely the same
+      // card that just had a refund/dispute against it).
+      if (config.suspendedReason) {
+        this.logger.debug(
+          `Skipping auto-topup for ${organizationId}: suspended (${config.suspendedReason})`,
+        );
+        return false;
+      }
+
       const balance = await this.balances.findOne({ where: { organizationId } });
       const current = balance?.balance ?? 0;
       if (current >= config.triggerThreshold) return false;
