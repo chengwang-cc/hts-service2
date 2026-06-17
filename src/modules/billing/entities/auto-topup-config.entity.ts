@@ -69,6 +69,21 @@ export class AutoTopUpConfigEntity {
   @Column('boolean', { default: true })
   enabled: boolean;
 
+  /**
+   * Phase 7, PR F7.2 — when the credit balance crosses into negative
+   * (LedgerService.append detects before >= 0 && after < 0), this is
+   * stamped 'negative_balance' and auto-topup is treated as paused.
+   * Stays set until an admin clears it via the settle-arrears
+   * endpoint OR an explicit /admin/financial/.../auto-topup unpause.
+   *
+   * Modeled as a varchar so future suspension reasons (e.g.,
+   * 'payment_method_required', 'kyc_review') don't require a schema
+   * change. AutoTopupService.maybeTrigger short-circuits when this
+   * column is non-null.
+   */
+  @Column('varchar', { name: 'suspended_reason', length: 64, nullable: true })
+  suspendedReason: string | null;
+
   @Column('boolean', { name: 'email_notifications', default: true })
   emailNotifications: boolean;
 

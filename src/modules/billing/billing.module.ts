@@ -18,6 +18,9 @@ import { CostAlertConfigEntity } from './entities/cost-alert-config.entity';
 import { CostAlertEventEntity } from './entities/cost-alert-event.entity';
 import { CreditLedgerEntity } from './entities/credit-ledger.entity';
 import { RefundEntity } from './entities/refund.entity';
+import { DisputeEntity } from './entities/dispute.entity';
+import { ReconciliationRunEntity } from './entities/reconciliation-run.entity';
+import { ReconciliationMismatchEntity } from './entities/reconciliation-mismatch.entity';
 import { EntitlementService } from './services/entitlement.service';
 import { StripeService } from './services/stripe.service';
 import { SubscriptionService } from './services/subscription.service';
@@ -32,6 +35,9 @@ import { LedgerService } from './services/ledger.service';
 import { RefundService } from './refunds/services/refund.service';
 import { FinancialReportsService } from './reports/services/financial-reports.service';
 import { FinancialReportsRefreshWorker } from './reports/workers/financial-reports-refresh.worker';
+import { DisputeService } from './disputes/services/dispute.service';
+import { ReconciliationService } from './services/reconciliation.service';
+import { ReconciliationNightlyWorker } from './workers/reconciliation-nightly.worker';
 import { QueueModule } from '../queue/queue.module';
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
@@ -54,6 +60,9 @@ import {
       CostAlertEventEntity,
       CreditLedgerEntity,
       RefundEntity,
+      DisputeEntity,
+      ReconciliationRunEntity,
+      ReconciliationMismatchEntity,
       OrganizationEntity,
       PartnerUsageMonthlyEntity,
     ]),
@@ -83,6 +92,9 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    DisputeService,
+    ReconciliationService,
+    ReconciliationNightlyWorker,
     FinancialReportsService,
     FinancialReportsRefreshWorker,
     PartnerQuotaGuard,
@@ -109,6 +121,8 @@ import {
     AutoTopupService,
     LedgerService,
     RefundService,
+    DisputeService,
+    ReconciliationService,
     FinancialReportsService,
     PartnerQuotaGuard,
   ],

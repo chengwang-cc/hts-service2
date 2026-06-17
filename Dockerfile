@@ -60,8 +60,15 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
+# Entrypoint runs pending TypeORM migrations before booting the Nest
+# app. See docker-entrypoint.sh for the rationale + AUTO_MIGRATE
+# override. Fixes a previously-silent gap where every prod deploy
+# needed a manual `npm run db:run` over a tunnel.
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 EXPOSE 3002
 
 USER appuser
 
-CMD ["node", "dist/main.js"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
