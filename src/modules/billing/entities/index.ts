@@ -7,3 +7,5 @@ export * from './auto-topup-config.entity';
 export * from './cost-alert-config.entity';
 export * from './cost-alert-event.entity';
 export * from './credit-ledger.entity';
+export * from './refund.entity';
+export * from './dispute.entity';
