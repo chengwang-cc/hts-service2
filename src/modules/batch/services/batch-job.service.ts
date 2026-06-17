@@ -74,6 +74,22 @@ export class BatchJobService {
     };
   }
 
+  /**
+   * Owner context for a request authenticated by API key (the public
+   * /api/v1/* surface). Jobs are scoped to the organization so every key
+   * minted for that org can poll and read the same job. Keyed by org id (not
+   * user) because public-API calls have no user — `ownerType: 'user'` here
+   * just means "authenticated, non-guest"; `userId` stays null.
+   */
+  resolveApiKeyOwner(organizationId: string): OwnerContext {
+    return {
+      ownerKey: BatchJobService.hashOwnerKey('user', organizationId),
+      ownerType: 'user',
+      organizationId,
+      isGuest: false,
+    };
+  }
+
   // ── One-active-job enforcement ─────────────────────────────────────────────
 
   async getActiveJob(ownerKey: string): Promise<BatchJobEntity | null> {

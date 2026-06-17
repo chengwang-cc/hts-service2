@@ -397,6 +397,42 @@ export class StripeService {
   }
 
   /**
+   * Retrieve a Stripe dispute. Phase 5 (PR F5.1) — the webhook handler
+   * uses this to re-fetch the canonical state when the on-event payload
+   * may be stale (Stripe occasionally sends updated events out of
+   * order).
+   */
+  async getDispute(disputeId: string): Promise<Stripe.Dispute> {
+    return this.stripe.disputes.retrieve(disputeId);
+  }
+
+  /**
+   * Submit evidence to a Stripe dispute. Calls
+   * `stripe.disputes.update(id, { evidence, submit: true })` with the
+   * caller's idempotency key forwarded.
+   *
+   * Stripe allows ONE submission per dispute — once `submit: true`
+   * fires, the dispute moves to `under_review` and the evidence bag
+   * is locked. We surface 4xx errors from Stripe (e.g., already
+   * submitted, invalid evidence) so the SPA can render them.
+   */
+  async submitDisputeEvidence(params: {
+    disputeId: string;
+    evidence: Stripe.DisputeUpdateParams.Evidence;
+    submit: boolean;
+    idempotencyKey: string;
+  }): Promise<Stripe.Dispute> {
+    return this.stripe.disputes.update(
+      params.disputeId,
+      {
+        evidence: params.evidence,
+        submit: params.submit,
+      },
+      { idempotencyKey: params.idempotencyKey },
+    );
+  }
+
+  /**
    * Verify webhook signature
    */
   verifyWebhookSignature(

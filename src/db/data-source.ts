@@ -27,10 +27,23 @@ export default new DataSource({
       : process.env.NODE_ENV === 'development'
         ? false // Disable SSL in development
         : { rejectUnauthorized: false },
+  // Migrations path.
+  // - dev: scan repo source (.ts files, run via ts-node).
+  // - prod (compiled): scan next to this file's compiled location.
+  //   __dirname at runtime is `/app/dist/db`, so migrations live at
+  //   `/app/dist/db/migrations/*.js`. The previous "/app/db/migrations"
+  //   path was wrong (the Dockerfile only copies `/app/dist`).
+  //
+  // NOTE on the glob: write `**/*.js` (no brace expansion). The
+  // pattern `**/*{.js}` looks valid but the glob library treats a
+  // single-element brace as a literal — it matches 0 files. This
+  // bit us once already; the symptom is a quiet "No migrations are
+  // pending" log followed by missing tables in prod. If you need to
+  // match BOTH `.ts` AND `.js`, use `**/*{.ts,.js}`.
   migrations:
     process.env.NODE_ENV === 'development'
       ? [__dirname + '/../../src/db/migrations/**/*{.ts,.js}']
-      : ['/app/db/migrations/**/*{.ts,.js}'], // Path to migration files
+      : [__dirname + '/migrations/**/*.js'],
   migrationsTableName: 'typeorm_migrations', // Table to track migrations
   logging: true,
 });

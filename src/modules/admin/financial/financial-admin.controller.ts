@@ -24,10 +24,23 @@ import { LedgerService } from '../../billing/services/ledger.service';
 import { CreditPurchaseService } from '../../billing/services/credit-purchase.service';
 import { RefundService } from '../../billing/refunds/services/refund.service';
 import { CreateRefundDto } from '../../billing/refunds/dto/create-refund.dto';
+import { FinancialReportsService } from '../../billing/reports/services/financial-reports.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+import { DisputeService } from '../../billing/disputes/services/dispute.service';
+import { DisputeEntity } from '../../billing/entities/dispute.entity';
+import { SubmitEvidenceDto } from '../../billing/disputes/dto/submit-evidence.dto';
+import { ReconciliationService } from '../../billing/services/reconciliation.service';
+import {
+  ReconciliationRunEntity,
+} from '../../billing/entities/reconciliation-run.entity';
+import { ReconciliationMismatchEntity } from '../../billing/entities/reconciliation-mismatch.entity';
+import { IsString, MaxLength } from 'class-validator';
 import { Idempotent } from '../../idempotency/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../idempotency/interceptors/idempotency.interceptor';
 import { FinanceAdminGuard } from './guards/finance-admin.guard';
 import { ManualAdjustmentService } from './services/manual-adjustment.service';
+import { NegativeBalanceService } from './services/negative-balance.service';
 import { CreditAdjustDto } from './dto/credit-adjust.dto';
 
 /**
@@ -56,6 +69,24 @@ import { CreditAdjustDto } from './dto/credit-adjust.dto';
  * code dark and flip the flag when ready, separately from the SPA
  * release that lands the UI.
  */
+
+/**
+ * Body for POST /admin/financial/reconciliation/mismatches/:id/resolve.
+ * Lives inline with the controller because no other endpoint takes
+ * this shape; lifting it into a separate file would add indirection
+ * without value.
+ *
+ * Must be declared BEFORE the controller class — decorators on the
+ * controller reference this class at module-load time, so a
+ * forward-reference would hit a temporal dead zone and crash on boot
+ * (`Cannot access 'ResolveReconciliationMismatchDto' before initialization`).
+ */
+export class ResolveReconciliationMismatchDto {
+  @IsString()
+  @MaxLength(4000)
+  note: string;
+}
+
 @Controller('admin/financial')
 @UseGuards(JwtAuthGuard, FinanceAdminGuard)
 export class FinancialAdminController {
@@ -64,6 +95,10 @@ export class FinancialAdminController {
     private readonly ledger: LedgerService,
     private readonly credits: CreditPurchaseService,
     private readonly refunds: RefundService,
+    private readonly disputes: DisputeService,
+    private readonly reconciliation: ReconciliationService,
+    private readonly negativeBalance: NegativeBalanceService,
+    private readonly reports: FinancialReportsService,
     @InjectRepository(OrganizationEntity)
     private readonly orgs: Repository<OrganizationEntity>,
     @InjectRepository(CreditLedgerEntity)
@@ -284,6 +319,567 @@ export class FinancialAdminController {
     };
   }
 
+  // ─── Reconciliation (Phase 6, PR F6.1) ─────────────────────────────
+
+  /**
+   * Recent reconciliation runs (last 30 by default). Sorted by
+   * as_of_date DESC so the most recent appears first.
+   *
+   * Gated by FINANCIAL_ADMIN_ENABLED. RECONCILIATION_CRON_ENABLED
+   * gates the worker, not the read endpoints — runs that exist from a
+   * prior enabled period stay viewable after the flag flips off.
+   */
+  @Get('reconciliation/runs')
+  async listReconciliationRuns(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '30', 10) || 30, 1),
+      200,
+    );
+    const rows = await this.reconciliation.listRecentRuns(limit);
+    return {
+      count: rows.length,
+      data: rows.map((r) => this.toRunDto(r)),
+    };
+  }
+
+  @Get('reconciliation/runs/:id')
+  async getReconciliationRun(@Param('id', ParseUUIDPipe) id: string) {
+    this.assertEnabled();
+    const row = await this.reconciliation.getRun(id);
+    return this.toRunDto(row);
+  }
+
+  @Get('reconciliation/runs/:id/mismatches')
+  async listReconciliationMismatches(
+    @Param('id', ParseUUIDPipe) runId: string,
+    @Query('unresolved') unresolvedRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ) {
+    this.assertEnabled();
+    const onlyUnresolved = unresolvedRaw === 'true';
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '200', 10) || 200, 1),
+      1000,
+    );
+    const rows = await this.reconciliation.listMismatchesForRun(
+      runId,
+      onlyUnresolved,
+      limit,
+    );
+    return {
+      runId,
+      count: rows.length,
+      data: rows.map((m) => this.toMismatchDto(m)),
+    };
+  }
+
+  /**
+   * Mark a mismatch resolved with a note. Idempotent — a row already
+   * resolved is returned unchanged.
+   */
+  @Post('reconciliation/mismatches/:id/resolve')
+  @Idempotent('admin.reconciliation.resolve')
+  @UseInterceptors(IdempotencyInterceptor)
+  async resolveReconciliationMismatch(
+    @Param('id', ParseUUIDPipe) mismatchId: string,
+    @Body() dto: ResolveReconciliationMismatchDto,
+    @CurrentUser() user: UserEntity,
+  ) {
+    this.assertEnabled();
+    const row = await this.reconciliation.resolveMismatch(
+      mismatchId,
+      user.id,
+      dto.note,
+    );
+    return this.toMismatchDto(row);
+  }
+
+  private toRunDto(r: ReconciliationRunEntity) {
+    return {
+      id: r.id,
+      asOfDate: r.asOfDate,
+      eventsChecked: r.eventsChecked,
+      mismatches: r.mismatches,
+      driftAmountMinorUnits:
+        r.driftAmountMinorUnits !== null ? Number(r.driftAmountMinorUnits) : null,
+      status: r.status,
+      startedAt: r.startedAt.toISOString(),
+      finishedAt: r.finishedAt?.toISOString() ?? null,
+      errorMessage: r.errorMessage,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
+
+  private toMismatchDto(m: ReconciliationMismatchEntity) {
+    return {
+      id: m.id,
+      runId: m.runId,
+      kind: m.kind,
+      stripeBalanceTransactionId: m.stripeBalanceTransactionId,
+      htsLedgerId: m.htsLedgerId,
+      details: m.details,
+      resolvedAt: m.resolvedAt?.toISOString() ?? null,
+      resolvedByUserId: m.resolvedByUserId,
+      resolutionNote: m.resolutionNote,
+      createdAt: m.createdAt.toISOString(),
+    };
+  }
+
+  // ─── Disputes (Phase 5, PR F5.1) ────────────────────────────────────
+
+  /**
+   * Cross-org queue of open disputes, sorted by evidence_due_by ASC.
+   * The SPA renders rows due < 48h in red. Internal_state filtered to
+   * OPEN | EVIDENCE_DRAFTING | EVIDENCE_SUBMITTED — closed disputes
+   * (WON/LOST) live in the per-org view.
+   *
+   * Gated by DISPUTES_ENABLED in addition to FINANCIAL_ADMIN_ENABLED so
+   * the flag can be flipped late once Stripe Dashboard subscribes to
+   * the dispute webhook events.
+   */
+  @Get('disputes')
+  async listOpenDisputes(
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1), 200);
+    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const rows = await this.disputes.listOpen(limit, offset);
+    return {
+      count: rows.length,
+      limit,
+      offset,
+      data: rows.map((r) => this.toDisputeDto(r)),
+    };
+  }
+
+  @Get('organizations/:id/disputes')
+  async listOrgDisputes(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1), 100);
+    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const rows = await this.disputes.listForOrganization(organizationId, limit, offset);
+    return {
+      organizationId,
+      count: rows.length,
+      data: rows.map((r) => this.toDisputeDto(r)),
+    };
+  }
+
+  @Get('disputes/:id')
+  async getDispute(@Param('id', ParseUUIDPipe) id: string) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    const row = await this.disputes.getById(id);
+    return this.toDisputeDto(row);
+  }
+
+  /**
+   * Submit evidence to Stripe. The Idempotency-Key header is required.
+   * Stripe accepts ONE submission per dispute, so the controller
+   * rejects retries via DisputeService's submission_count guard.
+   */
+  @Post('disputes/:id/respond')
+  @Idempotent('admin.dispute.evidence')
+  @UseInterceptors(IdempotencyInterceptor)
+  async submitEvidence(
+    @Param('id', ParseUUIDPipe) disputeId: string,
+    @Body() dto: SubmitEvidenceDto,
+    @CurrentUser() user: UserEntity,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    this.assertEnabled();
+    this.assertDisputesEnabled();
+    if (!idempotencyKey) {
+      throw new ForbiddenException('Idempotency-Key header is required.');
+    }
+
+    // Map our DTO → Stripe's DisputeUpdateParams.Evidence shape.
+    const evidence = {
+      ...(dto.customerCommunication !== undefined && {
+        customer_communication: dto.customerCommunication,
+      }),
+      ...(dto.accessActivityLog !== undefined && {
+        access_activity_log: dto.accessActivityLog,
+      }),
+      ...(dto.productDescription !== undefined && {
+        product_description: dto.productDescription,
+      }),
+      ...(dto.refundPolicy !== undefined && { refund_policy: dto.refundPolicy }),
+      ...(dto.refundPolicyDisclosure !== undefined && {
+        refund_policy_disclosure: dto.refundPolicyDisclosure,
+      }),
+      ...(dto.serviceDate !== undefined && { service_date: dto.serviceDate }),
+      ...(dto.serviceDocumentation !== undefined && {
+        service_documentation: dto.serviceDocumentation,
+      }),
+      ...(dto.uncategorizedText !== undefined && {
+        uncategorized_text: dto.uncategorizedText,
+      }),
+      ...(dto.customerEmailAddress !== undefined && {
+        customer_email_address: dto.customerEmailAddress,
+      }),
+      ...(dto.customerName !== undefined && { customer_name: dto.customerName }),
+      ...(dto.customerPurchaseIp !== undefined && {
+        customer_purchase_ip: dto.customerPurchaseIp,
+      }),
+    };
+
+    const row = await this.disputes.submitEvidence(
+      disputeId,
+      evidence,
+      {
+        kind: 'ADMIN',
+        userId: user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: (req.headers['x-request-id'] as string | undefined) ?? undefined,
+      },
+      idempotencyKey,
+    );
+    return this.toDisputeDto(row);
+  }
+
+  private toDisputeDto(r: DisputeEntity) {
+    return {
+      id: r.id,
+      organizationId: r.organizationId,
+      stripeDisputeId: r.stripeDisputeId,
+      stripeChargeId: r.stripeChargeId,
+      stripePaymentIntentId: r.stripePaymentIntentId,
+      amountMinorUnits: Number(r.amountMinorUnits),
+      currency: r.currency,
+      reason: r.reason,
+      stripeStatus: r.stripeStatus,
+      internalState: r.internalState,
+      evidenceDueBy: r.evidenceDueBy?.toISOString() ?? null,
+      submissionCount: r.submissionCount,
+      isChargeRefundable: r.isChargeRefundable,
+      evidence: r.evidence,
+      fundsWithdrawnAt: r.fundsWithdrawnAt?.toISOString() ?? null,
+      fundsReinstatedAt: r.fundsReinstatedAt?.toISOString() ?? null,
+      chargebackLedgerEntryId: r.chargebackLedgerEntryId,
+      reversalLedgerEntryId: r.reversalLedgerEntryId,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+    };
+  }
+
+  private assertDisputesEnabled(): void {
+    if (process.env.DISPUTES_ENABLED !== 'true') {
+      throw new ForbiddenException(
+        'Disputes are disabled. Set DISPUTES_ENABLED=true to enable.',
+      );
+    }
+  }
+
+  // ─── Negative balance / arrears settlement (Phase 7, PR F7.2) ────
+
+  /**
+   * Preview the settle-arrears charge without firing it. The SPA uses
+   * this to render the confirmation modal showing the deficit + the
+   * USD amount that will be charged.
+   */
+  @Get('organizations/:id/settle-arrears/preview')
+  async previewSettleArrears(@Param('id', ParseUUIDPipe) organizationId: string) {
+    this.assertEnabled();
+    return this.negativeBalance.preview(organizationId);
+  }
+
+  /**
+   * Settle the org's deficit by charging the saved Stripe payment
+   * method off-session. On synchronous success this posts a
+   * MANUAL_TOPUP ledger entry that returns the balance to >= 0 and
+   * clears auto_topup_configs.suspended_reason.
+   *
+   * The Idempotency-Key header is REQUIRED — forwarded to Stripe so a
+   * retry doesn't double-charge. Same header value reused against an
+   * already-resolved org returns the cached prior result.
+   */
+  @Post('organizations/:id/settle-arrears')
+  @Idempotent('admin.arrears.settle')
+  @UseInterceptors(IdempotencyInterceptor)
+  async settleArrears(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @CurrentUser() user: UserEntity,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    this.assertEnabled();
+    if (!idempotencyKey) {
+      throw new ForbiddenException('Idempotency-Key header is required.');
+    }
+    return this.negativeBalance.settleArrears(
+      organizationId,
+      {
+        kind: 'ADMIN',
+        userId: user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: (req.headers['x-request-id'] as string | undefined) ?? undefined,
+      },
+      idempotencyKey,
+    );
+  }
+
+  /**
+   * Manual unfreeze. Use this when the balance was settled
+   * out-of-band (e.g. via the credit-adjust endpoint) and we just
+   * need to clear the auto-topup suspension flag.
+   */
+  @Post('organizations/:id/unsuspend-auto-topup')
+  async unsuspendAutoTopup(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+  ) {
+    this.assertEnabled();
+    return this.negativeBalance.unsuspendAutoTopup(organizationId);
+  }
+
+
+  // ─── Reports (Phase 9, PR F9.1) ─────────────────────────────────────
+
+  /**
+   * Dashboard summary tile data. Bundles MRR / refund rate / active
+   * orgs so the dashboard fires ONE call on mount rather than N
+   * parallel calls. Gated by FINANCIAL_REPORTS_ENABLED in addition
+   * to FINANCIAL_ADMIN_ENABLED so the dashboard can stay dark while
+   * the views are still warming up.
+   */
+  @Get('reports/summary')
+  async reportsSummary() {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    return this.reports.dashboardSummary();
+  }
+
+  @Get('reports/revenue')
+  async revenueReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.revenueByMonth({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/refunds')
+  async refundsReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.refundsByMonth({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/manual-credits')
+  async manualCreditsReport(
+    @Query('groupBy') groupBy?: 'reason_code' | 'month',
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    return this.reports.manualCredits({ groupBy });
+  }
+
+  @Get('reports/top-accounts')
+  async topAccountsReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1),
+      200,
+    );
+    const data = await this.reports.topAccounts(limit);
+    return { count: data.length, data };
+  }
+
+  /**
+   * CSV export. `type` selects the report; the response body is the
+  // ── F9.1.5 additional reports ─────────────────────────────────────
+
+  @Get('reports/paid-vs-promo-credits')
+  async paidVsPromoCreditsReport(
+    @Query('from') fromMonth?: string,
+    @Query('to') toMonth?: string,
+  ) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const data = await this.reports.paidVsPromoCredits({ fromMonth, toMonth });
+    return { count: data.length, data };
+  }
+
+  @Get('reports/auto-topup-velocity')
+  async autoTopupVelocityReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+      200,
+    );
+    const data = await this.reports.autoTopupVelocity(limit);
+    return { count: data.length, data };
+  }
+
+  @Get('reports/unbilled-usage')
+  async unbilledUsageReport(@Query('limit') limitRaw?: string) {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+    const limit = Math.min(
+      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+      200,
+    );
+    const data = await this.reports.unbilledUsage(limit);
+    return { count: data.length, data };
+  }
+
+
+   * raw CSV (Content-Type: text/csv). Filename mirrors the report +
+   * the current date for downstream file-archive ergonomics.
+   *
+   * Supported types: 'revenue' | 'refunds' | 'manual-credits' | 'top-accounts'.
+   */
+  @Get('reports/export')
+  async exportReport(
+    @Query('type') type: string,
+    @Query('from') fromMonth: string | undefined,
+    @Query('to') toMonth: string | undefined,
+    @Query('limit') limitRaw: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.assertEnabled();
+    this.assertReportsEnabled();
+
+    let headers: string[];
+    let rows: Array<Record<string, unknown>>;
+    let baseFilename: string;
+
+    switch (type) {
+      case 'revenue': {
+        headers = ['month', 'source', 'count', 'grossUsd', 'grossUsdCents'];
+        rows = await this.reports.revenueByMonth({ fromMonth, toMonth });
+        baseFilename = 'revenue';
+        break;
+      }
+      case 'refunds': {
+        headers = [
+          'month',
+          'refundCount',
+          'refundedCents',
+          'creditsReturned',
+          'grossCents',
+          'refundRate',
+        ];
+        rows = await this.reports.refundsByMonth({ fromMonth, toMonth });
+        baseFilename = 'refunds';
+        break;
+      }
+      case 'manual-credits': {
+        const groupBy = (
+          fromMonth === 'month' ? 'month' : 'reason_code'
+        ) as 'reason_code' | 'month';
+        const result = await this.reports.manualCredits({ groupBy });
+        headers = ['key', 'topupCount', 'topupCredits', 'debitCount', 'debitCredits'];
+        rows = result.rows.map((r) => ({
+          key: r.key,
+          topupCount: r.grants.count,
+          topupCredits: r.grants.credits,
+          debitCount: r.debits.count,
+          debitCredits: r.debits.credits,
+        }));
+        baseFilename = 'manual-credits';
+        break;
+      }
+      case 'top-accounts': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'organizationName',
+          'organizationSlug',
+          'revenueUsd',
+          'revenueCents',
+        ];
+        rows = await this.reports.topAccounts(limit);
+        baseFilename = 'top-accounts';
+        break;
+      }
+      case 'paid-vs-promo-credits': {
+        headers = ['month', 'paidCredits', 'promoCredits', 'paidPct'];
+        rows = await this.reports.paidVsPromoCredits({ fromMonth, toMonth });
+        baseFilename = 'paid-vs-promo-credits';
+        break;
+      }
+      case 'auto-topup-velocity': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'topupCount',
+          'firstTopupAt',
+          'lastTopupAt',
+          'avgIntervalDays',
+        ];
+        rows = await this.reports.autoTopupVelocity(limit);
+        baseFilename = 'auto-topup-velocity';
+        break;
+      }
+      case 'unbilled-usage': {
+        const limit = Math.min(
+          Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
+          200,
+        );
+        headers = [
+          'organizationId',
+          'unbilledRecords',
+          'lastInvoiceAt',
+          'oldestUnbilledAt',
+        ];
+        rows = await this.reports.unbilledUsage(limit);
+        baseFilename = 'unbilled-usage';
+        break;
+      }
+      default: {
+        throw new ForbiddenException(
+          `Unknown export type: ${type}. Supported: revenue | refunds | manual-credits | top-accounts | paid-vs-promo-credits | auto-topup-velocity | unbilled-usage`,
+        );
+      }
+    }
+
+    const csv = this.reports.toCsv(headers, rows);
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${baseFilename}-${today}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    res.send(csv);
+  }
+
+  private assertReportsEnabled(): void {
+    if (process.env.FINANCIAL_REPORTS_ENABLED !== 'true') {
+      throw new ForbiddenException(
+        'Financial reports are disabled. Set FINANCIAL_REPORTS_ENABLED=true to enable.',
+      );
+    }
+  }
+
+
   private assertEnabled(): void {
     if (process.env.FINANCIAL_ADMIN_ENABLED !== 'true') {
       throw new ForbiddenException(
@@ -292,3 +888,4 @@ export class FinancialAdminController {
     }
   }
 }
+

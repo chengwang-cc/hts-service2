@@ -79,11 +79,10 @@ export class InvoiceEntity {
 
   // Multi-currency money columns (Phase 7, PR F7.1).
   //
-  // Declared here so the F8.1 webhook handler can populate them when
-  // F7.1 has already merged its migration. F7.1 owns this code too —
-  // if F7.1 lands first these declarations are a no-op merge; if F8.1
-  // somehow lands first (unexpected — F8.1 depends on F7.1) the
-  // columns become useful immediately once F7.1's migration runs.
+  // `amount_minor_units` mirrors `total` in integer minor units.
+  // `tax_amount_minor_units` is populated by Phase 8's saveInvoiceFromStripe
+  // when STRIPE_TAX_ENABLED=true; nullable so legacy rows stay valid.
+  // `stripe_balance_transaction_id` is the reconciliation join key.
   @Column('bigint', { name: 'amount_minor_units', nullable: true })
   amountMinorUnits: string | null;
 
