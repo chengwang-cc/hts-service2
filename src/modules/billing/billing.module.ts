@@ -33,6 +33,8 @@ import { WebhookDeliveryService } from './services/webhook-delivery.service';
 import { AutoTopupService } from './services/auto-topup.service';
 import { LedgerService } from './services/ledger.service';
 import { RefundService } from './refunds/services/refund.service';
+import { FinancialReportsService } from './reports/services/financial-reports.service';
+import { FinancialReportsRefreshWorker } from './reports/workers/financial-reports-refresh.worker';
 import { DisputeService } from './disputes/services/dispute.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { ReconciliationNightlyWorker } from './workers/reconciliation-nightly.worker';
@@ -93,6 +95,8 @@ import {
     DisputeService,
     ReconciliationService,
     ReconciliationNightlyWorker,
+    FinancialReportsService,
+    FinancialReportsRefreshWorker,
     PartnerQuotaGuard,
   ],
   controllers: [
@@ -119,6 +123,7 @@ import {
     RefundService,
     DisputeService,
     ReconciliationService,
+    FinancialReportsService,
     PartnerQuotaGuard,
   ],
 })
