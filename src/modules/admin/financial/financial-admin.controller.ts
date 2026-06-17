@@ -65,6 +65,24 @@ import { CreditAdjustDto } from './dto/credit-adjust.dto';
  * code dark and flip the flag when ready, separately from the SPA
  * release that lands the UI.
  */
+
+/**
+ * Body for POST /admin/financial/reconciliation/mismatches/:id/resolve.
+ * Lives inline with the controller because no other endpoint takes
+ * this shape; lifting it into a separate file would add indirection
+ * without value.
+ *
+ * Must be declared BEFORE the controller class — decorators on the
+ * controller reference this class at module-load time, so a
+ * forward-reference would hit a temporal dead zone and crash on boot
+ * (`Cannot access 'ResolveReconciliationMismatchDto' before initialization`).
+ */
+export class ResolveReconciliationMismatchDto {
+  @IsString()
+  @MaxLength(4000)
+  note: string;
+}
+
 @Controller('admin/financial')
 @UseGuards(JwtAuthGuard, FinanceAdminGuard)
 export class FinancialAdminController {
@@ -567,14 +585,3 @@ export class FinancialAdminController {
   }
 }
 
-/**
- * Body for POST /admin/financial/reconciliation/mismatches/:id/resolve.
- * Lives inline with the controller because no other endpoint takes
- * this shape; lifting it into a separate file would add indirection
- * without value.
- */
-export class ResolveReconciliationMismatchDto {
-  @IsString()
-  @MaxLength(4000)
-  note: string;
-}
