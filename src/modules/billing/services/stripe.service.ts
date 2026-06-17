@@ -1,9 +1,36 @@
 import { Injectable, Inject } from '@nestjs/common';
 import Stripe from 'stripe';
 
+/**
+ * Stripe Tax tax_code for general SaaS.
+ *
+ * Phase 8 (PR F8.1).
+ *
+ * NOTE: TAX-CODE SELECTION IS PENDING TAX COUNSEL REVIEW.
+ *   - `txcd_10000000` = general SaaS, the design doc's recommendation.
+ *   - Counsel may pick a different code (e.g. region-specific). Until
+ *     they confirm, this PR ships dark behind `STRIPE_TAX_ENABLED=false`.
+ *     Once they confirm:
+ *       1. Update this constant if counsel chose differently.
+ *       2. Flip STRIPE_TAX_ENABLED=true in prod env.
+ *
+ * See docs/2026-06-17/0736_financial-management-system-design.md §12.5.
+ */
+export const STRIPE_TAX_DEFAULT_TAX_CODE = 'txcd_10000000';
+
 @Injectable()
 export class StripeService {
   constructor(@Inject('STRIPE_CLIENT') private readonly stripe: Stripe) {}
+
+  /**
+   * Phase 8 (PR F8.1): is Stripe Tax enabled on new sessions/intents?
+   * Gated by STRIPE_TAX_ENABLED env flag (default false). Code paths
+   * conditionally set `automatic_tax: { enabled: true }`; without the
+   * flag we ship dark and the flow is unchanged.
+   */
+  private get taxEnabled(): boolean {
+    return process.env.STRIPE_TAX_ENABLED === 'true';
+  }
 
   /**
    * Create Stripe customer
@@ -119,6 +146,17 @@ export class StripeService {
       line_items: [{ price: params.priceId, quantity: 1 }],
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
+      // Phase 8 (F8.1): conditional automatic_tax. Stripe Tax
+      // requires the customer to have a billing address — for
+      // subscription sessions, the Customer Portal collects it; for
+      // payment sessions we set `customer_update.address: 'auto'`
+      // so Stripe asks at checkout.
+      ...(this.taxEnabled
+        ? {
+            automatic_tax: { enabled: true },
+            customer_update: { address: 'auto' as const },
+          }
+        : {}),
     });
   }
 
@@ -137,7 +175,19 @@ export class StripeService {
     payment_intent_data?: Stripe.Checkout.SessionCreateParams.PaymentIntentData;
     setup_intent_data?: Stripe.Checkout.SessionCreateParams.SetupIntentData;
   }): Promise<Stripe.Checkout.Session> {
-    return this.stripe.checkout.sessions.create(params as any);
+    // Phase 8 (F8.1): conditional automatic_tax. Setup-mode sessions
+    // don't take a charge, so tax is N/A for those.
+    const taxFields: Record<string, unknown> =
+      this.taxEnabled && params.mode !== 'setup'
+        ? {
+            automatic_tax: { enabled: true },
+            customer_update: { address: 'auto' },
+          }
+        : {};
+    return this.stripe.checkout.sessions.create({
+      ...(params as any),
+      ...taxFields,
+    });
   }
 
   /**
@@ -247,6 +297,17 @@ export class StripeService {
         : {
             automatic_payment_methods: { enabled: true },
           }),
+      // Phase 8 (F8.1): automatic_tax on Payment Intents.
+      //
+      // CAVEAT: Stripe requires the Customer to have a billing or
+      // shipping address on file. For Customer Portal subscribers
+      // this is collected at sign-up; for credit-purchase users who
+      // went through the legacy Payment Intent flow it may be missing.
+      //
+      // Pending tax-counsel sign-off, when STRIPE_TAX_ENABLED is
+      // flipped on we also need to backfill addresses on existing
+      // Customers (out of scope here; tracked separately).
+      ...(this.taxEnabled ? { automatic_tax: { enabled: true } } : {}),
       metadata: {
         organizationId: params.organizationId,
         purpose: params.purpose,

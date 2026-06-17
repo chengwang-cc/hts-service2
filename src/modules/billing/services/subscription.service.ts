@@ -297,6 +297,18 @@ export class SubscriptionService {
     invoice.hostedInvoiceUrl = stripeInvoice.hosted_invoice_url ?? null;
     invoice.invoicePdf = stripeInvoice.invoice_pdf ?? null;
 
+    // Phase 7 (F7.1): canonical money columns in integer minor units.
+    // Phase 8 (F8.1): tax_amount_minor_units populated from Stripe's
+    // `tax` field when automatic_tax is on; falls through to NULL
+    // for legacy invoices without tax.
+    invoice.amountMinorUnits = String(stripeInvoice.total);
+    invoice.taxAmountMinorUnits =
+      stripeInvoice.tax != null ? String(stripeInvoice.tax) : null;
+    // stripe_balance_transaction_id: Stripe ties paid invoices to
+    // exactly one balance_transaction via the underlying charge. We
+    // don't fetch the charge here to avoid an extra API round-trip
+    // — the reconciliation cron joins by other keys.
+
     return this.invoiceRepo.save(invoice);
   }
 }

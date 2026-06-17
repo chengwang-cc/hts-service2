@@ -80,9 +80,8 @@ export class InvoiceEntity {
   // Multi-currency money columns (Phase 7, PR F7.1).
   //
   // `amount_minor_units` mirrors `total` in integer minor units.
-  // `tax_amount_minor_units` is pre-populated by Phase 8's Stripe Tax
-  // webhook when automatic_tax is on; today it stays nullable so
-  // existing invoice rows don't break.
+  // `tax_amount_minor_units` is populated by Phase 8's saveInvoiceFromStripe
+  // when STRIPE_TAX_ENABLED=true; nullable so legacy rows stay valid.
   // `stripe_balance_transaction_id` is the reconciliation join key.
   @Column('bigint', { name: 'amount_minor_units', nullable: true })
   amountMinorUnits: string | null;

@@ -47,6 +47,11 @@ const PRICE_BOOK: Readonly<Record<string, PriceEntry>> = Object.freeze({
   // HTS batch lookup — per-code multiplier set by route handler
   'POST /api/v1/hts/lookup/batch': { baseUsd: 0, perItemUsd: 0 },
 
+  // HTS async batch classification — per-item multiplier set by route handler.
+  // deep_search items are embedding-backed (priced like GET search);
+  // autocomplete items are free DB reads and charged $0 by the handler.
+  'POST /api/v1/hts/batch': { baseUsd: 0, perItemUsd: 0.0005 },
+
   // Internal/SPA-facing lookup endpoints (hts.proto.com hits these directly).
   // Same downstream cost as the api/v1 variants — keeping them priced means
   // the dashboard reflects real backend cost regardless of which surface
