@@ -37,6 +37,16 @@ export class CreditBalanceEntity {
   @Column('timestamp', { name: 'last_used_at', nullable: true })
   lastUsedAt: Date | null;
 
+  /**
+   * Pointer to the most recent credit_ledger row applied to this
+   * balance (Phase 7, PR F7.1). Drift detection anchor: a periodic
+   * audit can verify that the balance equals the sum of ledger
+   * deltas up through this id. Set by LedgerService.append after
+   * the balance UPDATE; nullable to keep the migration additive.
+   */
+  @Column('uuid', { name: 'last_ledger_id', nullable: true })
+  lastLedgerId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

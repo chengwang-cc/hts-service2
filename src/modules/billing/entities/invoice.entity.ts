@@ -77,6 +77,26 @@ export class InvoiceEntity {
   @Column('jsonb', { nullable: true })
   metadata: Record<string, any> | null;
 
+  // Multi-currency money columns (Phase 7, PR F7.1).
+  //
+  // `amount_minor_units` mirrors `total` in integer minor units.
+  // `tax_amount_minor_units` is pre-populated by Phase 8's Stripe Tax
+  // webhook when automatic_tax is on; today it stays nullable so
+  // existing invoice rows don't break.
+  // `stripe_balance_transaction_id` is the reconciliation join key.
+  @Column('bigint', { name: 'amount_minor_units', nullable: true })
+  amountMinorUnits: string | null;
+
+  @Column('bigint', { name: 'tax_amount_minor_units', nullable: true })
+  taxAmountMinorUnits: string | null;
+
+  @Column('varchar', {
+    name: 'stripe_balance_transaction_id',
+    length: 64,
+    nullable: true,
+  })
+  stripeBalanceTransactionId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
