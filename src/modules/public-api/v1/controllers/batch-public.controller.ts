@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,15 +10,20 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { parse as csvParse } from 'csv-parse/sync';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiSecurity,
   ApiBody,
+  ApiConsumes,
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -113,6 +119,133 @@ export class BatchPublicController {
         apiVersion: 'v1',
         organizationId: apiKey.organizationId,
         totalItems: job.totalItems,
+      },
+    };
+  }
+
+  /**
+   * Submit an async batch job by uploading a CSV file.
+   * POST /api/v1/hts/batch/csv?method=autocomplete|deep_search
+   *
+   * CSV shape (header row required; column order doesn't matter):
+   *   query        — required, the product description / HTS prefix
+   *   reference_id — optional, echoed back in results so partners can
+   *                  join against their own records
+   *
+   * The endpoint mirrors POST /api/v1/hts/batch (the JSON path) — same
+   * auth, same quota, same pricing per item. The only difference is
+   * the request body format. The CSV is parsed inline, converted to
+   * the same `items[]` shape the JSON path uses, then handed to the
+   * shared BatchJobService.createJob.
+   *
+   * 5 MB upload cap; up to 500 rows. Larger files should be split on
+   * the partner side or use the chunked JSON path.
+   */
+  @Post('csv')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Submit an async batch classification job from a CSV file',
+    description:
+      'Upload a CSV with `query` (required) + optional `reference_id` columns. Returns 202 + job id; poll the JSON endpoints to collect results.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiQuery({
+    name: 'method',
+    enum: ['autocomplete', 'deep_search'],
+    required: false,
+    description: 'Classification mode (default: autocomplete). deep_search charges per item.',
+  })
+  @ApiResponse({ status: 202, description: 'Job accepted and queued' })
+  @ApiResponse({ status: 400, description: 'Invalid CSV (missing columns, empty rows, parse error)' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing API key' })
+  @ApiResponse({ status: 402, description: 'Monthly quota exceeded' })
+  @ApiResponse({ status: 409, description: 'Organization already has an active batch job' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @ApiPermissions('hts:lookup')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      // 5 MB matches the existing portal CSV upload limit. Bigger
+      // uploads should split into ≤500-row chunks.
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (!file.originalname.match(/\.csv$/i) && file.mimetype !== 'text/csv') {
+          return cb(new BadRequestException('Only CSV files are accepted'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async submitCsv(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentApiKey() apiKey: ApiKeyEntity,
+    @Req() req: Request,
+    @Query('method') methodRaw?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('CSV file is required (multipart field name: "file")');
+    }
+    const method: 'autocomplete' | 'deep_search' =
+      methodRaw === 'deep_search' ? 'deep_search' : 'autocomplete';
+
+    let records: Record<string, string>[];
+    try {
+      records = csvParse(file.buffer, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Record<string, string>[];
+    } catch {
+      throw new BadRequestException('Invalid CSV file (parse error)');
+    }
+    if (!records.length) {
+      throw new BadRequestException('CSV file is empty');
+    }
+    // Mirror the internal CSV endpoint's column tolerance — accept
+    // lower/upper/title-case query column; treat any of three
+    // reference column names as the same field.
+    const items = records.map((row, i) => {
+      const query = row['query'] || row['Query'] || row['QUERY'] || '';
+      if (!query.trim()) {
+        throw new BadRequestException(`Row ${i + 1}: "query" column is required`);
+      }
+      return {
+        query: query.trim(),
+        referenceId:
+          row['reference_id'] || row['referenceId'] || row['id'] || undefined,
+      };
+    });
+
+    // Charge per item up front. autocomplete is a free DB read;
+    // deep_search is embedding-backed and charged per item.
+    if (req.attribution) {
+      const perItem =
+        method === 'deep_search'
+          ? getPerItemUsd('POST', '/api/v1/hts/batch')
+          : 0;
+      req.attribution.extras.costUsd = perItem * items.length;
+    }
+
+    const owner = this.batchJobService.resolveApiKeyOwner(apiKey.organizationId);
+    const { job } = await this.batchJobService.createJob(
+      owner,
+      method,
+      items,
+      'api', // not 'csv' — source 'csv' is reserved for the
+              // session-authenticated portal upload path; partners
+              // hitting the public API are tracked as 'api' regardless
+              // of body format. Filename + size are preserved for the
+              // audit log via the next argument.
+      file.originalname,
+    );
+
+    return {
+      success: true,
+      data: job,
+      meta: {
+        apiVersion: 'v1',
+        organizationId: apiKey.organizationId,
+        totalItems: job.totalItems,
+        sourceFilename: file.originalname,
       },
     };
   }
