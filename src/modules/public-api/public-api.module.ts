@@ -4,6 +4,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { LookupModule } from '../lookup/lookup.module';
 import { CalculatorModule } from '../calculator/calculator.module';
 import { KnowledgebaseModule } from '../knowledgebase/knowledgebase.module';
+import { BatchModule } from '../batch/batch.module';
 import { BillingModule } from '../billing/billing.module';
 import { OrganizationEntity } from '../auth/entities/organization.entity';
 import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
@@ -19,6 +20,7 @@ import { HtsPublicController } from './v1/controllers/hts-public.controller';
 import { CalculatorPublicController } from './v1/controllers/calculator-public.controller';
 import { KnowledgebasePublicController } from './v1/controllers/knowledgebase-public.controller';
 import { ClassificationPublicController } from './v1/controllers/classification-public.controller';
+import { BatchPublicController } from './v1/controllers/batch-public.controller';
 
 /**
  * Public API Module
@@ -32,6 +34,7 @@ import { ClassificationPublicController } from './v1/controllers/classification-
     LookupModule, // Import wrapper module that exports services
     CalculatorModule, // Import wrapper module that exports services
     KnowledgebaseModule, // Import wrapper module that exports services
+    BatchModule, // Exports BatchJobService for BatchPublicController
     BillingModule, // PartnerQuotaGuard for monthly-quota enforcement on /api/v1/*
     // The guard injects OrganizationEntity + PartnerUsageMonthlyEntity
     // repositories. NestJS instantiates per-controller guards in the
@@ -57,6 +60,7 @@ import { ClassificationPublicController } from './v1/controllers/classification-
     CalculatorPublicController,
     KnowledgebasePublicController,
     ClassificationPublicController,
+    BatchPublicController,
   ],
 })
 export class PublicApiModule {}
