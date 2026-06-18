@@ -44,6 +44,9 @@ import { UsageTrackingService } from '../billing/services/usage-tracking.service
 import { QueueModule } from '../queue/queue.module';
 import { PartnerAttributionModule } from '../partner-attribution/partner-attribution.module';
 import { QueueService } from '../queue/queue.service';
+import { BillingModule } from '../billing/billing.module';
+import { OrganizationEntity } from '../auth/entities/organization.entity';
+import { PartnerUsageMonthlyEntity } from '../partner-attribution/entities/partner-usage-monthly.entity';
 
 export const LOOKUP_CONVERSATION_QUEUE = 'lookup-conversation-message';
 const LOOKUP_CLASSIFICATION_QUEUE = 'lookup-classification-job';
@@ -68,6 +71,11 @@ const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
     // rows after pg-boss handlers complete. Without this import NestJS
     // fails to resolve the dependency at boot.
     PartnerAttributionModule,
+    // BillingModule exports PartnerQuotaGuard, which the LookupController
+    // applies on the now-authenticated smart-classify-async route. The
+    // forFeature() below registers the two repositories the guard injects
+    // in this module's DI context — same shape as PublicApiModule.
+    BillingModule,
     TypeOrmModule.forFeature([
       ProductClassificationEntity,
       LookupClassificationJobEntity,
@@ -82,6 +90,8 @@ const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
       LookupIntentRuleEntity,
       LookupTestSampleEntity,
       LookupDebugSessionEntity,
+      OrganizationEntity,
+      PartnerUsageMonthlyEntity,
     ]),
   ],
   controllers: [LookupController, LookupJobController, LookupIntentRuleController, LookupTestSampleController, LookupDebugController],

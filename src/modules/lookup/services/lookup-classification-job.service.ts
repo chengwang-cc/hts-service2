@@ -208,9 +208,12 @@ export class LookupClassificationJobService {
     return this.getJob(job.id, organizationId);
   }
 
-  async getJob(jobId: string, organizationId: string | null) {
+  async getJob(jobId: string, organizationId: string) {
+    if (!organizationId) {
+      throw new NotFoundException(`Classification job ${jobId} not found`);
+    }
     const job = await this.jobRepository.findOne({
-      where: organizationId ? { id: jobId, organizationId } : { id: jobId },
+      where: { id: jobId, organizationId },
     });
 
     if (!job) {

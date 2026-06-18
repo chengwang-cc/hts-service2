@@ -58,6 +58,10 @@ const PRICE_BOOK: Readonly<Record<string, PriceEntry>> = Object.freeze({
   // the partner used.
   'POST /lookup/search': { baseUsd: 0.0005 },
   'POST /lookup/smart-classify': { baseUsd: 0.0005 },
+  // Async smart-classify: 202 baseline row covers serving + queue overhead.
+  // LlmUsageRecordingService writes a 2nd row from the worker with the
+  // actual OpenAI rerank cost (the heavy part of the 5-30s pipeline).
+  'POST /lookup/smart-classify-async': { baseUsd: 0.001 },
   'GET /lookup/autocomplete': { baseUsd: 0 },
   'GET /lookup/hts/:htsNumber': { baseUsd: 0 },
   'GET /lookup/hts/:htsNumber/notes': { baseUsd: 0 },

@@ -9,6 +9,7 @@ import {
   NotFoundException,
   GoneException,
   UnauthorizedException,
+  UseGuards,
   UseInterceptors,
   UploadedFile,
   HttpCode,
@@ -36,6 +37,9 @@ import {
 import { RerankService } from '../services/rerank.service';
 import { SmartClassifyService } from '../services/smart-classify.service';
 import { Public } from '../decorators';
+import { SkipJwtAuth } from '../../api-keys/decorators/skip-jwt-auth.decorator';
+import { ApiKeyOrJwtAuthGuard } from '../../auth/guards/api-key-or-jwt.guard';
+import { PartnerQuotaGuard } from '../../billing/guards/partner-quota.guard';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UrlType } from '../dto/classify-url.dto';
@@ -111,10 +115,18 @@ export class LookupController {
    * (observed 18:12 + 19:01 UTC on 2026-06-04). The async route moves
    * the slow path off the request thread.
    *
+   * Auth: accepts X-API-Key / X-Partner-Key (partners) or Bearer JWT
+   * (business + partner portal users). Anonymous traffic that previously
+   * worked under `@Public()` was disabled 2026-06-18 — the route was
+   * being abused (unauthenticated job creation tying up pg-boss workers
+   * and OpenAI tokens with no quota enforcement and no per-call billing).
+   * PartnerQuotaGuard enforces monthly/perminute/perday plan limits.
+   *
    * The sync /smart-classify is retained for backwards compatibility
    * but new clients should prefer the async route.
    */
-  @Public()
+  @SkipJwtAuth()
+  @UseGuards(ApiKeyOrJwtAuthGuard, PartnerQuotaGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   @Post('smart-classify-async')
   async smartClassifyAsync(
@@ -216,7 +228,19 @@ export class LookupController {
     };
   }
 
-  @Public()
+  /**
+   * Auth: accepts X-API-Key / X-Partner-Key or Bearer JWT (same surface as
+   * the POST that created the job). Disabled `@Public()` 2026-06-18 — the
+   * route was an IDOR (anonymous reads dropped the org-id filter in
+   * LookupClassificationJobService.getJob, exposing every classification
+   * result by UUID guess/intercept).
+   *
+   * Polling endpoint — intentionally NOT priced or quota-guarded; the
+   * partner already paid for the underlying classification when they
+   * created the job, and clients typically poll 2-3× per job.
+   */
+  @SkipJwtAuth()
+  @UseGuards(ApiKeyOrJwtAuthGuard)
   @Get('classify-hts-jobs/:jobId')
   async getClassificationJob(
     @CurrentUser() user: any,
@@ -226,7 +250,7 @@ export class LookupController {
       success: true,
       data: await this.lookupClassificationJobService.getJob(
         jobId,
-        user?.organizationId ?? null,
+        user.organizationId,
       ),
     };
   }
