@@ -2446,7 +2446,7 @@ export class SearchService {
 
     const keywordCandidates = await this.searchByKeyword(
       normalizedQuery,
-      Math.min(this.MAX_LIMIT, safeLimit * 4),
+      Math.min(this.MAX_LIMIT, Math.max(safeLimit * 4, 40)),
       expandedTokens,
     );
     if (keywordCandidates.length === 0) return [];
@@ -2572,7 +2572,16 @@ export class SearchService {
     const lexicalTokens = this.applyLexicalFiltering(queryTokens, matchedRules);
     const expandedTokens = this.expandQueryTokens(lexicalTokens);
 
-    const candidateLimit = Math.min(this.MAX_LIMIT, safeLimit * 4);
+    // Floor at 40 candidates regardless of the caller's limit: applyRuleWhitelist
+    // + applyChapterDiversity routinely discard the majority of candidates, so a
+    // bare `safeLimit * 4` pool starves when the user asks for limit=1..5 (the
+    // previous behavior returned 0 results for legitimate queries — see e2e
+    // 'returns at least one result for small limit values'). The autocomplete
+    // sibling uses the same shape.
+    const candidateLimit = Math.min(
+      this.MAX_LIMIT,
+      Math.max(safeLimit * 4, 40),
+    );
 
     const [keywordResults, semanticResults] = await Promise.all([
       this.searchKeywordVariants(plan.keywordQueries, candidateLimit, expandedTokens),
