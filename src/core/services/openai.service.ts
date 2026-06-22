@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
+import { Agent, fetch as undiciFetch } from 'undici';
 import type {
   ChatCompletion,
   ChatCompletionChunk,
@@ -50,6 +51,8 @@ type ResponseOptions = Partial<
 export class OpenAiService {
   private readonly logger = new Logger(OpenAiService.name);
   private readonly client: OpenAI;
+  private readonly dispatcher: Agent;
+  private readonly maxConnRetries: number;
   private readonly useResponsesApi: boolean;
   private usageStats = {
     totalPromptTokens: 0,
@@ -72,8 +75,33 @@ export class OpenAiService {
       );
     }
 
+    // Custom undici dispatcher to mitigate "Premature close" — undici's
+    // default keep-alive can reuse a pooled socket the server (OpenAI/
+    // Cloudflare) has already closed, dropping the response body mid-stream.
+    // Capping keepAliveMaxTimeout (default is 10 min) shrinks the stale-reuse
+    // window; bodyTimeout/headersTimeout turn silent stalls into fast,
+    // retryable errors. Overridable via env for ops tuning.
+    const keepAliveMs = Number(process.env.OPENAI_KEEPALIVE_TIMEOUT_MS ?? 10_000);
+    const bodyTimeoutMs = Number(process.env.OPENAI_BODY_TIMEOUT_MS ?? 60_000);
+    this.dispatcher = new Agent({
+      keepAliveTimeout: 4_000,
+      keepAliveMaxTimeout: keepAliveMs,
+      bodyTimeout: bodyTimeoutMs,
+      headersTimeout: bodyTimeoutMs,
+      connect: { timeout: 10_000 },
+    });
+    this.maxConnRetries = Number(process.env.OPENAI_CONN_MAX_RETRIES ?? 3);
+
     this.client = new OpenAI({
       apiKey: apiKey || process.env.OPENAI_API_KEY,
+      // Route the SDK through our tuned dispatcher.
+      fetch: ((url: any, init?: any) =>
+        undiciFetch(url, { ...(init ?? {}), dispatcher: this.dispatcher })) as any,
+      // SDK-level retries (covers connect-phase + 429/5xx). The app-level
+      // withConnRetry() below additionally covers mid-body "Premature close",
+      // which the SDK does NOT retry (it occurs after headers are received).
+      maxRetries: Number(process.env.OPENAI_SDK_MAX_RETRIES ?? 2),
+      timeout: Number(process.env.OPENAI_REQUEST_TIMEOUT_MS ?? 60_000),
     });
 
     // Configuration: Use Responses API by default, but allow fallback via env var
@@ -81,8 +109,75 @@ export class OpenAiService {
     this.useResponsesApi = process.env.OPENAI_USE_CHAT_COMPLETIONS !== 'true';
 
     this.logger.log(
-      `OpenAI service initialized (using ${this.useResponsesApi ? 'Responses API' : 'Chat Completions API'})`,
+      `OpenAI service initialized (api=${this.useResponsesApi ? 'Responses' : 'ChatCompletions'}, ` +
+        `connRetries=${this.maxConnRetries}, keepAliveMax=${keepAliveMs}ms, bodyTimeout=${bodyTimeoutMs}ms)`,
     );
+  }
+
+  /**
+   * Retry wrapper for transient connection-layer failures — notably undici
+   * "Premature close" during response-body read, which the OpenAI SDK does
+   * NOT retry. Retries are logged so failure/recovery rates are visible in
+   * CloudWatch (`/ecs/hts-backend`). Non-connection errors (4xx, validation,
+   * etc.) are rethrown immediately.
+   */
+  private async withConnRetry<T>(op: string, fn: () => Promise<T>): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= this.maxConnRetries; attempt++) {
+      const started = Date.now();
+      try {
+        const result = await fn();
+        if (attempt > 1) {
+          this.logger.log(
+            `[openai:${op}] recovered on attempt ${attempt}/${this.maxConnRetries} ` +
+              `(${Date.now() - started}ms)`,
+          );
+        }
+        return result;
+      } catch (err) {
+        lastErr = err;
+        const retryable = OpenAiService.isRetryableConnError(err);
+        // Final attempt / non-retryable: rethrow and let the caller log with
+        // its own request context (input size, model, fallback taken).
+        if (!retryable || attempt === this.maxConnRetries) throw err;
+        const backoff = 250 * 2 ** (attempt - 1);
+        this.logger.warn(
+          `[openai:${op}] transient failure (attempt ${attempt}/${this.maxConnRetries}, ` +
+            `${Date.now() - started}ms) ${OpenAiService.describeError(err)} — retrying in ${backoff}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    throw lastErr;
+  }
+
+  /** True for connection-layer / premature-close errors that are safe to retry. */
+  private static isRetryableConnError(err: unknown): boolean {
+    const e = err as { name?: string; code?: string; message?: string; cause?: { message?: string; code?: string } };
+    const name = e?.name ?? '';
+    if (name === 'APIConnectionError' || name === 'APIConnectionTimeoutError') return true;
+    const haystack = `${e?.message ?? ''} ${e?.code ?? ''} ${e?.cause?.message ?? ''} ${e?.cause?.code ?? ''}`.toLowerCase();
+    return /premature close|other side closed|socket hang up|econnreset|epipe|etimedout|und_err|terminated|fetch failed|network|response body/.test(
+      haystack,
+    );
+  }
+
+  /** Compact, log-friendly description of an OpenAI/undici error. */
+  private static describeError(err: unknown): string {
+    const e = err as {
+      name?: string; message?: string; status?: number; code?: string;
+      request_id?: string; cause?: { message?: string; code?: string };
+    };
+    const parts = [
+      e?.name && `name=${e.name}`,
+      e?.status !== undefined && `status=${e.status}`,
+      e?.code && `code=${e.code}`,
+      e?.request_id && `reqId=${e.request_id}`,
+      e?.cause?.code && `causeCode=${e.cause.code}`,
+      e?.cause?.message && `cause="${e.cause.message}"`,
+      e?.message && `msg="${e.message}"`,
+    ].filter(Boolean);
+    return parts.join(' ');
   }
 
   /**
@@ -138,7 +233,9 @@ export class OpenAiService {
         };
       }
 
-      const response = await this.client.responses.create(requestParams);
+      const response = await this.withConnRetry('responses', () =>
+        this.client.responses.create(requestParams),
+      );
 
       const duration = Date.now() - startTime;
 
@@ -426,10 +523,12 @@ export class OpenAiService {
     model: string = 'text-embedding-3-small',
   ): Promise<number[]> {
     try {
-      const response = await this.client.embeddings.create({
-        model,
-        input: text,
-      });
+      const response = await this.withConnRetry('embedding', () =>
+        this.client.embeddings.create({
+          model,
+          input: text,
+        }),
+      );
 
       const embedding = response.data[0].embedding;
       const usage = response.usage;
@@ -457,8 +556,9 @@ export class OpenAiService {
       return embedding;
     } catch (error) {
       this.logger.error(
-        `Embedding generation failed: ${error.message}`,
-        error.stack,
+        `Embedding generation failed (model=${model}, chars=${text?.length ?? 0}, ` +
+          `retryable=${OpenAiService.isRetryableConnError(error)}): ${OpenAiService.describeError(error)}`,
+        (error as Error)?.stack,
       );
       throw error;
     }
@@ -472,10 +572,12 @@ export class OpenAiService {
     model: string = 'text-embedding-3-small',
   ): Promise<number[][]> {
     try {
-      const response = await this.client.embeddings.create({
-        model,
-        input: texts,
-      });
+      const response = await this.withConnRetry('embedding-batch', () =>
+        this.client.embeddings.create({
+          model,
+          input: texts,
+        }),
+      );
 
       const embeddings = response.data.map((item) => item.embedding);
       const usage = response.usage;
@@ -503,8 +605,9 @@ export class OpenAiService {
       return embeddings;
     } catch (error) {
       this.logger.error(
-        `Batch embedding generation failed: ${error.message}`,
-        error.stack,
+        `Batch embedding generation failed (model=${model}, items=${texts?.length ?? 0}, ` +
+          `retryable=${OpenAiService.isRetryableConnError(error)}): ${OpenAiService.describeError(error)}`,
+        (error as Error)?.stack,
       );
       throw error;
     }
