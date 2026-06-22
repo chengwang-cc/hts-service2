@@ -63,6 +63,24 @@ export interface UpdateOrgPatch {
 }
 
 /**
+ * Body shape for POST /admin/organizations — create a new partner/customer
+ * org. Mirrors UpdateOrgPatch but `name` is required and `type` defaults to
+ * 'customer' when omitted (matches the OrganizationEntity column default).
+ *
+ * Effective-limits override is NOT accepted here on purpose — set the plan
+ * first (which auto-syncs limits via SubscriptionLimitsSyncService), then
+ * follow up with PUT /:id/limits if the org needs a per-org override. Keeps
+ * the create path simple and the override path audited.
+ */
+export interface CreateOrgInput {
+  name: string;
+  slug?: string | null;
+  type?: 'internal' | 'partner' | 'customer';
+  plan?: string;
+  isActive?: boolean;
+}
+
+/**
  * Body shape for PUT /admin/organizations/:id/limits — the platform
  * admin's "give this org a custom limit, ignore their plan" lever.
  * Service writes the resulting EffectiveLimits with source='override',
@@ -183,6 +201,77 @@ export class OrganizationsAdminService {
    * recover from (you'd need shell access to flip it back), so we
    * just refuse.
    */
+  /**
+   * Provision a new organization. Replaces the raw-SQL workflow used to
+   * stand up a new partner (e.g. proto-ecommerce was seeded via
+   * scripts/seed-proto-partner.ts). Idempotent on `slug` — if a row with
+   * the same slug already exists we 409 rather than silently no-op, so the
+   * caller can't accidentally collide with another partner.
+   *
+   * After insert we re-sync effective limits from the chosen plan so the
+   * `org.settings.effectiveLimits` snapshot is in place before any rate
+   * limiter reads it. Skipping the sync would leave the org with no
+   * snapshot until the first plan/type change.
+   */
+  async create(input: CreateOrgInput): Promise<OrganizationDetail> {
+    const name = (input.name ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('name is required');
+    }
+
+    const type = input.type ?? 'customer';
+    if (!['internal', 'partner', 'customer'].includes(type)) {
+      throw new BadRequestException(`Invalid organization type: ${type}`);
+    }
+
+    const plan = (input.plan ?? 'FREE').trim().toUpperCase();
+    if (!plan) {
+      throw new BadRequestException('plan must be a non-empty string');
+    }
+
+    const slug = input.slug ? input.slug.trim().slice(0, 64) : null;
+
+    let saved: OrganizationEntity;
+    try {
+      saved = await this.orgs.save(
+        this.orgs.create({
+          name: name.slice(0, 255),
+          slug,
+          type,
+          plan,
+          isActive: input.isActive ?? true,
+          settings: {},
+          usageQuotas: null,
+          currentUsage: null,
+        }),
+      );
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === '23505') {
+        throw new ConflictException(
+          `slug "${slug ?? ''}" is already in use by another organization`,
+        );
+      }
+      throw err;
+    }
+
+    // Best-effort: seed effectiveLimits snapshot from the plan. Failure
+    // here doesn't undo the org create — the operator can re-run
+    // sync-limits later — but the warn makes the gap visible.
+    try {
+      await this.limitsSync.syncFromPlan(saved.id);
+    } catch (err) {
+      this.logger.warn(
+        `post-create syncFromPlan failed for org ${saved.id}: ${(err as Error)?.message}`,
+      );
+    }
+
+    this.logger.log(
+      `admin created org ${saved.id}: ${JSON.stringify({ name, slug, type, plan })}`,
+    );
+    return this.findById(saved.id);
+  }
+
   async update(
     id: string,
     patch: UpdateOrgPatch,

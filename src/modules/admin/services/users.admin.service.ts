@@ -161,6 +161,14 @@ export class UsersAdminService {
 
     if (updateUserDto.organizationId !== undefined) {
       user.organizationId = updateUserDto.organizationId;
+      // findOne() above loaded `user.organization` (the relation). TypeORM's
+      // save() prefers the loaded relation over the scalar FK on cascade,
+      // so assigning organizationId alone silently no-ops: the PATCH returns
+      // 200 but the row's organization_id never changes. Discovered while
+      // moving Tony Ding from a customer-typed org to a new partner org
+      // (chitchats-flow, 2026-06-22). Clearing the relation forces save()
+      // to persist the new FK directly.
+      user.organization = undefined;
     }
 
     if (updateUserDto.isActive !== undefined) {
