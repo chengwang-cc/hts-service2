@@ -16,6 +16,12 @@ export interface RequestAttribution {
   attributionSource: AttributionSource;
   /** The Origin header as received (for forensics). */
   origin: string | null;
+  /**
+   * When attributionSource === 'origin', the matched partner_origins.purpose
+   * ('web' | 'server' | 'mobile'); null otherwise. BrowserOriginOrAuthGuard
+   * only accepts 'web' origins as an authentication signal.
+   */
+  originPurpose: string | null;
   /** Partner-asserted (or partner-JWT-verified) end-user id. */
   externalUserId: string | null;
   /** Resolved partner_users.id (set after upsert; may be null on first sight). */

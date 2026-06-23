@@ -65,6 +65,7 @@ export class AttributionMiddleware implements NestMiddleware {
     let partnerId: string | null = null;
     let attributionSource: RequestAttribution['attributionSource'] = 'unknown';
     let apiKeyId: string | null = null;
+    let originPurpose: string | null = null;
 
     if (rawKey) {
       try {
@@ -100,6 +101,7 @@ export class AttributionMiddleware implements NestMiddleware {
       if (match) {
         partnerId = match.organizationId;
         attributionSource = 'origin';
+        originPurpose = match.purpose;
       }
     }
 
@@ -130,6 +132,7 @@ export class AttributionMiddleware implements NestMiddleware {
       organizationId: partnerId ?? '',
       attributionSource,
       origin,
+      originPurpose,
       externalUserId,
       partnerUserId,
       userIdentitySource,
