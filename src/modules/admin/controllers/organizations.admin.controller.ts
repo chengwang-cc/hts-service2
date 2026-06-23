@@ -17,6 +17,7 @@ import {
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../guards/admin.guard';
 import {
+  CreateOrgInput,
   OrganizationsAdminService,
   SetLimitsInput,
   UpdateOrgPatch,
@@ -79,6 +80,22 @@ export class OrganizationsAdminController {
   @Get(':id')
   async detail(@Param('id') id: string) {
     return this.orgs.findById(id);
+  }
+
+  /**
+   * Create a new organization. Replaces the raw-SQL / seed-script flow
+   * that was the only way to stand up a new partner before this endpoint
+   * existed. Slug uniqueness is enforced by the DB; conflict surfaces as
+   * a 409 with the offending slug in the message.
+   */
+  @Post()
+  async create(@Body() body: CreateOrgInput) {
+    const allowed = new Set(['name', 'slug', 'type', 'plan', 'isActive']);
+    const extras = Object.keys(body ?? {}).filter((k) => !allowed.has(k));
+    if (extras.length) {
+      throw new BadRequestException(`Disallowed fields in body: ${extras.join(', ')}`);
+    }
+    return this.orgs.create(body);
   }
 
   @Patch(':id')
