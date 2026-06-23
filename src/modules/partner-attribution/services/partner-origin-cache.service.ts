@@ -15,6 +15,8 @@ import { PartnerOriginEntity } from '../entities/partner-origin.entity';
 interface CompiledPattern {
   organizationId: string;
   pattern: string;
+  /** 'web' | 'server' | 'mobile' — used to gate Origin-based browser auth. */
+  purpose: string;
   regex: RegExp;
   /** Length of the literal prefix used for specificity scoring. */
   specificity: number;
@@ -69,13 +71,15 @@ export class PartnerOriginCacheService implements OnModuleInit, OnModuleDestroy 
    * Resolve an Origin header to an organization. Returns null when nothing matches.
    * Pure function over the compiled cache; safe to call at request frequency.
    */
-  resolve(origin: string | undefined | null): { organizationId: string; pattern: string } | null {
+  resolve(
+    origin: string | undefined | null,
+  ): { organizationId: string; pattern: string; purpose: string } | null {
     if (!origin) return null;
     const normalized = this.normalize(origin);
     if (!normalized) return null;
     for (const c of this.compiled) {
       if (c.regex.test(normalized)) {
-        return { organizationId: c.organizationId, pattern: c.pattern };
+        return { organizationId: c.organizationId, pattern: c.pattern, purpose: c.purpose };
       }
     }
     return null;
@@ -96,6 +100,7 @@ export class PartnerOriginCacheService implements OnModuleInit, OnModuleDestroy 
       return {
         organizationId: row.organizationId,
         pattern: row.originPattern,
+        purpose: row.purpose,
         regex,
         specificity: this.specificityOf(row.originPattern),
       };
@@ -114,14 +119,24 @@ export class PartnerOriginCacheService implements OnModuleInit, OnModuleDestroy 
    * Supported forms:
    *   - 'https://www.example.com'  → exact origin match
    *   - 'www.example.com'          → matches https:// + www.example.com (any port)
-   *   - '*.example.com'            → matches any subdomain
+   *   - '*.example.com'            → matches a subdomain at ANY depth
+   *     (www.example.com, staging.hts.example.com, …) but NOT the apex
+   *     example.com. Add an explicit row for the apex if needed.
    */
   private globToRegex(pattern: string): RegExp {
     // Strip protocol — we accept patterns with or without one
     const hasProtocol = /^https?:\/\//i.test(pattern);
     const host = hasProtocol ? pattern.replace(/^https?:\/\//i, '') : pattern;
-    // Escape regex special chars except '*' which becomes a non-dot wildcard
-    const escaped = host.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]+');
+    // Escape regex special chars first ('.' → '\.'); '*' is left in place and
+    // expanded next so we can give the subdomain wildcard multi-label depth.
+    const escaped = host
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      // Subdomain wildcard `*.` → one-or-more dot-terminated labels, so
+      // `*.proto.com` matches `staging.hts.proto.com`, not just `x.proto.com`.
+      // The trailing `$` anchor keeps `proto.com.evil.com` from matching.
+      .replace(/\*\\\./g, '(?:[^.]+\\.)+')
+      // Any remaining bare '*' matches a single label.
+      .replace(/\*/g, '[^.]+');
     return new RegExp(`^https?:\\/\\/${escaped}(?::\\d+)?$`, 'i');
   }
 

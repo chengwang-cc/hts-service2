@@ -38,7 +38,7 @@ import { RerankService } from '../services/rerank.service';
 import { SmartClassifyService } from '../services/smart-classify.service';
 import { Public } from '../decorators';
 import { SkipJwtAuth } from '../../api-keys/decorators/skip-jwt-auth.decorator';
-import { ApiKeyOrJwtAuthGuard } from '../../auth/guards/api-key-or-jwt.guard';
+import { BrowserOriginOrAuthGuard } from '../../auth/guards/browser-origin-or-auth.guard';
 import { PartnerQuotaGuard } from '../../billing/guards/partner-quota.guard';
 import { NoteResolutionService } from '@hts/knowledgebase';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -126,7 +126,7 @@ export class LookupController {
    * but new clients should prefer the async route.
    */
   @SkipJwtAuth()
-  @UseGuards(ApiKeyOrJwtAuthGuard, PartnerQuotaGuard)
+  @UseGuards(BrowserOriginOrAuthGuard, PartnerQuotaGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   @Post('smart-classify-async')
   async smartClassifyAsync(
@@ -240,7 +240,7 @@ export class LookupController {
    * created the job, and clients typically poll 2-3× per job.
    */
   @SkipJwtAuth()
-  @UseGuards(ApiKeyOrJwtAuthGuard)
+  @UseGuards(BrowserOriginOrAuthGuard)
   @Get('classify-hts-jobs/:jobId')
   async getClassificationJob(
     @CurrentUser() user: any,
