@@ -88,6 +88,18 @@ export class PartnerRateLimitService {
     limit: number,
     granularity: 'minute' | 'day',
   ): Promise<RateLimitResult> {
+    // A negative limit means "unlimited" (e.g. ENTERPRISE perDay=-1). Without
+    // this short-circuit `count < -1` is always false → every unlimited-tier
+    // partner gets 429 the moment enforcement (dry-run off) is enabled.
+    if (limit < 0) {
+      return {
+        allowed: true,
+        limit,
+        remaining: -1,
+        resetAt: new Date(now.getTime() + windowMs),
+        granularity,
+      };
+    }
     const startTime = new Date(now.getTime() - windowMs);
     const count = await this.metrics.count({
       where: {
