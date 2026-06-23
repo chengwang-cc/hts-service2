@@ -8,7 +8,6 @@ import {
   Get,
   Post,
   Patch,
-  Delete,
   Body,
   Param,
   Query,
@@ -87,45 +86,6 @@ export class UsersAdminController {
   }
 
   /**
-   * GET /admin/users/:id
-   * Get single user by ID
-   */
-  @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    const user = await this.usersAdminService.findOne(id);
-
-    return {
-      success: true,
-      data: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        isActive: user.isActive,
-        emailVerified: user.emailVerified,
-        lastLoginAt: user.lastLoginAt,
-        organizationId: user.organizationId,
-        organization: user.organization
-          ? {
-              id: user.organization.id,
-              name: user.organization.name,
-            }
-          : null,
-        roles:
-          user.roles?.map((role) => ({
-            id: role.id,
-            name: role.name,
-            description: role.description,
-          })) || [],
-        metadata: user.metadata,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-    };
-  }
-
-  /**
    * POST /admin/users
    * Create new user
    */
@@ -168,21 +128,6 @@ export class UsersAdminController {
         isActive: user.isActive,
       },
       message: 'User updated successfully',
-    };
-  }
-
-  /**
-   * DELETE /admin/users/:id
-   * Delete user
-   */
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete user' })
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
-    await this.usersAdminService.remove(id);
-
-    return {
-      success: true,
-      message: 'User deleted successfully',
     };
   }
 

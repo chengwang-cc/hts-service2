@@ -5,7 +5,6 @@ import { WidgetSessionEntity } from './entities/widget-session.entity';
 import { CheckoutOrderEntity } from './entities/checkout-order.entity';
 import { ShopifySessionEntity } from '../shopify-app/entities/shopify-session.entity';
 import { WidgetService } from './services/widget.service';
-import { WidgetController } from './controllers/widget.controller';
 import { WidgetApiController } from './controllers/widget-api.controller';
 import { WidgetKeyGuard } from './guards/widget-key.guard';
 import { CalculatorModule } from '../calculator/calculator.module';
@@ -24,7 +23,7 @@ import { ConnectorsModule } from '../connectors/connectors.module';
     forwardRef(() => ShopifyAppModule),
     ConnectorsModule,
   ],
-  controllers: [WidgetController, WidgetApiController],
+  controllers: [WidgetApiController],
   providers: [WidgetService, WidgetKeyGuard],
   exports: [WidgetService],
 })

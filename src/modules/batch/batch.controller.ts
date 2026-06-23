@@ -3,8 +3,6 @@ import {
   Post,
   Get,
   Delete,
-  Patch,
-  Body,
   Param,
   Query,
   Res,
@@ -17,7 +15,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { parse as csvParse } from 'csv-parse/sync';
 import { BatchJobService } from './services/batch-job.service';
-import { CreateBatchJobDto } from './dto';
 import { OptionalAuth } from '../auth/decorators/optional-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Idempotent } from '../idempotency/decorators/idempotent.decorator';
@@ -26,42 +23,6 @@ import { IdempotencyInterceptor } from '../idempotency/interceptors/idempotency.
 @Controller('batch')
 export class BatchController {
   constructor(private readonly batchJobService: BatchJobService) {}
-
-  // ── Create job via JSON ───────────────────────────────────────────────────
-
-  @OptionalAuth()
-  @Post('jobs')
-  @Idempotent('batch.jobs.create')
-  @UseInterceptors(IdempotencyInterceptor)
-  async createJob(
-    @CurrentUser() user: any,
-    @Headers('x-guest-token') guestToken: string | undefined,
-    @Body() dto: CreateBatchJobDto,
-  ) {
-    const owner = this.batchJobService.resolveOwner(user, guestToken);
-
-    if (!dto.items?.length) {
-      throw new BadRequestException('items array must not be empty');
-    }
-
-    const { job } = await this.batchJobService.createJob(
-      owner,
-      dto.method,
-      dto.items,
-      'api',
-      undefined,
-      dto.metadata,
-    );
-
-    const response: Record<string, unknown> = {
-      success: true,
-      data: job,
-    };
-    if (owner.isGuest) {
-      response.guestToken = owner.guestToken;
-    }
-    return response;
-  }
 
   // ── Create job via CSV upload ─────────────────────────────────────────────
 
@@ -171,27 +132,6 @@ export class BatchController {
     return { success: true, data: job };
   }
 
-  // ── Get job items (paginated) ─────────────────────────────────────────────
-
-  @OptionalAuth()
-  @Get('jobs/:jobId/items')
-  async getJobItems(
-    @CurrentUser() user: any,
-    @Headers('x-guest-token') guestToken: string | undefined,
-    @Param('jobId') jobId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const owner = this.batchJobService.resolveOwner(user, guestToken);
-    const result = await this.batchJobService.getJobItems(
-      jobId,
-      owner.ownerKey,
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 100,
-    );
-    return { success: true, ...result };
-  }
-
   // ── Download results as CSV ───────────────────────────────────────────────
 
   @OptionalAuth()
@@ -220,34 +160,6 @@ export class BatchController {
   ) {
     const owner = this.batchJobService.resolveOwner(user, guestToken);
     const job = await this.batchJobService.cancelJob(jobId, owner.ownerKey);
-    return { success: true, data: job };
-  }
-
-  // ── Pause job ─────────────────────────────────────────────────────────────
-
-  @OptionalAuth()
-  @Patch('jobs/:jobId/pause')
-  async pauseJob(
-    @CurrentUser() user: any,
-    @Headers('x-guest-token') guestToken: string | undefined,
-    @Param('jobId') jobId: string,
-  ) {
-    const owner = this.batchJobService.resolveOwner(user, guestToken);
-    const job = await this.batchJobService.pauseJob(jobId, owner.ownerKey);
-    return { success: true, data: job };
-  }
-
-  // ── Resume job ────────────────────────────────────────────────────────────
-
-  @OptionalAuth()
-  @Patch('jobs/:jobId/resume')
-  async resumeJob(
-    @CurrentUser() user: any,
-    @Headers('x-guest-token') guestToken: string | undefined,
-    @Param('jobId') jobId: string,
-  ) {
-    const owner = this.batchJobService.resolveOwner(user, guestToken);
-    const job = await this.batchJobService.resumeJob(jobId, owner.ownerKey);
     return { success: true, data: job };
   }
 }

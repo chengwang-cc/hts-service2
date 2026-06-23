@@ -6,7 +6,6 @@ import {
   Body,
   Param,
   UseGuards,
-  Query,
 } from '@nestjs/common';
 import { ApiKeyService } from '../services/api-key.service';
 import { CreateApiKeyDto } from '../dto/create-api-key.dto';
@@ -67,22 +66,6 @@ export class ApiKeysController {
 
     // Remove sensitive data
     return keys.map(({ keyHash, ...safeKey }) => safeKey);
-  }
-
-  /**
-   * Get API key details
-   */
-  @Get(':id')
-  async getApiKey(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    const keys = await this.apiKeyService.listApiKeys(user.organizationId);
-    const key = keys.find((k) => k.id === id);
-
-    if (!key) {
-      return { error: 'API key not found' };
-    }
-
-    const { keyHash, ...safeKey } = key;
-    return safeKey;
   }
 
   /**
@@ -149,36 +132,4 @@ export class ApiKeysController {
     };
   }
 
-  /**
-   * Get usage statistics for an API key
-   */
-  @Get(':id/usage')
-  async getUsageStats(
-    @Param('id') id: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-    @CurrentUser() user: UserEntity,
-  ) {
-    // Verify key belongs to user's organization
-    const keys = await this.apiKeyService.listApiKeys(user.organizationId);
-    const key = keys.find((k) => k.id === id);
-
-    if (!key) {
-      return { error: 'API key not found' };
-    }
-
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-
-    const stats = await this.apiKeyService.getUsageStats(id, start, end);
-
-    return {
-      apiKeyId: id,
-      startDate: start,
-      endDate: end,
-      stats,
-    };
-  }
 }

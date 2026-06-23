@@ -3,7 +3,6 @@ import {
   Post,
   Get,
   Body,
-  Param,
   Query,
   HttpException,
   HttpStatus,
@@ -75,8 +74,6 @@ export class CalculatorController {
    * (which expects the raw ai-service shape: { htsCode, country, formulas[],
    * rate, block_reason, isCusmaFreeTrade, … }) can render correctly.
    *
-   * History persistence + scenario writes live on the partner-key-auth'd
-   * /calculate handler in CalculatorPublicController (see public-api/v1).
    * Anonymous traffic from hts-web2 doesn't persist by design — we don't
    * attribute anonymous calls to any organization.
    *
@@ -166,26 +163,6 @@ export class CalculatorController {
     };
   }
 
-  @Get('calculations/:calculationId')
-  async getCalculation(@Param('calculationId') calculationId: string) {
-    const calculation =
-      await this.calculationService.getCalculationHistory(calculationId);
-
-    if (!calculation) {
-      return {
-        statusCode: 404,
-        message: 'Calculation not found',
-      };
-    }
-
-    return calculation;
-  }
-
-  @Get('health')
-  health() {
-    return { status: 'ok', service: 'calculator' };
-  }
-
   /**
    * Fetch tariff formula metadata (variables + descriptions) for a single
    * HTS code / country pair, without evaluating. Used by the calculator UI
@@ -243,63 +220,6 @@ export class CalculatorController {
     };
   }
 
-  /**
-   * Calculate tariff amounts. Proxies ai-service POST /v2/tariff/rates which
-   * already evaluates per-formula amounts and returns Chapter 99 codes.
-   *
-   * POST /calculator/tariff-rates
-   * Body: [{ htsCode, country, inputs?: Record<string, number> }]
-   */
-  @Public()
-  @Post('tariff-rates')
-  async getTariffRates(
-    @Body()
-    body: Array<{
-      htsCode: string;
-      country: string;
-      inputs?: Record<string, number>;
-    }>,
-  ): Promise<unknown> {
-    const items = Array.isArray(body) ? body : [];
-    const data = await this.fetchRatesFromAiService(
-      items.map(({ htsCode, country, inputs }) => ({
-        htsCode,
-        country,
-        inputs: inputs ?? {},
-      })),
-    );
-
-    return data.map((item) => {
-      const formulas = Array.isArray(item.formulas) ? item.formulas : [];
-      const breakdown = formulas.map((f) => ({
-        tariffType: f.tariffType,
-        tariffTypeDescription: f.tariffTypeDescription,
-        // Match /formula's shape — the FE renders the same tooltip on both
-        // breakdown sources.
-        tariffTypeExplanation: f.tariffTypeExplanation ?? null,
-        amount: typeof f.amount === 'number' ? f.amount : 0,
-        formula: f.formula,
-        formulaVariables: f.formulaVariables ?? [],
-        chapter99HtsCode: f.chapter99HtsCode ?? null,
-        error: null,
-      }));
-      const totalDuty = breakdown.reduce((sum, b) => sum + (b.amount ?? 0), 0);
-
-      return {
-        htsCode: item.htsCode,
-        country: item.country,
-        effectiveHtsCode: item.effectiveHtsCode ?? null,
-        blocked: !!item.blocked,
-        block_reason: item.block_reason ?? null,
-        blockReason: item.block_reason ?? null,
-        message: item.message ?? '',
-        isCusmaFreeTrade: item.isCusmaFreeTrade ?? null,
-        totalDuty: Math.round(totalDuty * 100) / 100,
-        breakdown,
-      };
-    });
-  }
-
   private aiServiceUrl(): string {
     return (
       this.configService.get<string>('AI_SERVICE_URL') ??
@@ -346,24 +266,6 @@ export class CalculatorController {
     }
   }
 
-  private async fetchRatesFromAiService(
-    requests: Array<{ htsCode: string; country: string; inputs: Record<string, number> }>,
-  ): Promise<ExternalTariffResult[]> {
-    if (!requests.length) return [];
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post<ExternalTariffResult[]>(
-          `${this.aiServiceUrl()}/rates`,
-          requests,
-          { headers: this.aiServiceHeaders() },
-        ),
-      );
-      return response.data ?? [];
-    } catch (err: unknown) {
-      throw this.translateUpstreamError(err);
-    }
-  }
-
   private translateUpstreamError(err: unknown): HttpException {
     const status =
       (err as { response?: { status?: number } })?.response?.status ??
@@ -379,121 +281,5 @@ export class CalculatorController {
       'Tariff formulas service request failed',
       safeStatus,
     );
-  }
-
-  /**
-   * Save a calculation scenario for reuse
-   * POST /calculator/scenarios
-   */
-  @Post('scenarios')
-  async saveScenario(
-    @Body() scenarioData: Partial<CalculationScenarioEntity>,
-    @Query('organizationId') organizationId: string,
-    @Query('userId') userId?: string,
-  ) {
-    if (!scenarioData.name || !scenarioData.htsNumber) {
-      throw new HttpException(
-        'Scenario name and HTS number are required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const scenario = this.scenarioRepository.create({
-      ...scenarioData,
-      organizationId,
-      userId: userId || null,
-    });
-
-    const saved = await this.scenarioRepository.save(scenario);
-
-    return {
-      success: true,
-      data: saved,
-      message: 'Scenario saved successfully',
-    };
-  }
-
-  /**
-   * Calculate using a saved scenario
-   * POST /calculator/scenarios/:id/calculate
-   */
-  @Post('scenarios/:id/calculate')
-  async calculateScenario(
-    @Param('id') scenarioId: string,
-    @Body() overrides?: Partial<CalculateDto>,
-  ) {
-    const scenario = await this.scenarioRepository.findOne({
-      where: { id: scenarioId },
-    });
-
-    if (!scenario) {
-      throw new HttpException('Scenario not found', HttpStatus.NOT_FOUND);
-    }
-
-    const tradeAgreementCode =
-      overrides?.tradeAgreementCode ||
-      overrides?.tradeAgreement ||
-      scenario.tradeAgreement ||
-      undefined;
-    const tradeAgreementCertificate =
-      typeof overrides?.tradeAgreementCertificate === 'boolean'
-        ? overrides.tradeAgreementCertificate
-        : typeof overrides?.claimPreferential === 'boolean'
-          ? overrides.claimPreferential
-          : scenario.claimPreferential;
-
-    // Merge scenario with any overrides
-    const calculationInput = {
-      htsNumber: overrides?.htsNumber || scenario.htsNumber,
-      countryOfOrigin: overrides?.countryOfOrigin || scenario.countryOfOrigin,
-      declaredValue: overrides?.declaredValue ?? scenario.declaredValue,
-      currency: overrides?.currency || scenario.currency,
-      weightKg: overrides?.weightKg ?? scenario.weightKg ?? undefined,
-      quantity: overrides?.quantity ?? scenario.quantity ?? undefined,
-      quantityUnit:
-        overrides?.quantityUnit ?? scenario.quantityUnit ?? undefined,
-      entryDate:
-        overrides?.entryDate ??
-        (typeof scenario.additionalInputs?.entryDate === 'string'
-          ? scenario.additionalInputs.entryDate
-          : undefined),
-      additionalInputs:
-        overrides?.additionalInputs ?? scenario.additionalInputs ?? undefined,
-      htsVersion: overrides?.htsVersion ?? undefined,
-      tradeAgreementCode,
-      tradeAgreementCertificate,
-      organizationId: scenario.organizationId,
-      userId: scenario.userId ?? undefined,
-      scenarioId: scenario.id,
-    };
-
-    const result = await this.calculationService.calculate(calculationInput);
-
-    return {
-      success: true,
-      data: result,
-      scenario: {
-        id: scenario.id,
-        name: scenario.name,
-      },
-    };
-  }
-
-  /**
-   * Get saved scenarios for an organization
-   * GET /calculator/scenarios
-   */
-  @Get('scenarios')
-  async getScenarios(@Query('organizationId') organizationId: string) {
-    const scenarios = await this.scenarioRepository.find({
-      where: { organizationId },
-      order: { createdAt: 'DESC' },
-    });
-
-    return {
-      success: true,
-      data: scenarios,
-      count: scenarios.length,
-    };
   }
 }

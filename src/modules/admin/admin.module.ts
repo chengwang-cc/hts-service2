@@ -55,23 +55,8 @@ import { QueueService } from '../queue/queue.service';
 // Controllers - Phase 1
 import { UsersAdminController } from './controllers/users.admin.controller';
 import { RolesAdminController } from './controllers/roles.admin.controller';
-import { PermissionsAdminController } from './controllers/permissions.admin.controller';
-import { AnalyticsAdminController } from './controllers/analytics.admin.controller';
 import { OrganizationsAdminController } from './controllers/organizations.admin.controller';
 
-// Controllers - Phase 2
-import { HtsImportAdminController } from './controllers/hts-import.admin.controller';
-import { FormulaAdminController } from './controllers/formula.admin.controller';
-import { TestCaseAdminController } from './controllers/test-case.admin.controller';
-
-// Controllers - Phase 3
-import { KnowledgeAdminController } from './controllers/knowledge.admin.controller';
-import { ExternalProviderFormulaAdminController } from './controllers/external-provider-formula.admin.controller';
-import { ReciprocalTariffAdminController } from './controllers/reciprocal-tariff.admin.controller';
-import { HtsEmbeddingAdminController } from './controllers/hts-embedding.admin.controller';
-
-// Controllers - Phase 6
-import { RerankerRetrainAdminController } from './controllers/reranker-retrain.admin.controller';
 
 // Services - Phase 1
 import { UsersAdminService } from './services/users.admin.service';
@@ -157,23 +142,10 @@ import { RerankerTrainingRunEntity } from './entities/reranker-training-run.enti
     ApiKeysModule,
   ],
   controllers: [
-    // Phase 1 controllers
+    // Retained: used by hts-web2 admin (orgs / users / roles)
     UsersAdminController,
     RolesAdminController,
-    PermissionsAdminController,
-    AnalyticsAdminController,
     OrganizationsAdminController,
-    // Phase 2 controllers
-    HtsImportAdminController,
-    FormulaAdminController,
-    TestCaseAdminController,
-    // Phase 3 controllers
-    KnowledgeAdminController,
-    ExternalProviderFormulaAdminController,
-    ReciprocalTariffAdminController,
-    HtsEmbeddingAdminController,
-    // Phase 6 controllers
-    RerankerRetrainAdminController,
   ],
   providers: [
     // Phase 1 services

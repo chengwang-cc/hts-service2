@@ -87,24 +87,6 @@ export class PortalPartnerUsageController {
     return { data, meta: { partnerId } };
   }
 
-  @Get('timeseries')
-  @ApiOperation({ summary: 'Per-bucket request count + p95 latency' })
-  @ApiQuery({ name: 'hours', required: false })
-  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'bucket', required: false, description: 'hour | day (default hour)' })
-  async timeseries(
-    @CurrentUser() user: UserEntity,
-    @Query('hours') hours?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('bucket') bucket?: 'hour' | 'day',
-  ) {
-    const partnerId = await this.resolveScope(user);
-    const data = await this.query.timeseries(partnerId, { hours, from, to }, bucket);
-    return { data, meta: { partnerId, bucket: bucket ?? 'hour' } };
-  }
-
   @Get('endpoints')
   @ApiOperation({ summary: 'Top endpoints by request count' })
   @ApiQuery({ name: 'hours', required: false })
@@ -120,42 +102,6 @@ export class PortalPartnerUsageController {
   ) {
     const partnerId = await this.resolveScope(user);
     const data = await this.query.topEndpoints(partnerId, { hours, from, to }, limit);
-    return { data, meta: { partnerId } };
-  }
-
-  @Get('users')
-  @ApiOperation({ summary: 'Top end-users by request count' })
-  @ApiQuery({ name: 'hours', required: false })
-  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
-  async users(
-    @CurrentUser() user: UserEntity,
-    @Query('hours') hours?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const partnerId = await this.resolveScope(user);
-    const data = await this.query.topUsers(partnerId, { hours, from, to }, limit);
-    return { data, meta: { partnerId } };
-  }
-
-  @Get('errors')
-  @ApiOperation({ summary: 'Recent 4xx / 5xx samples' })
-  @ApiQuery({ name: 'hours', required: false })
-  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
-  async errors(
-    @CurrentUser() user: UserEntity,
-    @Query('hours') hours?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const partnerId = await this.resolveScope(user);
-    const data = await this.query.errorSamples(partnerId, { hours, from, to }, limit);
     return { data, meta: { partnerId } };
   }
 

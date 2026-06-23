@@ -7,9 +7,6 @@ export * from './entities';
 // Services
 export * from './services';
 
-// Controllers
-export * from './controllers';
-
 // Guards
 export * from './guards/entitlement.guard';
 

@@ -12,7 +12,6 @@ import {
   NoteExtractionService,
   NoteResolutionService,
   NoteEmbeddingGenerationService,
-  KnowledgebaseController,
 } from '@hts/knowledgebase';
 import { FormulaGenerationService } from '@hts/core';
 
@@ -27,7 +26,7 @@ import { FormulaGenerationService } from '@hts/core';
       KnowledgeChunkEntity,
     ]),
   ],
-  controllers: [KnowledgebaseController],
+  controllers: [],
   providers: [
     DocumentService,
     PdfParserService,
