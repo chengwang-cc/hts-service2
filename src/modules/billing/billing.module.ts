@@ -2,8 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import Stripe from 'stripe';
 import { BillingController } from './controllers/billing.controller';
-import { CreditController } from './controllers/credit.controller';
-import { SubscriptionController } from './controllers/subscription.controller';
 import { CostAlertController } from './controllers/cost-alert.controller';
 import { CostAlertAdminController } from './controllers/cost-alert.admin.controller';
 import { PortalBillingController } from './controllers/portal-billing.controller';
@@ -101,8 +99,6 @@ import {
   ],
   controllers: [
     BillingController,
-    CreditController,
-    SubscriptionController,
     CostAlertController,
     CostAlertAdminController,
     PortalBillingController,

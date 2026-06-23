@@ -17,18 +17,11 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { PartnerAttributionModule } from './modules/partner-attribution/partner-attribution.module';
 import { AttributionMiddleware } from './modules/partner-attribution/middleware/attribution.middleware';
 import { PartnerRateLimitMiddleware } from './modules/partner-attribution/middleware/partner-rate-limit.middleware';
-import { PublicApiModule } from './modules/public-api/public-api.module';
 import { WidgetModule } from './modules/widget/widget.module';
-import { ExtensionModule } from './modules/extension/extension.module';
-import { ExtensionAuthModule } from './modules/extension-auth/extension-auth.module';
-import { ExportModule } from './modules/export/export.module';
 import { BillingModule } from './modules/billing/billing.module';
-import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
-import { I18nModule } from './modules/i18n/i18n.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { FinancialAdminModule } from './modules/admin/financial/financial-admin.module';
-import { TestModule } from './modules/test/test.module';
 import { BatchModule } from './modules/batch/batch.module';
 import { IdempotencyModule } from './modules/idempotency/idempotency.module';
 import { ShopifyAppModule } from './modules/shopify-app/shopify-app.module';
@@ -121,43 +114,21 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
     // Lookup module
     LookupModule,
 
-    // Calculator module (must be before PublicApiModule to ensure @Public() routes take priority)
     CalculatorModule,
-
-    // Public API module (versioned external APIs)
-    PublicApiModule,
 
     // Widget module
     WidgetModule,
-
-    // Extension module (Chrome extension support)
-    ExtensionModule,
-
-    // Extension Auth module (public register/login → returns API key)
-    ExtensionAuthModule,
-
-    // Export module (Export templates & data completeness)
-    ExportModule,
 
     // Billing module (Subscriptions & usage tracking)
     BillingModule,
     IdempotencyModule,
 
-    // Onboarding module (User onboarding & templates)
-    OnboardingModule,
-
     // Connectors module (External system integrations)
     ConnectorsModule,
-
-    // I18n module (Multi-country support)
-    I18nModule,
 
     // Admin module (HTS import, knowledge base admin, etc.)
     AdminModule,
     FinancialAdminModule,
-
-    // Test module (E2E testing endpoints)
-    TestModule,
 
     // Batch module (async bulk HTS lookup)
     BatchModule,

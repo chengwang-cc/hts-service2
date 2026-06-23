@@ -456,24 +456,6 @@ export class FinancialAdminController {
     };
   }
 
-  @Get('organizations/:id/disputes')
-  async listOrgDisputes(
-    @Param('id', ParseUUIDPipe) organizationId: string,
-    @Query('limit') limitRaw?: string,
-    @Query('offset') offsetRaw?: string,
-  ) {
-    this.assertEnabled();
-    this.assertDisputesEnabled();
-    const limit = Math.min(Math.max(Number.parseInt(limitRaw ?? '20', 10) || 20, 1), 100);
-    const offset = Math.max(Number.parseInt(offsetRaw ?? '0', 10) || 0, 0);
-    const rows = await this.disputes.listForOrganization(organizationId, limit, offset);
-    return {
-      organizationId,
-      count: rows.length,
-      data: rows.map((r) => this.toDisputeDto(r)),
-    };
-  }
-
   @Get('disputes/:id')
   async getDispute(@Param('id', ParseUUIDPipe) id: string) {
     this.assertEnabled();
@@ -706,44 +688,6 @@ export class FinancialAdminController {
 
   /**
    * CSV export. `type` selects the report; the response body is the
-  // ── F9.1.5 additional reports ─────────────────────────────────────
-
-  @Get('reports/paid-vs-promo-credits')
-  async paidVsPromoCreditsReport(
-    @Query('from') fromMonth?: string,
-    @Query('to') toMonth?: string,
-  ) {
-    this.assertEnabled();
-    this.assertReportsEnabled();
-    const data = await this.reports.paidVsPromoCredits({ fromMonth, toMonth });
-    return { count: data.length, data };
-  }
-
-  @Get('reports/auto-topup-velocity')
-  async autoTopupVelocityReport(@Query('limit') limitRaw?: string) {
-    this.assertEnabled();
-    this.assertReportsEnabled();
-    const limit = Math.min(
-      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
-      200,
-    );
-    const data = await this.reports.autoTopupVelocity(limit);
-    return { count: data.length, data };
-  }
-
-  @Get('reports/unbilled-usage')
-  async unbilledUsageReport(@Query('limit') limitRaw?: string) {
-    this.assertEnabled();
-    this.assertReportsEnabled();
-    const limit = Math.min(
-      Math.max(Number.parseInt(limitRaw ?? '50', 10) || 50, 1),
-      200,
-    );
-    const data = await this.reports.unbilledUsage(limit);
-    return { count: data.length, data };
-  }
-
-
    * raw CSV (Content-Type: text/csv). Filename mirrors the report +
    * the current date for downstream file-archive ergonomics.
    *

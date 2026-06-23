@@ -26,9 +26,6 @@ import { LookupTestSampleEntity } from './entities/lookup-test-sample.entity';
 import { IntentRuleService } from './services/intent-rule.service';
 import { RuleCoverageService, INTENT_COVERAGE_CHAPTER_QUEUE } from './services/rule-coverage.service';
 import { TestSampleGenerationService, TEST_SAMPLE_ENTRY_QUEUE, TEST_SAMPLE_COORDINATOR_QUEUE, TestSampleJobData } from './services/test-sample-generation.service';
-import { LookupJobController } from './controllers/lookup-job.controller';
-import { LookupIntentRuleController, LookupTestSampleController } from './controllers/lookup-intent-rule.controller';
-import { LookupDebugController } from './controllers/lookup-debug.controller';
 import { IntentRuleAdminService } from './services/intent-rule-admin.service';
 import { IntentRuleDebugService, INTENT_RULE_DEBUG_QUEUE } from './services/intent-rule-debug.service';
 import { RerankService } from './services/rerank.service';
@@ -94,7 +91,7 @@ const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
       PartnerUsageMonthlyEntity,
     ]),
   ],
-  controllers: [LookupController, LookupJobController, LookupIntentRuleController, LookupTestSampleController, LookupDebugController],
+  controllers: [LookupController],
   providers: [
     SearchService,
     ClassificationService,

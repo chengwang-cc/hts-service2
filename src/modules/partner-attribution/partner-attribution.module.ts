@@ -18,10 +18,7 @@ import { PartnerUsageRollupWorker } from './workers/partner-usage-rollup.worker'
 import { PartnerUsageMonthlyRollupWorker } from './workers/partner-usage-monthly-rollup.worker';
 import { PartnerAnomalyAlertWorker } from './workers/partner-anomaly-alert.worker';
 import { PartnerUsageAdminController } from './controllers/partner-usage.admin.controller';
-import { PartnerUsageController } from './controllers/partner-usage.controller';
 import { PortalPartnerUsageController } from './controllers/portal-partner-usage.controller';
-import { PartnerApiKeyAdminController } from './controllers/partner-api-key.admin.controller';
-import { PartnerBillingAdminController } from './controllers/partner-billing.admin.controller';
 import { PartnerUsageQueryService } from './services/partner-usage-query.service';
 import { LlmUsageRecordingService } from './services/llm-usage-recording.service';
 import { PartnerUsageHourlyEntity } from './entities/partner-usage-hourly.entity';
@@ -44,10 +41,7 @@ const partnerAttributionTypeOrm = TypeOrmModule.forFeature([
   imports: [partnerAttributionTypeOrm, ApiKeysModule, QueueModule, BillingModule],
   controllers: [
     PartnerUsageAdminController,
-    PartnerUsageController,
     PortalPartnerUsageController,
-    PartnerApiKeyAdminController,
-    PartnerBillingAdminController,
   ],
   providers: [
     PartnerOriginCacheService,

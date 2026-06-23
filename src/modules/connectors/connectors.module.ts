@@ -8,7 +8,6 @@ import {
   ShopifyConnector,
   BrokerConnector,
 } from '@hts/connectors';
-import { ConnectorsController } from './controllers/connectors.controller';
 import { WebhooksController } from './controllers/webhooks.controller';
 import { LookupModule } from '../lookup/lookup.module';
 import { QueueModule } from '../queue/queue.module';
@@ -19,7 +18,7 @@ import { QueueModule } from '../queue/queue.module';
     LookupModule,
     QueueModule,
   ],
-  controllers: [ConnectorsController, WebhooksController],
+  controllers: [WebhooksController],
   providers: [ConnectorService, ShopifyConnector, BrokerConnector],
   exports: [ConnectorService, ShopifyConnector, BrokerConnector],
 })

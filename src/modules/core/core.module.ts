@@ -22,7 +22,6 @@ import {
   HtsFormulaUpdateService,
   HtsFormulaGenerationService,
   HtsChapter99FormulaService,
-  HtsFormulaUpdateController,
 } from '@hts/core';
 
 @Module({
@@ -44,7 +43,7 @@ import {
       HtsTariffHistory2025Entity,
     ]),
   ],
-  controllers: [HtsFormulaUpdateController],
+  controllers: [],
   providers: [
     HtsRepository,
     HtsProcessorService,
