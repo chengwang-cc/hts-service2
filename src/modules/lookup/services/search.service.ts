@@ -49,6 +49,16 @@ export class SearchService {
   private readonly logger = new Logger(SearchService.name);
   private readonly MAX_LIMIT = 100;
   private readonly RRF_K = 50;
+  /**
+   * When false, the semantic (embedding) retrieval stage is skipped entirely:
+   * candidates come from lexical + intent rules only, and the OpenAI rerank
+   * (in searchWithStandardization) orders that pool. Use this when the active
+   * embedding model is general-purpose and injects semantically-near-but-wrong
+   * candidates (e.g. comic book → 4902 periodicals). Default: enabled.
+   * Env: SEARCH_SEMANTIC_ENABLED=false
+   */
+  private readonly semanticEnabled =
+    (process.env.SEARCH_SEMANTIC_ENABLED ?? 'true').toLowerCase() !== 'false';
   private readonly GENERIC_LABELS = new Set([
     'other',
     'other:',
@@ -2422,7 +2432,12 @@ export class SearchService {
     private readonly intentRuleService: IntentRuleService,
     private readonly queryNormalizationService: QueryNormalizationService,
     @Optional() private readonly rerankService: RerankService,
-  ) {}
+  ) {
+    this.logger.log(
+      `SearchService: semantic retrieval ${this.semanticEnabled ? 'ENABLED' : 'DISABLED (lexical+rules only)'}, ` +
+        `rerank ${this.rerankService ? 'available' : 'unavailable'}`,
+    );
+  }
 
   /**
    * Fast keyword-only HTS search — no embedding, no DGX rerank.
@@ -2585,10 +2600,12 @@ export class SearchService {
 
     const [keywordResults, semanticResults] = await Promise.all([
       this.searchKeywordVariants(plan.keywordQueries, candidateLimit, expandedTokens),
-      this.searchSemanticVariants(
-        [normalizedQuery, plan.semanticQuery],
-        candidateLimit,
-      ),
+      this.semanticEnabled
+        ? this.searchSemanticVariants(
+            [normalizedQuery, plan.semanticQuery],
+            candidateLimit,
+          )
+        : Promise.resolve([] as any[]),
     ]);
 
     const combined = this.combineResults(
@@ -2605,6 +2622,17 @@ export class SearchService {
       fused.set(result.htsNumber, result.score);
     }
     await this.injectQuerySpecificCandidates(fused, queryTokens);
+
+    // Apply rule-based candidate injection for explicit hard-override rules
+    // (rule_id ending in "_OVERRIDE"). Rule inject was previously wired only
+    // into the autocomplete path; the main search/classify path ignored it, so
+    // a rule could never surface a code that lexical/semantic didn't retrieve
+    // (e.g. sports trading cards → 4911.91.20.40). Scoped to *_OVERRIDE rules so
+    // the other ~3000 rules' behaviour in search is unchanged.
+    const overrideRules = matchedRules.filter((r) => r.id?.endsWith('_OVERRIDE'));
+    if (overrideRules.length > 0) {
+      await this.injectRuleCandidates(fused, overrideRules);
+    }
 
     const finalCandidates = [...fused.entries()]
       .map(([htsNumber, score]) => ({ htsNumber, score }))
