@@ -43,6 +43,18 @@ interface PlatformCostByModelRow {
   costUsd: number;
 }
 
+interface TopClientRow {
+  /** Internal partner_users.id. */
+  partnerUserId: string;
+  /** Partner-supplied end-user id (X-Partner-User-Id / token sub), or null. */
+  externalUserId: string | null;
+  requests: number;
+  /** 4xx + 5xx in the window. */
+  errors: number;
+  costUsd: number;
+  lastSeenAt: string | null;
+}
+
 /**
  * Internal operator dashboard for partner usage. Authenticated by JWT +
  * AdminGuard. Aggregates the last 24h directly from api_usage_metrics —
@@ -270,6 +282,74 @@ export class PartnerUsageAdminController {
       status2xx: Number(r.status_2xx),
       status4xx: Number(r.status_4xx),
       status5xx: Number(r.status_5xx),
+    }));
+  }
+
+  /**
+   * Top end-clients (partner_user) for a single partner over the window —
+   * the per-client drill-down behind /admin/usage/:slug.
+   *
+   * Only requests carrying an end-user id contribute: partners must send
+   * `X-Partner-User-Id` (or the signed `X-Partner-User-Token`) for their
+   * sub-clients to appear here. Requests with a null partner_user_id are
+   * excluded — the SPA surfaces an "unattributed" hint when the result is
+   * empty so operators know the partner simply isn't passing the header
+   * rather than having no traffic.
+   *
+   * Sorted by request count DESC. `limit` defaults to 50 (max 200).
+   */
+  @Get('clients')
+  @ApiOperation({ summary: 'Top end-clients (partner_user) for a partner' })
+  @ApiQuery({ name: 'slug', required: true })
+  @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 24' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
+  async clients(
+    @Query('slug') slug: string,
+    @Query('hours') hoursParam?: string,
+    @Query('from') fromParam?: string,
+    @Query('to') toParam?: string,
+    @Query('limit') limitParam?: string,
+  ): Promise<TopClientRow[]> {
+    if (!slug) throw new BadRequestException('slug is required');
+    const { from, to } = this.parseRange(hoursParam, fromParam, toParam);
+    const org = await this.orgs.findOne({ where: { slug } });
+    if (!org) return [];
+    const limit = Math.min(Math.max(parseInt(limitParam ?? '50', 10) || 50, 1), 200);
+
+    const rows: Array<{
+      partner_user_id: string;
+      external_user_id: string | null;
+      requests: string;
+      errors: string;
+      cost_usd: string;
+      last_seen_at: Date | null;
+    }> = await this.metrics
+      .createQueryBuilder('m')
+      .select('m.partner_user_id', 'partner_user_id')
+      .addSelect('pu.external_user_id', 'external_user_id')
+      .addSelect('COUNT(*)', 'requests')
+      .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400)', 'errors')
+      .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
+      .addSelect('MAX(m.timestamp)', 'last_seen_at')
+      .leftJoin('partner_users', 'pu', 'pu.id = m.partner_user_id')
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+      .andWhere('m.partner_id = :partnerId', { partnerId: org.id })
+      .andWhere('m.partner_user_id IS NOT NULL')
+      .groupBy('m.partner_user_id')
+      .addGroupBy('pu.external_user_id')
+      .orderBy('COUNT(*)', 'DESC')
+      .limit(limit)
+      .getRawMany();
+
+    return rows.map((r) => ({
+      partnerUserId: r.partner_user_id,
+      externalUserId: r.external_user_id,
+      requests: Number(r.requests),
+      errors: Number(r.errors),
+      costUsd: Number(r.cost_usd),
+      lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
     }));
   }
 
