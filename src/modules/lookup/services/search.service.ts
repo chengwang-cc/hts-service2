@@ -3331,22 +3331,55 @@ export class SearchService {
       .slice(0, limit);
   }
 
+  /**
+   * Look up a single HTS row by number, tolerant of input format. Accepts the
+   * canonical dotted form ("8302.49.60.85") plus common variants — partial dots
+   * ("8302.49.6085"), no dots ("8302496085"), or other separators — by trying
+   * an exact match first, then by normalizing to the canonical dotted form.
+   */
   async findByHtsNumber(htsNumber: string): Promise<HtsEntity | null> {
-    return this.htsRepository.findOne({
-      where: { htsNumber, isActive: true },
-      select: [
-        'htsNumber', 'chapter', 'heading', 'subheading', 'statisticalSuffix',
-        'indent', 'description', 'parentHtsNumber', 'parentHtses', 'fullDescription',
-        'hasChildren', 'isActive', 'unitOfQuantity',
-        'general', 'generalRate', 'rateFormula', 'rateVariables',
-        'other', 'otherRate', 'otherRateFormula', 'otherRateVariables',
-        'specialRates', 'chapter99', 'chapter99Links', 'chapter99ApplicableCountries',
-        'adjustedFormula', 'adjustedFormulaVariables',
-        'effectiveDate', 'expirationDate', 'sourceVersion', 'importDate',
-        'confirmed', 'requiredReview', 'requiredReviewComment',
-        'metadata', 'createdAt', 'updatedAt',
-      ],
-    });
+    const select: (keyof HtsEntity)[] = [
+      'htsNumber', 'chapter', 'heading', 'subheading', 'statisticalSuffix',
+      'indent', 'description', 'parentHtsNumber', 'parentHtses', 'fullDescription',
+      'hasChildren', 'isActive', 'unitOfQuantity',
+      'general', 'generalRate', 'rateFormula', 'rateVariables',
+      'other', 'otherRate', 'otherRateFormula', 'otherRateVariables',
+      'specialRates', 'chapter99', 'chapter99Links', 'chapter99ApplicableCountries',
+      'adjustedFormula', 'adjustedFormulaVariables',
+      'effectiveDate', 'expirationDate', 'sourceVersion', 'importDate',
+      'confirmed', 'requiredReview', 'requiredReviewComment',
+      'metadata', 'createdAt', 'updatedAt',
+    ];
+    const find = (n: string) =>
+      this.htsRepository.findOne({ where: { htsNumber: n, isActive: true }, select });
+
+    const raw = (htsNumber ?? '').trim();
+    if (!raw) return null;
+
+    // Exact match first — preserves the unique index + any non-standard stored
+    // formats. Fall back to the canonical dotted form for variant inputs.
+    let entry = await find(raw);
+    if (!entry) {
+      const canonical = this.canonicalizeHtsNumber(raw);
+      if (canonical && canonical !== raw) entry = await find(canonical);
+    }
+    return entry;
+  }
+
+  /**
+   * Normalize an HTS code to its canonical dotted form: a 4-digit heading
+   * followed by 2-digit groups. Strips any separators (dots, dashes, spaces),
+   * so "8302496085" / "8302.49.6085" / "8302-49-60-85" all → "8302.49.60.85".
+   * Returns the trimmed input unchanged when it has fewer than 4 digits.
+   */
+  private canonicalizeHtsNumber(input: string): string {
+    const digits = (input ?? '').replace(/\D/g, '');
+    if (digits.length < 4) return (input ?? '').trim();
+    let out = digits.slice(0, 4);
+    for (let i = 4; i < digits.length; i += 2) {
+      out += '.' + digits.slice(i, i + 2);
+    }
+    return out;
   }
 
   private normalizeQuery(query: string): string {
