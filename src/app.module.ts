@@ -25,6 +25,7 @@ import { FinancialAdminModule } from './modules/admin/financial/financial-admin.
 import { BatchModule } from './modules/batch/batch.module';
 import { IdempotencyModule } from './modules/idempotency/idempotency.module';
 import { ShopifyAppModule } from './modules/shopify-app/shopify-app.module';
+import { PublicApiModule } from './modules/public-api/public-api.module';
 import { DataSource } from 'typeorm';
 import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
@@ -132,6 +133,11 @@ import { WithLengthColumnType } from 'typeorm/driver/types/ColumnTypes';
 
     // Batch module (async bulk HTS lookup)
     BatchModule,
+
+    // Public partner/business API (must come after Calculator/Lookup/Batch so
+    // their @Public() routes resolve first). Serves /api/v1/hts/*,
+    // /api/v1/calculator/*, /api/v1/hts/batch/* — the documented partner API.
+    PublicApiModule,
 
     // Shopify App module (OAuth, embedded app, GDPR webhooks)
     ShopifyAppModule,
