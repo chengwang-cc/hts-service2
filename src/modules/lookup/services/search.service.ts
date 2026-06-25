@@ -3364,6 +3364,22 @@ export class SearchService {
       .replace(/\bkeurig\s+coffee\s+k[\s-]?cups?\b/gi, 'coffee pod')
       .replace(/\bkeurig\s+k[\s-]?cups?\b/gi, 'coffee pod')
       .replace(/\bk[\s-]?cups?\b/gi, 'coffee pod')
+      // ── Conservative noise stripping ─────────────────────────────────────
+      // Remove well-anchored, unambiguous modifiers that never change the HTS
+      // chapter but destabilize retrieval/rerank (e.g. "PSA 9" pulls a Pokémon
+      // card toward printed-matter 49xx; "size 10" / "graded" add no signal).
+      // Strictly anchored multi-token / company+number forms only — never bare
+      // "mint" (herb), "grade" (steel spec), "slab" (stone), or "new".
+      .replace(/\b(?:psa|bgs|cgc|sgc|hga)\s*\d+(?:\.\d+)?\b/gi, ' ') // card grading: company + number
+      .replace(/\b(?:gem|near)\s*mint\b/gi, ' ')
+      .replace(/\bmint\s*condition\b/gi, ' ')
+      .replace(/\b(?:graded|slabbed)\b/gi, ' ')
+      // "size 10" / "US size 9" / "size 9.5" — but NOT "size 2.4oz" (weight),
+      // "size 3.6V" (voltage), or "size 2012" (model): 1–2 digit shoe/apparel
+      // sizes only, not followed by a decimal/unit/percent/model continuation.
+      .replace(/\b(?:men'?s|women'?s|us|uk|eu)?\s*size\s*\d{1,2}(?:\.5)?\b(?![\d.%/a-z-])/gi, ' ')
+      .replace(/\bbrand\s*new\b/gi, ' ')
+      .replace(/\b(?:nwt|bnib)\b/gi, ' ')
       .trim()
       .replace(/\s+/g, ' ');
   }

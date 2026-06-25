@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { RerankService, RerankCandidate } from './rerank.service';
+import { QueryCanonicalizerService } from './query-canonicalizer.service';
 
 export interface SmartClassifyPhases {
   normalizedQuery?: string;
@@ -32,6 +33,7 @@ export class SmartClassifyService {
   constructor(
     private readonly searchService: SearchService,
     private readonly rerankService: RerankService,
+    private readonly queryCanonicalizer: QueryCanonicalizerService,
   ) {}
 
   /**
@@ -59,15 +61,22 @@ export class SmartClassifyService {
       };
     }
 
+    // ── Phase 0: LLM canonicalization ──────────────────────────────────────
+    // Rewrite arbitrary/noisy free-text into a clean, classification-ready
+    // description before retrieval. Flag-gated (QUERY_CANONICALIZER); on
+    // disable/timeout/error it returns the raw query unchanged.
+    const { canonical } = await this.queryCanonicalizer.canonicalize(q);
+    const searchQuery = canonical;
+
     // ── Phase 1: normalized hybrid retrieval ───────────────────────────────
-    this.logger.log(`[SmartClassify] Phase 1: normalized hybrid search "${q}"`);
-    const phase1 = await this.searchService.searchWithStandardization(q, 60);
+    this.logger.log(`[SmartClassify] Phase 1: normalized hybrid search "${searchQuery}"`);
+    const phase1 = await this.searchService.searchWithStandardization(searchQuery, 60);
     const baseCandidates = (phase1.results || []) as Array<RerankCandidate & {
       chapter?: string;
       score?: number;
       fullDescription?: string[] | null;
     }>;
-    const normalizedQuery = phase1.standardizedQuery || q;
+    const normalizedQuery = phase1.standardizedQuery || searchQuery;
 
     if (!baseCandidates.length) {
       return {

@@ -30,6 +30,7 @@ import { IntentRuleAdminService } from './services/intent-rule-admin.service';
 import { IntentRuleDebugService, INTENT_RULE_DEBUG_QUEUE } from './services/intent-rule-debug.service';
 import { RerankService } from './services/rerank.service';
 import { SmartClassifyService } from './services/smart-classify.service';
+import { QueryCanonicalizerService } from './services/query-canonicalizer.service';
 import { QueryNormalizationService } from './services/query-normalization.service';
 import { LookupDebugSessionEntity } from './entities/lookup-debug-session.entity';
 import { HtsEntity, CoreModule, AnthropicService } from '@hts/core';
@@ -111,6 +112,7 @@ const LOOKUP_DATASET_CURATION_QUEUE = 'lookup-dataset-curation-job';
     IntentRuleDebugService,
     QueryNormalizationService,
     RerankService,
+    QueryCanonicalizerService,
     SmartClassifyService,
   ],
   exports: [
