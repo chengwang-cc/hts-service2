@@ -61,8 +61,16 @@ export class QueryCanonicalizerService {
 
   async canonicalize(query: string): Promise<CanonicalizeResult> {
     const raw = (query ?? '').trim();
-    // Skip when disabled, too short to be noisy, or an HTS-code lookup.
-    if (!this.enabled || raw.length < 4 || /^[\d.\s]+$/.test(raw)) {
+    // Skip when disabled, too short, an HTS-code lookup, or when the query is
+    // already clean/precise (the gate). The LLM rewrite only helps genuinely
+    // messy listing-style input; rewriting already-precise descriptions can
+    // slightly hurt, so we leave those untouched.
+    if (
+      !this.enabled ||
+      raw.length < 4 ||
+      /^[\d.\s]+$/.test(raw) ||
+      !this.looksMessy(raw)
+    ) {
       return { canonical: raw, changed: false };
     }
     try {
@@ -92,6 +100,26 @@ export class QueryCanonicalizerService {
       this.logger.debug(`[canon] failed, using raw: ${(err as Error)?.message ?? err}`);
       return { canonical: raw, changed: false };
     }
+  }
+
+  private static readonly BRANDS =
+    /\b(nike|adidas|puma|reebok|asics|new balance|saucony|hoka|vans|converse|skechers|jordan|carhartt|patagonia|columbia|levi'?s|wrangler|under ?armour|lululemon|north face|champion|fila|crocs|ugg|timberland|funko|lego|hasbro|mattel|pokemon|topps|panini|fanatics|bauer|ccm|wilson|spalding|yeti|stanley|hydro ?flask|apple|samsung|sony|bose|dyson|kitchenaid|cuisinart|keurig|nespresso|gucci|prada|coach|disney|marvel)\b/i;
+
+  /**
+   * True when the query shows signals of messy, listing-style real-world input
+   * the canonicalizer can improve: grading/condition/size noise, a year,
+   * listing separators, 2+ ALLCAPS tokens, or a known consumer brand. Already
+   * clean/precise queries (incl. technical HTS-style descriptions) are skipped
+   * so the rewrite can only help where it adds value — never tax precise input.
+   */
+  private looksMessy(s: string): boolean {
+    if (/\b(psa|bgs|cgc|sgc|hga|graded|slabbed|gem ?mint|near ?mint|mint condition|nwt|bnib|bnwt)\b/i.test(s)) return true;
+    if (/\bsize\s*\d/i.test(s)) return true;
+    if (/\b(19|20)\d{2}\b/.test(s)) return true; // year — listing-style
+    if (/[|]/.test(s)) return true; // pipe separator — listing title
+    if ((s.match(/\b[A-Z]{2,}\b/g) || []).length >= 2) return true; // 2+ ALLCAPS tokens
+    if (QueryCanonicalizerService.BRANDS.test(s)) return true;
+    return false;
   }
 
   private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
