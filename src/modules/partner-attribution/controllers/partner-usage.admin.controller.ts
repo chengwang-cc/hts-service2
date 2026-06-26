@@ -1,7 +1,7 @@
 import { Controller, Get, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder, ObjectLiteral } from 'typeorm';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { ApiUsageMetricEntity } from '../../api-keys/entities/api-usage-metric.entity';
@@ -296,7 +296,11 @@ export class PartnerUsageAdminController {
    * empty so operators know the partner simply isn't passing the header
    * rather than having no traffic.
    *
-   * Sorted by request count DESC. `limit` defaults to 50 (max 200).
+   * Server-side paginated, sortable, and searchable. `sortBy` ∈
+   * requests|errors|cost|lastSeen (default requests), `order` ∈ asc|desc
+   * (default desc), `search` matches the external or internal client id.
+   * Returns `{ rows, total, page, pageSize }`. `limit` is accepted as a
+   * back-compat alias for `pageSize`.
    */
   @Get('clients')
   @ApiOperation({ summary: 'Top end-clients (partner_user) for a partner' })
@@ -304,19 +308,66 @@ export class PartnerUsageAdminController {
   @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 24' })
   @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
   @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
-  @ApiQuery({ name: 'limit', required: false, description: '1..200, default 50' })
+  @ApiQuery({ name: 'page', required: false, description: '1-based, default 1' })
+  @ApiQuery({ name: 'pageSize', required: false, description: '1..200, default 25' })
+  @ApiQuery({ name: 'sortBy', required: false, description: 'requests|errors|cost|lastSeen' })
+  @ApiQuery({ name: 'order', required: false, description: 'asc|desc, default desc' })
+  @ApiQuery({ name: 'search', required: false, description: 'matches external/internal client id' })
   async clients(
     @Query('slug') slug: string,
     @Query('hours') hoursParam?: string,
     @Query('from') fromParam?: string,
     @Query('to') toParam?: string,
+    @Query('page') pageParam?: string,
+    @Query('pageSize') pageSizeParam?: string,
     @Query('limit') limitParam?: string,
-  ): Promise<TopClientRow[]> {
+    @Query('sortBy') sortByParam?: string,
+    @Query('order') orderParam?: string,
+    @Query('search') searchParam?: string,
+  ): Promise<{ rows: TopClientRow[]; total: number; page: number; pageSize: number }> {
     if (!slug) throw new BadRequestException('slug is required');
     const { from, to } = this.parseRange(hoursParam, fromParam, toParam);
+    const pageSize = Math.min(
+      Math.max(parseInt(pageSizeParam ?? limitParam ?? '25', 10) || 25, 1),
+      200,
+    );
+    const page = Math.max(parseInt(pageParam ?? '1', 10) || 1, 1);
     const org = await this.orgs.findOne({ where: { slug } });
-    if (!org) return [];
-    const limit = Math.min(Math.max(parseInt(limitParam ?? '50', 10) || 50, 1), 200);
+    if (!org) return { rows: [], total: 0, page, pageSize };
+
+    const search = (searchParam ?? '').trim();
+    const sortExprs: Record<string, string> = {
+      requests: 'COUNT(*)',
+      errors: 'COUNT(*) FILTER (WHERE m.status_code >= 400)',
+      cost: 'COALESCE(SUM(m.cost_usd), 0)',
+      lastSeen: 'MAX(m.timestamp)',
+    };
+    const sortExpr = sortExprs[sortByParam ?? 'requests'] ?? sortExprs.requests;
+    const order: 'ASC' | 'DESC' =
+      (orderParam ?? 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    // Shared WHERE (+ optional search) applied to both the count and page query.
+    const applyFilters = <T extends ObjectLiteral>(qb: SelectQueryBuilder<T>): SelectQueryBuilder<T> => {
+      qb.where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+        .andWhere('m.partner_id = :partnerId', { partnerId: org.id })
+        .andWhere('m.partner_user_id IS NOT NULL');
+      if (search) {
+        qb.andWhere(
+          '(pu.external_user_id ILIKE :search OR m.partner_user_id::text ILIKE :search)',
+          { search: `%${search}%` },
+        );
+      }
+      return qb;
+    };
+
+    // Total distinct clients matching the filters (for pagination).
+    const totalRow = await applyFilters(
+      this.metrics
+        .createQueryBuilder('m')
+        .leftJoin('partner_users', 'pu', 'pu.id = m.partner_user_id')
+        .select('COUNT(DISTINCT m.partner_user_id)', 'total'),
+    ).getRawOne<{ total: string }>();
+    const total = Number(totalRow?.total ?? 0);
 
     const rows: Array<{
       partner_user_id: string;
@@ -325,32 +376,37 @@ export class PartnerUsageAdminController {
       errors: string;
       cost_usd: string;
       last_seen_at: Date | null;
-    }> = await this.metrics
-      .createQueryBuilder('m')
-      .select('m.partner_user_id', 'partner_user_id')
-      .addSelect('pu.external_user_id', 'external_user_id')
-      .addSelect('COUNT(*)', 'requests')
-      .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400)', 'errors')
-      .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
-      .addSelect('MAX(m.timestamp)', 'last_seen_at')
-      .leftJoin('partner_users', 'pu', 'pu.id = m.partner_user_id')
-      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
-      .andWhere('m.partner_id = :partnerId', { partnerId: org.id })
-      .andWhere('m.partner_user_id IS NOT NULL')
+    }> = await applyFilters(
+      this.metrics
+        .createQueryBuilder('m')
+        .select('m.partner_user_id', 'partner_user_id')
+        .addSelect('pu.external_user_id', 'external_user_id')
+        .addSelect('COUNT(*)', 'requests')
+        .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400)', 'errors')
+        .addSelect('COALESCE(SUM(m.cost_usd), 0)', 'cost_usd')
+        .addSelect('MAX(m.timestamp)', 'last_seen_at')
+        .leftJoin('partner_users', 'pu', 'pu.id = m.partner_user_id'),
+    )
       .groupBy('m.partner_user_id')
       .addGroupBy('pu.external_user_id')
-      .orderBy('COUNT(*)', 'DESC')
-      .limit(limit)
+      .orderBy(sortExpr, order)
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
       .getRawMany();
 
-    return rows.map((r) => ({
-      partnerUserId: r.partner_user_id,
-      externalUserId: r.external_user_id,
-      requests: Number(r.requests),
-      errors: Number(r.errors),
-      costUsd: Number(r.cost_usd),
-      lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
-    }));
+    return {
+      rows: rows.map((r) => ({
+        partnerUserId: r.partner_user_id,
+        externalUserId: r.external_user_id,
+        requests: Number(r.requests),
+        errors: Number(r.errors),
+        costUsd: Number(r.cost_usd),
+        lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   private parseRange(
