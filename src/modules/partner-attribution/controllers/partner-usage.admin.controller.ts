@@ -286,6 +286,61 @@ export class PartnerUsageAdminController {
   }
 
   /**
+   * Per-bucket timeseries for a single CLIENT (partner_user) of a partner —
+   * the per-user drill-down (P3). Same shape + auto-bucketing as /timeseries,
+   * with an extra partner_user_id filter. Index (partner_user_id, timestamp)
+   * backs the query.
+   */
+  @Get('client-timeseries')
+  @ApiOperation({ summary: 'Hourly / daily timeseries for one client of a partner' })
+  @ApiQuery({ name: 'slug', required: true })
+  @ApiQuery({ name: 'partnerUserId', required: true })
+  @ApiQuery({ name: 'hours', required: false, description: '1..8760 (365d), default 24' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO 8601' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO 8601' })
+  async clientTimeseries(
+    @Query('slug') slug: string,
+    @Query('partnerUserId') partnerUserId: string,
+    @Query('hours') hoursParam?: string,
+    @Query('from') fromParam?: string,
+    @Query('to') toParam?: string,
+  ): Promise<Array<{ hour: string; status2xx: number; status4xx: number; status5xx: number }>> {
+    if (!slug) throw new BadRequestException('slug is required');
+    if (!partnerUserId) throw new BadRequestException('partnerUserId is required');
+    const { from, to } = this.parseRange(hoursParam, fromParam, toParam);
+    const org = await this.orgs.findOne({ where: { slug } });
+    if (!org) return [];
+
+    const spanMs = to.getTime() - from.getTime();
+    const bucket = spanMs > 14 * 24 * 3_600_000 ? 'day' : 'hour';
+
+    const rows: Array<{
+      hour: Date;
+      status_2xx: string;
+      status_4xx: string;
+      status_5xx: string;
+    }> = await this.metrics
+      .createQueryBuilder('m')
+      .select(`date_trunc('${bucket}', m.timestamp)`, 'hour')
+      .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 200 AND m.status_code < 300)', 'status_2xx')
+      .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 400 AND m.status_code < 500)', 'status_4xx')
+      .addSelect('COUNT(*) FILTER (WHERE m.status_code >= 500)', 'status_5xx')
+      .where('m.timestamp >= :from AND m.timestamp <= :to', { from, to })
+      .andWhere('m.partner_id = :partnerId', { partnerId: org.id })
+      .andWhere('m.partner_user_id = :partnerUserId', { partnerUserId })
+      .groupBy(`date_trunc('${bucket}', m.timestamp)`)
+      .orderBy(`date_trunc('${bucket}', m.timestamp)`, 'ASC')
+      .getRawMany();
+
+    return rows.map((r) => ({
+      hour: r.hour.toISOString(),
+      status2xx: Number(r.status_2xx),
+      status4xx: Number(r.status_4xx),
+      status5xx: Number(r.status_5xx),
+    }));
+  }
+
+  /**
    * Top end-clients (partner_user) for a single partner over the window —
    * the per-client drill-down behind /admin/usage/:slug.
    *
