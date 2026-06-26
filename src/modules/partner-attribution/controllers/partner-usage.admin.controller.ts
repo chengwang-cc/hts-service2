@@ -307,6 +307,13 @@ export class PartnerUsageAdminController {
   ): Promise<Array<{ hour: string; status2xx: number; status4xx: number; status5xx: number }>> {
     if (!slug) throw new BadRequestException('slug is required');
     if (!partnerUserId) throw new BadRequestException('partnerUserId is required');
+    // Guard the uuid filter so a malformed id yields a clean 400 rather than a
+    // Postgres "invalid input syntax for type uuid" 500.
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(partnerUserId)
+    ) {
+      throw new BadRequestException('partnerUserId must be a UUID');
+    }
     const { from, to } = this.parseRange(hoursParam, fromParam, toParam);
     const org = await this.orgs.findOne({ where: { slug } });
     if (!org) return [];
